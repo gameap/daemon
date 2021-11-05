@@ -1,8 +1,11 @@
 package app
 
 import (
-	"github.com/gameap/daemon/internal/app/game_server_commands"
+	"context"
+
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/repositories"
 	"github.com/go-resty/resty/v2"
 	"github.com/sarulabs/di"
@@ -26,6 +29,7 @@ const (
 	restyDef        = "resty"
 	cacheManagerDef = "cacheManager"
 	storeDef        = "store"
+	apiCallerDef    = "apiCaller"
 
 	gdaemonTasksRepositoryDef = "gdaemonTasksRepository"
 
@@ -47,6 +51,16 @@ func definitions(cfg *config.Config) []di.Def {
 			},
 		},
 		{
+			Name: apiCallerDef,
+			Build: func(ctn di.Container) (interface{}, error) {
+				return NewAPICaller(
+					context.TODO(),
+					cfg,
+					ctn.Get(restyDef).(*resty.Client),
+				)
+			},
+		},
+		{
 			Name: restyDef,
 			Build: func(ctn di.Container) (interface{}, error) {
 				restyClient := resty.New()
@@ -60,9 +74,9 @@ func definitions(cfg *config.Config) []di.Def {
 		{
 			Name: gdaemonTasksRepositoryDef,
 			Build: func(ctn di.Container) (interface{}, error) {
-				restyClient := ctn.Get(restyDef).(*resty.Client)
+				apiClient := ctn.Get(apiCallerDef).(interfaces.APIRequestMaker)
 
-				return repositories.NewGDTasksRepository(restyClient), nil
+				return repositories.NewGDTasksRepository(apiClient), nil
 			},
 		},
 		// Factories

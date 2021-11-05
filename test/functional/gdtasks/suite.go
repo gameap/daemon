@@ -33,9 +33,12 @@ func (suite *Suite) SetupSuite() {
 
 	suite.GDTaskRepository = mocks.NewGDTaskRepository()
 
+
 	suite.Cfg = &config.Config{
-		ScriptStart: "{command}",
-		ScriptStop: "{command}",
+		Scripts: config.Scripts{
+			Start: "{command}",
+			Stop: "{command}",
+		},
 	}
 
 	suite.Cache, err = app.NewLocalCache(suite.Cfg)

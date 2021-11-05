@@ -12,20 +12,22 @@ import (
 func TestMakeFullCommand(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: "/work-path",
-		ScriptStart: "./some-script " +
-			"--dir {dir} " +
-			"--id {id} " +
-			"--uuid {uuid} " +
-			"--uuid_short {uuid_short} " +
-			"--host {host} " +
-			"--ip {ip} " +
-			"--port {port} " +
-			"--query-port {query_port} " +
-			"--rcon-port {rcon_port} " +
-			"--rcon-password {rcon_password} " +
-			"--game {game} " +
-			"--user {user} " +
-			"-- {command}",
+		Scripts: config.Scripts{
+			Start: "./some-script " +
+				"--dir {dir} " +
+				"--id {id} " +
+				"--uuid {uuid} " +
+				"--uuid_short {uuid_short} " +
+				"--host {host} " +
+				"--ip {ip} " +
+				"--port {port} " +
+				"--query-port {query_port} " +
+				"--rcon-port {rcon_port} " +
+				"--rcon-password {rcon_password} " +
+				"--game {game} " +
+				"--user {user} " +
+				"-- {command}",
+		},
 	}
 	server := domain.NewServer(
 		1337,
@@ -62,7 +64,7 @@ func TestMakeFullCommand(t *testing.T) {
 		time.Now(),
 	)
 
-	command := makeFullCommand(cfg, server, cfg.ScriptStart, server.StartCommand())
+	command := makeFullCommand(cfg, server, cfg.Scripts.Start, server.StartCommand())
 
 	assert.Equal(t, "./some-script "+
 		"--dir /work-path/server-dir "+

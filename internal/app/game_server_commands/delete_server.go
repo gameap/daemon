@@ -32,7 +32,7 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 
 	path := makeFullServerPath(cmd.cfg, server.Dir())
 
-	if cmd.cfg.ScriptDelete == "" {
+	if cmd.cfg.Scripts.Delete == "" {
 		err := os.RemoveAll(path)
 		if err != nil {
 			cmd.result = ErrorResult
@@ -43,7 +43,7 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 		return nil
 	}
 
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.ScriptStatus, "")
+	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Status, "")
 
 	var err error
 	cmd.result, err = components.ExecWithWriter(ctx, command, path, cmd.output)

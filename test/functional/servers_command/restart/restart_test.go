@@ -35,7 +35,7 @@ func (suite *Suite) TestRestartViaStartStop_ServerIsNotActive_ExecutedStatusAndS
 	suite.Require().Nil(err)
 	suite.Assert().True(cmd.IsComplete())
 	suite.Assert().Equal(0, cmd.Result())
-	suite.Assert().Equal([]byte("status\nstart\n"), cmd.ReadOutput())
+	suite.Assert().Equal([]byte("status failed\nstart\n"), cmd.ReadOutput())
 }
 
 func (suite *Suite) TestRestartViaStartStop_StopFailed_ExecutedStatusAndStopCommands() {

@@ -1,0 +1,25 @@
+ds_id: 1
+listen_ip: 0.0.0.0
+# listen_port: 31717
+daemon_login: sEcreT-L0gin
+daemon_password: seCrEt-PaSSW0rD
+
+api_host: http://localhost:2080
+api_key: 0oKyfcfjZOycicaazEgW6sHw9cYUMJDVJl0pXKjMYu44eoBWBwvXUJZdv6z6OfKs
+
+ca_certificate_file: ./config/certs/rootca.crt
+certificate_chain_file: ./config/certs/server.crt
+private_key_file: ./config/certs/server.key
+# private_key_password: abracadabra
+dh_file: /etc/gameap-daemon/certs/dh2048.pem
+
+if_list:
+  - eth0
+  - eth1
+
+drives_list:
+  - /
+  - /home/server
+
+stats_update_period: 60
+stats_db_update_period: 300

@@ -20,7 +20,7 @@ const (
 	GDTaskGameServerStop      GDTaskCommand = "gsstop"
 	GDTaskGameServerKill      GDTaskCommand = "gskill" // NOT Implemented
 	GDTaskGameServerRestart   GDTaskCommand = "gsrest"
-	GDTaskGameServerInstall   GDTaskCommand = "gsinstall"
+	GDTaskGameServerInstall   GDTaskCommand = "gsinst"
 	GDTaskGameServerReinstall GDTaskCommand = "gsreinst" // NOT Implemented
 	GDTaskGameServerUpdate    GDTaskCommand = "gsupd"
 	GDTaskGameServerDelete    GDTaskCommand = "gsdel"

@@ -1,53 +1,87 @@
 package config
 
+import "errors"
+
+var (
+	EmptyNodeIDError  = errors.New("empty node ID")
+	EmptyAPIHostError = errors.New("empty API Host")
+	EmptyAPIKeyError  = errors.New("empty API Key")
+)
+
+type Scripts struct {
+	Install     string
+	Reinstall   string
+	Update      string
+	Start       string
+	Pause       string
+	Unpause     string
+	Stop        string
+	Kill        string
+	Restart     string
+	Status      string
+	GetConsole  string
+	SendCommand string
+	Delete      string
+}
+
 type Config struct {
-	DsId int
+	NodeID uint `yaml:"ds_id"`
 
-	ListenIP   string
-	ListenPort int
+	ListenIP   string `yaml:"listen_ip"`
+	ListenPort int    `yaml:"listen_port"`
 
-	APIHost string
-	APIKey  string
+	APIHost string `yaml:"api_host"`
+	APIKey  string `yaml:"api_key"`
 
-	DaemonLogin            string
-	DaemonPassword         string
-	PasswordAuthentication bool
+	DaemonLogin            string `yaml:"daemon_login"`
+	DaemonPassword         string `yaml:"daemon_password"`
+	PasswordAuthentication bool   `yaml:"password_authentication"`
 
-	CACertificateFile    string
-	CertificateChainFile string
-	PrivateKeyFile       string
-	PrivateKeyPassword   string
-	DHFile               string
+	CACertificateFile    string `yaml:"ca_certificate_file"`
+	CertificateChainFile string `yaml:"certificate_chain_file"`
+	PrivateKeyFile       string `yaml:"private_key_file"`
+	PrivateKeyPassword   string `yaml:"private_key_password"`
+	DHFile               string `yaml:"dh_file"`
 
-	IFList     []string
-	DrivesList []string
+	IFList     []string `yaml:"if_list"`
+	DrivesList []string `yaml:"drives_list"`
 
-	StatsUpdatePeriod   int
-	StatsDbUpdatePeriod int
+	StatsUpdatePeriod   int `yaml:"stats_update_period"`
+	StatsDbUpdatePeriod int `yaml:"stats_db_update_period"`
 
 	// Log config
-	LogLevel  string
-	OutputLog string
-	ErrorLog  string
+	LogLevel  string `yaml:"log_level"`
+	OutputLog string `yaml:"output_log"`
+	ErrorLog  string `yaml:"error_log"`
 
 	// Dedicated server config
-	Path7zip    string
-	PathStarter string
+	Path7zip    string `yaml:"path_7zip"`
+	PathStarter string `yaml:"path_starter"`
 
-	WorkPath     string
-	SteamCMDPath string
+	WorkPath     string `yaml:"work_path"`
+	SteamCMDPath string `yaml:"steam_cmd_path"`
 
-	ScriptInstall     string
-	ScriptReinstall   string
-	ScriptUpdate      string
-	ScriptStart       string
-	ScriptPause       string
-	ScriptUnpause     string
-	ScriptStop        string
-	ScriptKill        string
-	ScriptRestart     string
-	ScriptStatus      string
-	ScriptGetConsole  string
-	ScriptSendCOmmand string
-	ScriptDelete      string
+	Scripts Scripts
+}
+
+func NewConfig() *Config {
+	return &Config{
+		LogLevel: "warning",
+	}
+}
+
+func (c *Config) Validate() error {
+	if c.NodeID == 0 {
+		return EmptyNodeIDError
+	}
+
+	if c.APIHost == "" {
+		return EmptyAPIHostError
+	}
+
+	if c.APIKey == "" {
+		return EmptyAPIKeyError
+	}
+
+	return nil
 }

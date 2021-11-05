@@ -30,3 +30,25 @@ type Command interface {
 	Result() int
 	IsComplete() bool
 }
+
+type APIRequestMaker interface {
+	Request() APIRequest
+}
+
+type APIRequest interface {
+	SetContext(ctx context.Context) APIRequest
+	SetHeader(header, value string) APIRequest
+	SetHeaders(headers map[string]string) APIRequest
+	SetPathParams(params map[string]string) APIRequest
+	SetQueryParams(params map[string]string) APIRequest
+
+	Get(url string) (APIResponse, error)
+}
+
+type APIResponse interface {
+	Body() []byte
+	Status() string
+	StatusCode() int
+
+	Error() interface{}
+}

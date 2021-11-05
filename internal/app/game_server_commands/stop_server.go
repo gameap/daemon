@@ -25,7 +25,7 @@ func newStopServer(cfg *config.Config) *stopServer {
 }
 
 func (s *stopServer) Execute(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(s.cfg, server, s.cfg.ScriptStop, server.StopCommand())
+	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Stop, server.StopCommand())
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error

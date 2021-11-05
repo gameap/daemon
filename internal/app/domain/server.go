@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type InstallationStatus int
 
@@ -12,6 +15,11 @@ const (
 
 const autostartSetting = "autostart"
 const autostartCurrentSetting = "autostartCurrent"
+
+type ServerRepository interface {
+	FindByID(ctx context.Context, id int) (*Server, error)
+	Save(ctx context.Context, task *Server) error
+}
 
 type Server struct {
 	id            int

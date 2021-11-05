@@ -25,7 +25,7 @@ func newStartServer(cfg *config.Config) *startServer {
 }
 
 func (s *startServer) Execute(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(s.cfg, server, s.cfg.ScriptStart, server.StartCommand())
+	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Start, server.StartCommand())
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error

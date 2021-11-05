@@ -2,6 +2,7 @@ package game_server_commands
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/url"
 	"os"
@@ -31,6 +32,8 @@ const maxSteamCMDInstallTries = 3
 
 var repeatableSteamCMDInstallResults = hashset.New(7, 8)
 
+var DefinedNoGameInstallationRulesError = errors.New("could not determine the rules for installing the game")
+
 type installationRule struct {
 	SourceValue string
 	Action      installAction
@@ -40,12 +43,12 @@ type installServer struct {
 	baseCommand
 	bufCommand
 
-	installator *installator
+	inst *installator
 }
 
 func newInstallServer(cfg *config.Config) *installServer {
 	buffer := components.NewSafeBuffer()
-	installator := newInstallator(cfg, buffer)
+	inst := newInstallator(cfg, buffer)
 
 	return &installServer{
 		baseCommand{
@@ -54,7 +57,7 @@ func newInstallServer(cfg *config.Config) *installServer {
 			result:   UnknownResult,
 		},
 		bufCommand{output: buffer},
-		installator,
+		inst,
 	}
 }
 
@@ -78,14 +81,18 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 	gameMod := server.GameMod()
 
 	gameRules := sd.DefineGameRules(&game)
-	gameModRules := sd.DefineGameModRules(&gameMod)
+	if len(gameRules) == 0 {
+		return DefinedNoGameInstallationRulesError
+	}
 
-	err := cmd.installator.Install(ctx, server, gameRules)
+	err := cmd.inst.Install(ctx, server, gameRules)
 	if err != nil {
 		return err
 	}
 
-	err = cmd.installator.Install(ctx, server, gameModRules)
+	gameModRules := sd.DefineGameModRules(&gameMod)
+
+	err = cmd.inst.Install(ctx, server, gameModRules)
 	if err != nil {
 		return err
 	}
@@ -197,11 +204,21 @@ func newInstallator(cfg *config.Config, output io.ReadWriter) *installator {
 
 func (in *installator) Install(ctx context.Context, server *domain.Server, rules []*installationRule) error {
 	var err error
+	var success bool
+
 	for _, rule := range rules {
 		err = in.install(ctx, server, *rule)
 		if err != nil {
-			return err
+			log.Error(err)
+			continue
 		}
+
+		success = true
+		break
+	}
+
+	if err != nil && !success {
+		return err
 	}
 
 	return nil

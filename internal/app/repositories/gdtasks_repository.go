@@ -6,45 +6,67 @@ import (
 	"strconv"
 
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/go-resty/resty/v2"
+	"github.com/gameap/daemon/internal/app/interfaces"
 )
 
 type GDTasksRepository struct {
-	client *resty.Client
+	client interfaces.APIRequestMaker
 }
 
-func NewGDTasksRepository(client *resty.Client) *GDTasksRepository {
+type task struct {
+	ID         int    `json:"id"`
+	RunAfterID int    `json:"run_after_id"`
+	Server     int    `json:"server"`
+	Task       string `json:"task"`
+	Cmd        string `json:"cmd"`
+	Status     string `json:"status"`
+}
+
+func NewGDTasksRepository(client interfaces.APIRequestMaker) *GDTasksRepository {
 	return &GDTasksRepository{
 		client: client,
 	}
 }
 
 func (repository *GDTasksRepository) FindByStatus(ctx context.Context, status domain.GDTaskStatus) ([]*domain.GDTask, error) {
-	resp, err := repository.client.R().
+	resp, err := repository.client.Request().
 		SetContext(ctx).
 		SetQueryParams(map[string]string{
 			"filter[status]": string(status),
 			"append":         "status_num",
 		}).
-		SetHeader("Accept", "application/json").
 		Get("/gdaemon_api/tasks")
 
 	if err != nil {
 		return nil, err
 	}
 
-	var tasks []*domain.GDTask
-
-	err = json.Unmarshal(resp.Body(), &tasks)
+	var tsk []task
+	err = json.Unmarshal(resp.Body(), &tsk)
 	if err != nil {
 		return nil, err
+	}
+
+	var tasks []*domain.GDTask
+	for i := range tsk {
+		gdTask := domain.NewGDTask(
+			tsk[i].ID,
+			tsk[i].RunAfterID,
+			//tsk[i].Server,
+			nil,
+			domain.GDTaskCommand(tsk[i].Task),
+			tsk[i].Cmd,
+			domain.GDTaskStatus(tsk[i].Status),
+		)
+
+		tasks = append(tasks, gdTask)
 	}
 
 	return tasks, nil
 }
 
 func (repository *GDTasksRepository) FindByID(ctx context.Context, id int) (*domain.GDTask, error) {
-	resp, err := repository.client.R().
+	resp, err := repository.client.Request().
 		SetContext(ctx).
 		SetPathParams(map[string]string{"id": strconv.Itoa(id)}).
 		SetHeader("Accept", "application/json").
@@ -54,14 +76,14 @@ func (repository *GDTasksRepository) FindByID(ctx context.Context, id int) (*dom
 		return nil, err
 	}
 
-	var task domain.GDTask
+	var gdTask domain.GDTask
 
-	err = json.Unmarshal(resp.Body(), &task)
+	err = json.Unmarshal(resp.Body(), &gdTask)
 	if err != nil {
 		return nil, err
 	}
 
-	return &task, nil
+	return &gdTask, nil
 }
 
 func (repository *GDTasksRepository) Save(ctx context.Context, task *domain.GDTask) error {

@@ -43,11 +43,11 @@ func newRestartServer(
 func (s *restartServer) Execute(ctx context.Context, server *domain.Server) error {
 	s.output = components.NewSafeBuffer()
 
-	if s.cfg.ScriptRestart == "" {
+	if s.cfg.Scripts.Restart == "" {
 		return s.restartViaStopStart(ctx, server)
 	}
 
-	command := makeFullCommand(s.cfg, server, s.cfg.ScriptRestart, server.RestartCommand())
+	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Restart, server.RestartCommand())
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
@@ -99,7 +99,7 @@ func (s *restartServer) ReadOutput() []byte {
 	var err error
 	var out []byte
 
-	if s.cfg.ScriptRestart == "" {
+	if s.cfg.Scripts.Restart == "" {
 		statusOut := s.statusServer.ReadOutput()
 		stopOut := s.stopServer.ReadOutput()
 		startOut := s.startServer.ReadOutput()

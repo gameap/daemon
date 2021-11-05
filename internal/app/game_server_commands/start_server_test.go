@@ -14,7 +14,9 @@ import (
 func TestStartServer(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: "../../../test/servers",
-		ScriptStart: "{command}",
+		Scripts: config.Scripts{
+			Start: "{command}",
+		},
 	}
 	server := givenServerWithStartCommand(t, "./run.sh")
 	startServerCommand := newStartServer(cfg)
@@ -31,7 +33,10 @@ func TestStartServer_ReadOutput(t *testing.T) {
 	// Arrange
 	cfg := &config.Config{
 		WorkPath: "../../../test/servers",
-		ScriptStart: "{command}",
+		Scripts: config.Scripts{
+			Start: "{command}",
+			Stop: "{command}",
+		},
 	}
 	server := givenServerWithStartCommand(t, "./run2.sh")
 	ctx, cancel := context.WithCancel(context.Background())

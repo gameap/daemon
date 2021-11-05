@@ -17,7 +17,7 @@ type runner struct {
 }
 
 func newProcessManager(cfg *config.Config) (*runner, error) {
-	builder, err := di.NewBuilder()
+	builder, err := newBuilder(cfg)
 	if err != nil {
 		return nil, err
 	}

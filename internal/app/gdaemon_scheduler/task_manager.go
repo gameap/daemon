@@ -65,7 +65,7 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 	err := manager.updateTasksIfNeeded(ctx)
 
 	if err != nil {
-		return err
+		log.Error(err)
 	}
 
 	for {
@@ -191,7 +191,10 @@ func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
 		return err
 	}
 
-	manager.queue.Insert(tasks)
+	if len(tasks) > 0 {
+		manager.queue.Insert(tasks)
+	}
+
 	manager.lastUpdated = time.Now()
 
 	return nil

@@ -1,16 +1,69 @@
 package config
 
-import "gopkg.in/ini.v1"
+import (
+	"bufio"
+	"io"
+	"os"
+	"path/filepath"
+
+	"gopkg.in/ini.v1"
+	"gopkg.in/yaml.v3"
+)
 
 func Load(path string) (*Config, error) {
+	ext := filepath.Ext(path)
+	var err error
+	var cfg *Config
+
+	switch ext {
+	case ".yaml", ".yml":
+		cfg, err = loadYaml(path)
+	case ".cfg", ".ini":
+		cfg, err = loadIni(path)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	err = cfg.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	return cfg, err
+}
+
+func loadYaml(path string) (*Config, error) {
+	cfg := NewConfig()
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, err := io.ReadAll(bufio.NewReader(file))
+	if err != nil {
+		return nil, err
+	}
+
+	err = yaml.Unmarshal(bytes, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+func loadIni(path string) (*Config, error) {
 	c, err := ini.Load(path)
 	if err != nil {
 		return nil, err
 	}
 
-	cfg := &Config{}
+	cfg := NewConfig()
 
-	cfg.DsId, err = c.Section("").Key("ds_id").Int()
+	cfg.NodeID, err = c.Section("").Key("ds_id").Uint()
 	if err != nil {
 		return nil, err
 	}
