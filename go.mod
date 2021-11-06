@@ -9,6 +9,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.3.0
 	github.com/go-resty/resty/v2 v2.6.0
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485
+	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/hashicorp/go-getter v1.5.7
 	github.com/otiai10/copy v1.6.0
 	github.com/pkg/errors v0.9.1

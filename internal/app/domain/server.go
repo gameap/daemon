@@ -13,31 +13,33 @@ const (
 	ServerInstallInProcess
 )
 
-const autostartSetting = "autostart"
-const autostartCurrentSetting = "autostartCurrent"
+const autostartSettingKey = "autostart"
+const autostartCurrentSettingKey = "autostart_current"
 
 type ServerRepository interface {
 	FindByID(ctx context.Context, id int) (*Server, error)
 	Save(ctx context.Context, task *Server) error
 }
 
+type Settings map[string]string
+
 type Server struct {
 	id            int
-	enabled       int
+	enabled       bool
 	installStatus InstallationStatus
-	blocked       int
+	blocked       bool
 
-	name string
-	uuid string
+	name      string
+	uuid      string
 	uuidShort string
 
 	game    Game
 	gameMod GameMod
 
-	ip          string
-	connectPort int
-	queryPort   int
-	rconPort    int
+	ip           string
+	connectPort  int
+	queryPort    int
+	rconPort     int
 	rconPassword string
 
 	dir  string
@@ -53,16 +55,16 @@ type Server struct {
 
 	vars map[string]string
 
-	settings map[string]string
+	settings Settings
 
 	updatedAt time.Time
 }
 
 func NewServer(
 	id int,
-	enabled int,
+	enabled bool,
 	installStatus InstallationStatus,
-	blocked int,
+	blocked bool,
 	name string,
 	uuid string,
 	uuidShort string,
@@ -82,7 +84,7 @@ func NewServer(
 	processActive bool,
 	lastProcessCheck time.Time,
 	vars map[string]string,
-	settings map[string]string,
+	settings Settings,
 	updatedAt time.Time,
 ) *Server {
 	return &Server{
@@ -191,10 +193,10 @@ func (s *Server) SetSetting(key string, value string) {
 }
 
 func (s *Server) AutoStart() bool {
-	autostart := s.Setting(autostartCurrentSetting)
+	autostart := s.Setting(autostartCurrentSettingKey)
 
 	if autostart == "" {
-		autostart = s.Setting(autostartSetting)
+		autostart = s.Setting(autostartSettingKey)
 	}
 
 	if autostart == "" {

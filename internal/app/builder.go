@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/repositories"
@@ -11,7 +12,7 @@ import (
 	"github.com/sarulabs/di"
 )
 
-func newBuilder(cfg *config.Config) (*di.Builder, error) {
+func NewBuilder(cfg *config.Config) (*di.Builder, error) {
 	builder, err := di.NewBuilder()
 	if err != nil {
 		return nil, err
@@ -32,6 +33,7 @@ const (
 	apiCallerDef    = "apiCaller"
 
 	gdaemonTasksRepositoryDef = "gdaemonTasksRepository"
+	serverRepositoryDef       = "serverRepository"
 
 	serverCommandFactoryDef = "serverCommandFactory"
 )
@@ -75,8 +77,20 @@ func definitions(cfg *config.Config) []di.Def {
 			Name: gdaemonTasksRepositoryDef,
 			Build: func(ctn di.Container) (interface{}, error) {
 				apiClient := ctn.Get(apiCallerDef).(interfaces.APIRequestMaker)
+				serverRepository := ctn.Get(serverRepositoryDef).(domain.ServerRepository)
 
-				return repositories.NewGDTasksRepository(apiClient), nil
+				return repositories.NewGDTasksRepository(
+					apiClient,
+					serverRepository,
+				), nil
+			},
+		},
+		{
+			Name: serverRepositoryDef,
+			Build: func(ctn di.Container) (interface{}, error) {
+				apiClient := ctn.Get(apiCallerDef).(interfaces.APIRequestMaker)
+
+				return repositories.NewServerRepository(apiClient), nil
 			},
 		},
 		// Factories

@@ -33,7 +33,7 @@ func NewAPICaller(ctx context.Context, cfg *config.Config, client *resty.Client)
 		cfg: cfg,
 	}
 
-	err := api.sync(ctx)
+	err := api.actualizeToken(ctx)
 
 	return api, err
 }
@@ -47,7 +47,7 @@ func (c *APIClient) Request() interfaces.APIRequest {
 	return newRequest(request)
 }
 
-func (c *APIClient) sync(ctx context.Context) error {
+func (c *APIClient) actualizeToken(ctx context.Context) error {
 	request := c.innerClient.R()
 
 	request.SetContext(ctx)

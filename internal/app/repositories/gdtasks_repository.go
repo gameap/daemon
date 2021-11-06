@@ -10,21 +10,26 @@ import (
 )
 
 type GDTasksRepository struct {
-	client interfaces.APIRequestMaker
+	client           interfaces.APIRequestMaker
+	serverRepository domain.ServerRepository
 }
 
 type task struct {
 	ID         int    `json:"id"`
 	RunAfterID int    `json:"run_after_id"`
-	Server     int    `json:"server"`
+	Server     int    `json:"server_id"`
 	Task       string `json:"task"`
 	Cmd        string `json:"cmd"`
 	Status     string `json:"status"`
 }
 
-func NewGDTasksRepository(client interfaces.APIRequestMaker) *GDTasksRepository {
+func NewGDTasksRepository(
+	client interfaces.APIRequestMaker,
+	serverRepository domain.ServerRepository,
+) *GDTasksRepository {
 	return &GDTasksRepository{
-		client: client,
+		client:           client,
+		serverRepository: serverRepository,
 	}
 }
 
@@ -49,11 +54,15 @@ func (repository *GDTasksRepository) FindByStatus(ctx context.Context, status do
 
 	var tasks []*domain.GDTask
 	for i := range tsk {
+		server, err := repository.serverRepository.FindByID(ctx, tsk[i].Server)
+		if err != nil {
+			return nil, err
+		}
+
 		gdTask := domain.NewGDTask(
 			tsk[i].ID,
 			tsk[i].RunAfterID,
-			//tsk[i].Server,
-			nil,
+			server,
 			domain.GDTaskCommand(tsk[i].Task),
 			tsk[i].Cmd,
 			domain.GDTaskStatus(tsk[i].Status),

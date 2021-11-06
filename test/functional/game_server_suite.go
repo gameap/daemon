@@ -16,9 +16,9 @@ func (suite *GameServerSuite) GivenServerForGameAndMod(game domain.Game, mod dom
 
 	return domain.NewServer(
 		1337,
-		1,
-		1,
+		true,
 		domain.ServerInstalled,
+		false,
 		"name",
 		"759b875e-d910-11eb-aff7-d796d7fcf7ef",
 		"759b875e",
@@ -51,9 +51,9 @@ func (suite *GameServerSuite) GivenServerWithStartAndStopCommand(startCommand st
 
 	return domain.NewServer(
 		1337,
-		1,
-		1,
+		true,
 		domain.ServerInstalled,
+		false,
 		"name",
 		"759b875e-d910-11eb-aff7-d796d7fcf7ef",
 		"759b875e",
