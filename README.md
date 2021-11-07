@@ -1,3 +1,5 @@
 # TODO
 
-[] detailed errors
+* detailed errors
+* replace `sarulabs/di`
+* logger

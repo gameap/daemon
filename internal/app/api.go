@@ -4,21 +4,31 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
+	lock "github.com/viney-shih/go-lock"
 )
 
-var invalidAPIResponse = errors.New("failed to get gdaemon API token")
+const maxActualizeCount = 1
+
+var (
+	invalidAPIResponse           = errors.New("failed to get gdaemon API token")
+	actualizeTokenActionIsLocked = errors.New("actualize token action is already locked")
+)
 
 type APIClient struct {
 	innerClient *resty.Client
 	cfg         *config.Config
 
 	// runtime
+	tokenMutex    *lock.CASMutex
 	apiServerTime time.Time
 	token         string
 }
@@ -30,7 +40,8 @@ type innerClient interface {
 func NewAPICaller(ctx context.Context, cfg *config.Config, client *resty.Client) (*APIClient, error) {
 	api := &APIClient{
 		innerClient: client,
-		cfg: cfg,
+		cfg:         cfg,
+		tokenMutex:  lock.NewCASMutex(),
 	}
 
 	err := api.actualizeToken(ctx)
@@ -38,16 +49,73 @@ func NewAPICaller(ctx context.Context, cfg *config.Config, client *resty.Client)
 	return api, err
 }
 
-func (c *APIClient) Request() interfaces.APIRequest {
-	request := c.innerClient.R()
+func (c *APIClient) Request(ctx context.Context, request domain.APIRequest) (interfaces.APIResponse, error) {
+	return c.request(ctx, request, 0)
+}
 
-	request.SetHeader("X-Auth-Token", c.token)
-	request.SetHeader("Content-Type", "application/json")
+func (c *APIClient) request(ctx context.Context, request domain.APIRequest, deep uint8) (interfaces.APIResponse, error) {
+	restyRequest := c.innerClient.R()
 
-	return newRequest(request)
+	restyRequest.SetHeader("Content-Type", "application/json")
+	restyRequest.SetHeader("X-Auth-Token", c.token)
+
+	if len(request.QueryParams) > 0 {
+		restyRequest.SetQueryParams(request.QueryParams)
+	}
+
+	if len(request.PathParams) > 0 {
+		restyRequest.SetPathParams(request.PathParams)
+	}
+
+	if len(request.Header) > 0 {
+		for key, values := range request.Header {
+			for _, v := range values {
+				restyRequest.SetHeader(key, v)
+			}
+		}
+	}
+
+	if len(request.Body) > 0 {
+		restyRequest.SetBody(request.Body)
+	}
+
+	restyRequest.SetContext(ctx)
+
+	var err error
+	var response *resty.Response
+
+	switch request.Method {
+	case http.MethodGet:
+		response, err = restyRequest.Get(request.URL)
+	case http.MethodPut:
+		response, err = restyRequest.Put(request.URL)
+	default:
+		return nil, errors.New("invalid request method")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if response.StatusCode() == http.StatusUnauthorized && deep < maxActualizeCount {
+		log.Warning("invalid token, actualizing token")
+		err = c.actualizeToken(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return c.request(ctx, request, deep+1)
+	}
+
+	return response, nil
 }
 
 func (c *APIClient) actualizeToken(ctx context.Context) error {
+	locked := c.tokenMutex.TryLockWithContext(ctx)
+	if !locked {
+		return actualizeTokenActionIsLocked
+	}
+	defer c.tokenMutex.Unlock()
+
 	request := c.innerClient.R()
 
 	request.SetContext(ctx)
@@ -66,7 +134,7 @@ func (c *APIClient) actualizeToken(ctx context.Context) error {
 
 	message := struct {
 		Token     string `json:"token"`
-		Timestamp int64	 `json:"timestamp"`
+		Timestamp int64  `json:"timestamp"`
 	}{}
 
 	err = json.Unmarshal(response.Body(), &message)
@@ -78,41 +146,4 @@ func (c *APIClient) actualizeToken(ctx context.Context) error {
 	c.apiServerTime = time.Unix(message.Timestamp, 0)
 
 	return nil
-}
-
-type APIRequest struct {
-	request *resty.Request
-}
-
-func newRequest(request *resty.Request) interfaces.APIRequest {
-	return &APIRequest{request: request}
-}
-
-func (r *APIRequest) SetContext(ctx context.Context) interfaces.APIRequest {
-	r.request = r.request.SetContext(ctx)
-	return r
-}
-
-func (r *APIRequest) SetHeader(header, value string) interfaces.APIRequest {
-	r.request = r.request.SetHeader(header, value)
-	return r
-}
-
-func (r *APIRequest) SetHeaders(headers map[string]string) interfaces.APIRequest {
-	r.request = r.request.SetHeaders(headers)
-	return r
-}
-
-func (r *APIRequest) SetQueryParams(params map[string]string) interfaces.APIRequest {
-	r.request = r.request.SetQueryParams(params)
-	return r
-}
-
-func (r *APIRequest) SetPathParams(params map[string]string) interfaces.APIRequest {
-	r.request = r.request.SetPathParams(params)
-	return r
-}
-
-func (r *APIRequest) Get(url string) (interfaces.APIResponse, error) {
-	return r.request.Get(url)
 }

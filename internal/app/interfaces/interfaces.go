@@ -32,17 +32,7 @@ type Command interface {
 }
 
 type APIRequestMaker interface {
-	Request() APIRequest
-}
-
-type APIRequest interface {
-	SetContext(ctx context.Context) APIRequest
-	SetHeader(header, value string) APIRequest
-	SetHeaders(headers map[string]string) APIRequest
-	SetPathParams(params map[string]string) APIRequest
-	SetQueryParams(params map[string]string) APIRequest
-
-	Get(url string) (APIResponse, error)
+	Request(ctx context.Context, request domain.APIRequest) (APIResponse, error)
 }
 
 type APIResponse interface {

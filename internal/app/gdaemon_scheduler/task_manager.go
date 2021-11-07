@@ -2,7 +2,6 @@ package gdaemon_scheduler
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -79,6 +79,8 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 			if err != nil {
 				log.Error(err)
 			}
+
+			time.Sleep(5 * time.Second)
 		}
 	}
 }
@@ -101,12 +103,20 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 	}
 
 	if err != nil {
-		log.Error(err)
+		log.Error(errors.WithMessage(err, "task execution failed"))
+
+		manager.appendTaskError(ctx, task, []byte(err.Error()))
 		manager.failTask(ctx, task)
 	}
 
 	if task.IsComplete() {
 		manager.queue.Remove(task)
+
+		err = manager.repository.Save(ctx, task)
+		if err != nil {
+			err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
+			log.Error(err)
+		}
 	}
 }
 
@@ -132,6 +142,12 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 		return err
 	}
 
+	err = manager.repository.Save(ctx, task)
+	if err != nil {
+		err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
+		log.Error(err)
+	}
+
 	cmd, gameServerCmdExist := taskServerCommandMap[task.Task()]
 
 	if !gameServerCmdExist {
@@ -145,6 +161,7 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 	go func() {
 		err = cmdFunc.Execute(ctx, task.Server())
 		if err != nil {
+			manager.appendTaskError(ctx, task, []byte(err.Error()))
 			manager.failTask(ctx, task)
 		}
 	}()
@@ -155,7 +172,7 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask) error {
 	c, ok := manager.commandsInProgress.Load(*task)
 	if !ok {
-		return errors.New("task not exist in working tasks")
+		return errors.New("[gdaemon_scheduler.TaskManager] task not exist in working tasks")
 	}
 
 	cmd := c.(interfaces.Command)
@@ -171,11 +188,20 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 		}
 	}
 
+	manager.appendTaskError(ctx, task, cmd.ReadOutput())
+
 	return nil
 }
 
-func (manager *TaskManager) failTask(_ context.Context, task *domain.GDTask) {
+func (manager *TaskManager) failTask(ctx context.Context, task *domain.GDTask) {
 	err := task.SetStatus(domain.GDTaskStatusError)
+	if err != nil {
+		log.Error(err)
+	}
+}
+
+func (manager *TaskManager) appendTaskError(ctx context.Context, task *domain.GDTask, output []byte) {
+	err := manager.repository.AppendOutput(ctx, task, output)
 	if err != nil {
 		log.Error(err)
 	}

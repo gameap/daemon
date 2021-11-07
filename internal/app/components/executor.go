@@ -41,17 +41,17 @@ func ExecWithWriter(ctx context.Context, command string, workDir string, out io.
 
 	_, err = os.Stat(workDir)
 	if err != nil {
-		return -1, errors.Wrap(err, "Invalid work directory")
+		return -1, errors.Wrap(err, "invalid work directory")
 	}
 
 	_, err = os.Stat(path.Clean(workDir + "/" + args[0]))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		_, err = exec.LookPath(args[0])
 		if err != nil {
-			return -1, errors.Wrap(err, "Executable file not found")
+			return -1, errors.Wrap(err, "executable file not found")
 		}
 	} else if err != nil {
-		return -1, errors.Wrap(err, "Executable file not found")
+		return -1, errors.Wrap(err, "executable file not found")
 	}
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)

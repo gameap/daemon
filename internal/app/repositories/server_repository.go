@@ -59,8 +59,10 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 		}
 	}
 
-	repo.lastUpdated.Store(id, time.Now())
-	repo.servers.Store(id, server)
+	if server != nil {
+		repo.lastUpdated.Store(id, time.Now())
+		repo.servers.Store(id, server)
+	}
 
 	return server, nil
 }
@@ -112,12 +114,13 @@ type apiRepo struct {
 }
 
 func (apiRepo *apiRepo) FindByID(ctx context.Context, id int) (*domain.Server, error) {
-	response, err := apiRepo.client.Request().
-		SetContext(ctx).
-		SetPathParams(map[string]string{
+	response, err := apiRepo.client.Request(ctx, domain.APIRequest{
+		Method: http.MethodGet,
+		URL: "/gdaemon_api/servers/{id}",
+		PathParams: map[string]string{
 			"id": strconv.Itoa(id),
-		}).
-		Get("/gdaemon_api/servers/{id}")
+		},
+	})
 
 	if err != nil {
 		return nil, err

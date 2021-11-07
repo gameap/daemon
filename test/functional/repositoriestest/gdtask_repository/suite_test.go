@@ -1,4 +1,4 @@
-package server_repository
+package gdtask_repository
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ import (
 type Suite struct {
 	repositoriestest.Suite
 
-	ServerRepository *repositories.ServerRepository
+	GDTaskRepository *repositories.GDTasksRepository
 }
 
 func TestSuite(t *testing.T) {
@@ -21,7 +21,7 @@ func TestSuite(t *testing.T) {
 func (suite *Suite) SetupSuite() {
 	suite.Suite.SetupSuite()
 
-	suite.ServerRepository = suite.Container.Get("serverRepository").(*repositories.ServerRepository)
+	suite.GDTaskRepository = suite.Container.Get("gdaemonTasksRepository").(*repositories.GDTasksRepository)
 }
 
 func (suite *Suite) SetupTest() {

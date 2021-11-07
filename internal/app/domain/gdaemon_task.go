@@ -12,6 +12,14 @@ const (
 	GDTaskStatusCanceled              = "canceled"
 )
 
+var GDTaskStatusNumMap = map[GDTaskStatus]uint8{
+	GDTaskStatusWaiting:  1,
+	GDTaskStatusWorking:  2,
+	GDTaskStatusError:    3,
+	GDTaskStatusSuccess:  4,
+	GDTaskStatusCanceled: 5,
+}
+
 type GDTaskCommand string
 
 const (
@@ -32,6 +40,7 @@ type GDTaskRepository interface {
 	FindByStatus(ctx context.Context, status GDTaskStatus) ([]*GDTask, error)
 	FindByID(ctx context.Context, id int) (*GDTask, error)
 	Save(ctx context.Context, task *GDTask) error
+	AppendOutput(ctx context.Context, gdtask *GDTask, output []byte) error
 }
 
 type GDTask struct {
@@ -75,6 +84,10 @@ func (task *GDTask) Task() GDTaskCommand {
 
 func (task *GDTask) Status() GDTaskStatus {
 	return task.status
+}
+
+func (task *GDTask) StatusNum() uint8 {
+	return GDTaskStatusNumMap[task.status]
 }
 
 func (task *GDTask) Server() *Server {

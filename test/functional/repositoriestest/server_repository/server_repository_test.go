@@ -1,6 +1,11 @@
 package server_repository
 
-import "context"
+import (
+	"context"
+	"net/http"
+
+	"github.com/gameap/daemon/test/functional/repositoriestest"
+)
 
 func (suite *Suite) TestNotFound() {
 	server, err := suite.ServerRepository.FindByID(context.Background(), 1)
@@ -9,12 +14,13 @@ func (suite *Suite) TestNotFound() {
 	suite.Require().Nil(server)
 }
 
-func (suite *Suite) TestFound() {
-	suite.API("/gdaemon_api/servers/1", jsonApiGetServerResponse)
+func (suite *Suite) TestSuccess() {
+	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JsonApiGetServerResponseBody)
 
 	server, err := suite.ServerRepository.FindByID(context.Background(), 1)
 
 	suite.Require().Nil(err)
+	suite.Require().NotNil(server)
 	suite.Equal(1, server.ID())
 	suite.Equal("94cdfde4-15a4-40b9-8043-260e6a0b5b67", server.UUID())
 	suite.Equal("94cdfde4", server.UUIDShort())
@@ -44,4 +50,16 @@ func (suite *Suite) TestFound() {
 	suite.Equal("", server.GameMod().LocalRepository)
 	suite.Equal("./hlds_run -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}", server.GameMod().DefaultStartCMDLinux)
 	suite.Equal("hlds.exe -console -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}", server.GameMod().DefaultStartCMDWindows)
+}
+
+func (suite *Suite) TestWhenTokenIsInvalid_ExpectSuccess() {
+	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusUnauthorized, nil)
+	suite.GivenAPIResponse("/gdaemon_api/get_token", http.StatusOK, repositoriestest.JsonApiGetTokenResponseBody)
+	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JsonApiGetServerResponseBody)
+
+	server, err := suite.ServerRepository.FindByID(context.Background(), 1)
+
+	suite.Require().Nil(err)
+	suite.Require().NotNil(server)
+	suite.Equal(1, server.ID())
 }

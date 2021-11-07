@@ -3,11 +3,15 @@ package repositories
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strconv"
 
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/pkg/errors"
 )
+
+var invalidResponseFromAPI = errors.New("invalid response from API")
 
 type GDTasksRepository struct {
 	client           interfaces.APIRequestMaker
@@ -34,13 +38,14 @@ func NewGDTasksRepository(
 }
 
 func (repository *GDTasksRepository) FindByStatus(ctx context.Context, status domain.GDTaskStatus) ([]*domain.GDTask, error) {
-	resp, err := repository.client.Request().
-		SetContext(ctx).
-		SetQueryParams(map[string]string{
+	resp, err := repository.client.Request(ctx, domain.APIRequest{
+		Method: http.MethodGet,
+		URL: "/gdaemon_api/tasks",
+		QueryParams: map[string]string{
 			"filter[status]": string(status),
 			"append":         "status_num",
-		}).
-		Get("/gdaemon_api/tasks")
+		},
+	})
 
 	if err != nil {
 		return nil, err
@@ -75,11 +80,13 @@ func (repository *GDTasksRepository) FindByStatus(ctx context.Context, status do
 }
 
 func (repository *GDTasksRepository) FindByID(ctx context.Context, id int) (*domain.GDTask, error) {
-	resp, err := repository.client.Request().
-		SetContext(ctx).
-		SetPathParams(map[string]string{"id": strconv.Itoa(id)}).
-		SetHeader("Accept", "application/json").
-		Get("/gdaemon_api/tasks/{id}")
+	resp, err := repository.client.Request(ctx, domain.APIRequest{
+		Method: http.MethodGet,
+		URL: "/gdaemon_api/tasks/{id}",
+		PathParams: map[string]string{
+			"id": strconv.Itoa(id),
+		},
+	})
 
 	if err != nil {
 		return nil, err
@@ -95,6 +102,56 @@ func (repository *GDTasksRepository) FindByID(ctx context.Context, id int) (*dom
 	return &gdTask, nil
 }
 
-func (repository *GDTasksRepository) Save(ctx context.Context, task *domain.GDTask) error {
-	panic("implement me")
+func (repository *GDTasksRepository) Save(ctx context.Context, gdtask *domain.GDTask) error {
+	marshalled, err := json.Marshal(struct {
+		Status uint8 `json:"status"`
+	}{gdtask.StatusNum()})
+	if err != nil {
+		return errors.WithMessage(err, "failed to marshal gd task")
+	}
+
+	resp, err := repository.client.Request(ctx, domain.APIRequest{
+		Method: http.MethodPut,
+		URL: "/gdaemon_api/tasks/{id}",
+		Body: marshalled,
+		PathParams: map[string]string{
+			"id": strconv.Itoa(gdtask.ID()),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return invalidResponseFromAPI
+	}
+
+	return nil
+}
+
+func (repository *GDTasksRepository) AppendOutput(ctx context.Context, gdtask *domain.GDTask, output []byte) error {
+	marshalled, err := json.Marshal(struct {
+		Output string `json:"output"`
+	}{string(output)})
+	if err != nil {
+		return errors.WithMessage(err, "failed to marshal output")
+	}
+
+	resp, err := repository.client.Request(ctx, domain.APIRequest{
+		Method: http.MethodPut,
+		URL: "/gdaemon_api/tasks/{id}/output",
+		Body: marshalled,
+		PathParams: map[string]string{
+			"id": strconv.Itoa(gdtask.ID()),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return invalidResponseFromAPI
+	}
+
+	return nil
 }
