@@ -11,8 +11,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-var invalidResponseFromAPI = errors.New("invalid response from API")
-
 type GDTasksRepository struct {
 	client           interfaces.APIRequestMaker
 	serverRepository domain.ServerRepository
@@ -123,7 +121,7 @@ func (repository *GDTasksRepository) Save(ctx context.Context, gdtask *domain.GD
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return invalidResponseFromAPI
+		return NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body())
 	}
 
 	return nil
@@ -150,7 +148,7 @@ func (repository *GDTasksRepository) AppendOutput(ctx context.Context, gdtask *d
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return invalidResponseFromAPI
+		return NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body())
 	}
 
 	return nil

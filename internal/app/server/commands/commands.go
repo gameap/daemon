@@ -31,12 +31,15 @@ func (c *Commands) Handle(ctx context.Context, readWriter io.ReadWriter) {
 }
 
 func (c Commands) executeCommand(ctx context.Context, msg commandExec, writer io.Writer) {
-	out, exitCode, err := components.Exec(ctx, msg.Command, msg.WorkDir)
+	out, exitCode, err := components.Exec(ctx, msg.Command, components.ExecutorOptions{
+		WorkDir: msg.WorkDir,
+	})
 
 	if err != nil {
 		response.WriteResponse(writer, response.Response{
 			Code: response.StatusError,
 			Info: err.Error(),
+
 		})
 		return
 	}

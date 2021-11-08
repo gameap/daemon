@@ -2,7 +2,6 @@ package game_server_commands
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/url"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/hashicorp/go-getter"
 	"github.com/otiai10/copy"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -34,6 +34,11 @@ var repeatableSteamCMDInstallResults = hashset.New(7, 8)
 
 var DefinedNoGameInstallationRulesError = errors.New("could not determine the rules for installing the game")
 
+var (
+	allInstallationMethodsFailed = errors.New("all installation methods failed")
+	installViaSteamCMDFailed = errors.New("failed to install via steamcmd")
+)
+
 type installationRule struct {
 	SourceValue string
 	Action      installAction
@@ -43,10 +48,11 @@ type installServer struct {
 	baseCommand
 	bufCommand
 
-	inst *installator
+	installator *installator
+	serverRepo  domain.ServerRepository
 }
 
-func newInstallServer(cfg *config.Config) *installServer {
+func newInstallServer(cfg *config.Config, serverRepo domain.ServerRepository) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newInstallator(cfg, buffer)
 
@@ -58,17 +64,62 @@ func newInstallServer(cfg *config.Config) *installServer {
 		},
 		bufCommand{output: buffer},
 		inst,
+		serverRepo,
 	}
 }
 
 func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) error {
 	defer func() {
+		err := cmd.defineAndSaveServerStatus(ctx, server)
+		if err != nil {
+			log.Error(err)
+		}
+	}()
+	defer func() {
 		cmd.complete = true
 	}()
 
-	err := cmd.install(ctx, server)
+	var err error
+
+	err = cmd.setServerIntallationStatus(ctx, server, domain.ServerInstallInProcess)
 	if err != nil {
 		return err
+	}
+
+	if cmd.cfg.Scripts.Install != "" {
+		err = cmd.installByScript(ctx, server)
+	} else {
+		err = cmd.install(ctx, server)
+	}
+
+	if err != nil {
+		cmd.result = ErrorResult
+		return errors.WithMessage(err, "[game_server_commands.installServer] failed to install game server")
+	}
+
+	return nil
+}
+
+func (cmd *installServer) installByScript(ctx context.Context, server *domain.Server) error {
+	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Install, "")
+
+	_, _ = cmd.output.Write([]byte("Executing install script ...\n"))
+	_, _ = cmd.output.Write([]byte("Script: " + command + "\n\n"))
+
+	var err error
+	cmd.result, err = components.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
+		WorkDir: cmd.cfg.WorkPath,
+	})
+
+	cmd.complete = true
+	if err != nil {
+		return errors.WithMessage(err, "[game_server_commands.installServer] failed to install by script")
+	}
+
+	if cmd.result == SuccessResult {
+		_, _ = cmd.output.Write([]byte("\nExecuting install script successfully completed\n"))
+	} else {
+		_, _ = cmd.output.Write([]byte("\nExecuting script ended with an error\n"))
 	}
 
 	return nil
@@ -85,19 +136,52 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 		return DefinedNoGameInstallationRulesError
 	}
 
-	err := cmd.inst.Install(ctx, server, gameRules)
+	_, _ = cmd.output.Write([]byte("Installing game files ...\n"))
+
+	err := cmd.installator.Install(ctx, server, gameRules)
 	if err != nil {
+		cmd.result = ErrorResult
 		return err
 	}
 
 	gameModRules := sd.DefineGameModRules(&gameMod)
 
-	err = cmd.inst.Install(ctx, server, gameModRules)
-	if err != nil {
-		return err
+	if len(gameModRules) > 0 {
+		_, _ = cmd.output.Write([]byte("\n\n"))
+		_, _ = cmd.output.Write([]byte("Installing game mod files ...\n"))
+
+		err = cmd.installator.Install(ctx, server, gameModRules)
+		if err != nil {
+			cmd.result = ErrorResult
+			return err
+		}
 	}
 
+	cmd.result = SuccessResult
+
 	return nil
+}
+
+func (cmd *installServer) setServerIntallationStatus(
+	ctx context.Context,
+	server *domain.Server,
+	status domain.InstallationStatus,
+) error {
+	server.SetInstallationStatus(status)
+	return cmd.serverRepo.Save(ctx, server)
+}
+
+func (cmd *installServer) defineAndSaveServerStatus(ctx context.Context, server *domain.Server) error {
+	switch {
+	case !cmd.IsComplete():
+		server.SetInstallationStatus(domain.ServerInstallInProcess)
+	case cmd.Result() == 0:
+		server.SetInstallationStatus(domain.ServerInstalled)
+	case cmd.Result() != 0:
+		server.SetInstallationStatus(domain.ServerNotInstalled)
+	}
+
+	return cmd.serverRepo.Save(ctx, server)
 }
 
 type installationRulesDefiner struct{}
@@ -122,7 +206,7 @@ func (d *installationRulesDefiner) DefineGameRules(game *domain.Game) []*install
 	if game.SteamAppID > 0 {
 		rule := &installationRule{
 			SourceValue: strconv.Itoa(game.SteamAppID),
-			Action: installFromSteam,
+			Action:      installFromSteam,
 		}
 		rules = append(rules, rule)
 	}
@@ -149,7 +233,6 @@ func (d *installationRulesDefiner) defineLocalRepositoryRule(localRepository str
 
 	return rule
 }
-
 
 func (d *installationRulesDefiner) defineRemoteRepositoryRule(remoteRepository string) *installationRule {
 	rule := &installationRule{
@@ -191,8 +274,8 @@ func (d *installationRulesDefiner) DefineGameModRules(gameMod *domain.GameMod) [
 	return rules
 }
 
-type installator struct{
-	cfg *config.Config
+type installator struct {
+	cfg    *config.Config
 	output io.ReadWriter
 }
 
@@ -209,6 +292,7 @@ func (in *installator) Install(ctx context.Context, server *domain.Server, rules
 	for _, rule := range rules {
 		err = in.install(ctx, server, *rule)
 		if err != nil {
+			_, _ = in.output.Write([]byte(err.Error() + "\n"))
 			log.Error(err)
 			continue
 		}
@@ -217,8 +301,12 @@ func (in *installator) Install(ctx context.Context, server *domain.Server, rules
 		break
 	}
 
-	if err != nil && !success {
+	if err != nil {
 		return err
+	}
+
+	if !success {
+		return allInstallationMethodsFailed
 	}
 
 	return nil
@@ -242,32 +330,41 @@ func (in *installator) getAndUnpackFiles(
 	server *domain.Server,
 	source string,
 ) error {
+	dst := makeFullServerPath(in.cfg, server.Dir())
 	c := getter.Client{
-		Ctx: ctx,
-		Src: source,
-		Dst: makeFullServerPath(in.cfg, server.Dir()),
+		Ctx:  ctx,
+		Src:  source,
+		Dst:  dst,
 		Mode: getter.ClientModeAny,
 	}
 
+	in.writeOutput("Downloading from " + source + " to " + dst + " ...")
+
 	err := c.Get()
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "[game_server_commands.installator] failed to download files")
 	}
+
+	in.writeOutput("Downloading successfully completed")
 
 	return nil
 }
 
 func (in *installator) copyDirectoryFromLocalRepository(
-	ctx context.Context,
+	_ context.Context,
 	server *domain.Server,
 	source string,
 ) error {
 	dst := makeFullServerPath(in.cfg, server.Dir())
 
+	in.writeOutput("Copying files from " + source + " to " + dst + " ...")
+
 	err := copy.Copy(source, dst)
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "[game_server_commands.installator] failed to copy files")
 	}
+
+	in.writeOutput("Copying files successfully completed")
 
 	return nil
 }
@@ -294,28 +391,47 @@ func (in *installator) installFromSteam(
 	execCmd.WriteString(source)
 	execCmd.WriteString("  +quit")
 
+	in.writeOutput("Installing from steam ...")
+	in.writeOutput("SteamCMD command: " + execCmd.String() + "\n\n")
+
 	var installTries uint8 = 0
+
+	var result int
+	var err error
 	for installTries < maxSteamCMDInstallTries {
-		result, err := components.ExecWithWriter(
+		result, err = components.ExecWithWriter(
 			ctx,
 			execCmd.String(),
-			cfg.WorkPath,
 			output,
+			components.ExecutorOptions{
+				WorkDir: cfg.WorkPath,
+			},
 		)
 		if err != nil {
 			return err
 		}
 
 		if result == SuccessResult {
-			break;
+			break
 		}
 
 		if !repeatableSteamCMDInstallResults.Contains(int8(result)) {
-			break;
+			break
 		}
 
 		installTries++
 	}
 
+	if result != SuccessResult {
+		return installViaSteamCMDFailed
+	}
+
 	return nil
+}
+
+func (in *installator) writeOutput(line string) {
+	_, err := in.output.Write([]byte(line + "\n"))
+	if err != nil {
+		log.Error(err)
+	}
 }

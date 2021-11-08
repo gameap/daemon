@@ -29,7 +29,9 @@ func (s *statusServer) Execute(ctx context.Context, server *domain.Server) error
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
-	s.result, err = components.ExecWithWriter(ctx, command, path, s.output)
+	s.result, err = components.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
+		WorkDir: path,
+	})
 	s.complete = true
 	if err != nil {
 		return err

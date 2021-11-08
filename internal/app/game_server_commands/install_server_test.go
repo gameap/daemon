@@ -268,9 +268,9 @@ func givenServer(t *testing.T, game domain.Game, gameMod domain.GameMod) *domain
 
 	return domain.NewServer(
 		1,
-		1,
-		1,
+		true,
 		domain.ServerInstalled,
+		false,
 		"name",
 		"759b875e-d910-11eb-aff7-d796d7fcf7ef",
 		"759b875e",

@@ -49,6 +49,10 @@ func (r *GDTaskRepository) Save(_ context.Context, task *domain.GDTask) error {
 	return nil
 }
 
+func (r *GDTaskRepository) AppendOutput(_ context.Context, _ *domain.GDTask, _ []byte) error {
+	return nil
+}
+
 func (r *GDTaskRepository) Set(items []*domain.GDTask) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()

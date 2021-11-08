@@ -2,10 +2,12 @@ package components
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 
 	"github.com/gopherclass/go-shellquote"
 	"github.com/pkg/errors"
@@ -14,9 +16,16 @@ import (
 
 var EmptyCommandError = errors.New("empty command")
 
-func Exec(ctx context.Context, command string, workDir string) ([]byte, int, error) {
+type ExecutorOptions struct {
+	WorkDir string
+	User    string
+	Group   string
+	Env     map[string]string
+}
+
+func Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte, int, error) {
 	buf := NewSafeBuffer()
-	exitCode, err := ExecWithWriter(ctx, command, workDir, buf)
+	exitCode, err := ExecWithWriter(ctx, command, buf, options)
 	if err != nil {
 		return nil, -1, err
 	}
@@ -29,7 +38,7 @@ func Exec(ctx context.Context, command string, workDir string) ([]byte, int, err
 	return out, exitCode, nil
 }
 
-func ExecWithWriter(ctx context.Context, command string, workDir string, out io.Writer) (int, error) {
+func ExecWithWriter(ctx context.Context, command string, out io.Writer, options ExecutorOptions) (int, error) {
 	if command == "" {
 		return -1, EmptyCommandError
 	}
@@ -39,12 +48,12 @@ func ExecWithWriter(ctx context.Context, command string, workDir string, out io.
 		return -1, err
 	}
 
-	_, err = os.Stat(workDir)
+	_, err = os.Stat(options.WorkDir)
 	if err != nil {
 		return -1, errors.Wrap(err, "invalid work directory")
 	}
 
-	_, err = os.Stat(path.Clean(workDir + "/" + args[0]))
+	_, err = os.Stat(path.Clean(options.WorkDir + "/" + args[0]))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		_, err = exec.LookPath(args[0])
 		if err != nil {
@@ -54,8 +63,10 @@ func ExecWithWriter(ctx context.Context, command string, workDir string, out io.
 		return -1, errors.Wrap(err, "executable file not found")
 	}
 
+	_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, command)))
+
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = workDir
+	cmd.Dir = options.WorkDir
 	cmd.Stdout = out
 	cmd.Stderr = out
 
@@ -68,6 +79,8 @@ func ExecWithWriter(ctx context.Context, command string, workDir string, out io.
 			return -1, err
 		}
 	}
+
+	_, _ = out.Write([]byte("\nExited with " + strconv.Itoa(cmd.ProcessState.ExitCode()) + "\n"))
 
 	return cmd.ProcessState.ExitCode(), nil
 }

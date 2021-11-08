@@ -105,7 +105,7 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 	if err != nil {
 		log.Error(errors.WithMessage(err, "task execution failed"))
 
-		manager.appendTaskError(ctx, task, []byte(err.Error()))
+		manager.appendTaskOutput(ctx, task, []byte(err.Error()))
 		manager.failTask(ctx, task)
 	}
 
@@ -161,7 +161,7 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 	go func() {
 		err = cmdFunc.Execute(ctx, task.Server())
 		if err != nil {
-			manager.appendTaskError(ctx, task, []byte(err.Error()))
+			manager.appendTaskOutput(ctx, task, []byte(err.Error()))
 			manager.failTask(ctx, task)
 		}
 	}()
@@ -188,7 +188,7 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 		}
 	}
 
-	manager.appendTaskError(ctx, task, cmd.ReadOutput())
+	manager.appendTaskOutput(ctx, task, cmd.ReadOutput())
 
 	return nil
 }
@@ -200,7 +200,11 @@ func (manager *TaskManager) failTask(ctx context.Context, task *domain.GDTask) {
 	}
 }
 
-func (manager *TaskManager) appendTaskError(ctx context.Context, task *domain.GDTask, output []byte) {
+func (manager *TaskManager) appendTaskOutput(ctx context.Context, task *domain.GDTask, output []byte) {
+	if len(output) == 0 {
+		return
+	}
+
 	err := manager.repository.AppendOutput(ctx, task, output)
 	if err != nil {
 		log.Error(err)

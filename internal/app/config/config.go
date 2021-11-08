@@ -59,7 +59,7 @@ type Config struct {
 	PathStarter string `yaml:"path_starter"`
 
 	WorkPath     string `yaml:"work_path"`
-	SteamCMDPath string `yaml:"steam_cmd_path"`
+	SteamCMDPath string `yaml:"steamcmd_path"`
 
 	Scripts Scripts
 }

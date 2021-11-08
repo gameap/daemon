@@ -17,6 +17,7 @@ const autostartSettingKey = "autostart"
 const autostartCurrentSettingKey = "autostart_current"
 
 type ServerRepository interface {
+	IDs(ctx context.Context) ([]int, error)
 	FindByID(ctx context.Context, id int) (*Server, error)
 	Save(ctx context.Context, task *Server) error
 }
@@ -153,7 +154,16 @@ func (s *Server) User() string {
 }
 
 func (s *Server) Vars() map[string]string {
-	return s.vars
+	vars := make(map[string]string)
+	for _, v := range s.gameMod.Vars {
+		vars[v.Key] = v.DefaultValue
+	}
+
+	for k, v := range s.vars {
+		vars[k] = v
+	}
+
+	return vars
 }
 
 func (s *Server) Game() Game {
@@ -192,6 +202,11 @@ func (s *Server) SetSetting(key string, value string) {
 	s.settings[key] = value
 }
 
+func (s *Server) SetStatus(processActive bool)  {
+	s.processActive = processActive
+	s.lastProcessCheck = time.Now()
+}
+
 func (s *Server) AutoStart() bool {
 	autostart := s.Setting(autostartCurrentSettingKey)
 
@@ -204,4 +219,20 @@ func (s *Server) AutoStart() bool {
 	}
 
 	return autostart == "1" || autostart == "true"
+}
+
+func (s *Server) InstallationStatus() InstallationStatus {
+	return s.installStatus
+}
+
+func (s *Server) SetInstallationStatus(status InstallationStatus) {
+	s.installStatus = status
+}
+
+func (s *Server) IsActive() bool {
+	return s.processActive
+}
+
+func (s *Server) LastStatusCheck() time.Time {
+	return s.lastProcessCheck
 }

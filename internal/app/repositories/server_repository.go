@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"sync"
@@ -11,14 +10,13 @@ import (
 
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/pkg/errors"
 )
 
 const updateTimeout = 5 * time.Minute
 
-var invalidResponseFromAPIServer = errors.New("invalid response from api server")
-
 type ServerRepository struct {
-	innerRepo   apiRepo
+	innerRepo apiServerRepo
 
 	mu          sync.Mutex
 	servers     sync.Map // [int]*domain.Server  (serverID => server)
@@ -27,10 +25,14 @@ type ServerRepository struct {
 
 func NewServerRepository(client interfaces.APIRequestMaker) *ServerRepository {
 	return &ServerRepository{
-		innerRepo: apiRepo{
+		innerRepo: apiServerRepo{
 			client: client,
 		},
 	}
+}
+
+func (repo *ServerRepository) IDs(ctx context.Context) ([]int, error) {
+	return repo.innerRepo.IDs(ctx)
 }
 
 func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Server, error) {
@@ -67,15 +69,17 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 	return server, nil
 }
 
-func (repo *ServerRepository) Save(ctx context.Context, task *domain.Server) error {
-	panic("implement me")
-}
+func (repo *ServerRepository) Save(ctx context.Context, server *domain.Server) error {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
 
+	return repo.innerRepo.Save(ctx, server)
+}
 
 type serverStruct struct {
 	ID            int  `json:"id"`
 	Enabled       bool `json:"enabled"`
-	InstallStatus int  `json:"install_status"`
+	InstallStatus int  `json:"installed"`
 	Blocked       bool `json:"blocked"`
 
 	Name      string `json:"name"`
@@ -109,14 +113,51 @@ type serverStruct struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-type apiRepo struct {
+type serverSaveStruct struct {
+	Installed        uint8  `json:"installed"`
+	ProcessActive    uint8  `json:"process_active"`
+	LastProcessCheck string `json:"last_process_check"`
+}
+
+type apiServerRepo struct {
 	client interfaces.APIRequestMaker
 }
 
-func (apiRepo *apiRepo) FindByID(ctx context.Context, id int) (*domain.Server, error) {
+func (apiRepo *apiServerRepo) IDs(ctx context.Context) ([]int, error) {
 	response, err := apiRepo.client.Request(ctx, domain.APIRequest{
 		Method: http.MethodGet,
-		URL: "/gdaemon_api/servers/{id}",
+		URL:    "/gdaemon_api/servers",
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if response.StatusCode() != http.StatusOK {
+		return nil, NewErrInvalidResponseFromAPI(response.StatusCode(), response.Body())
+	}
+
+	var srvList []struct {
+		ID int `json:"id"`
+	}
+	err = json.Unmarshal(response.Body(), &srvList)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]int, 0, len(srvList))
+
+	for _, v := range srvList {
+		ids = append(ids, v.ID)
+	}
+
+	return ids, nil
+}
+
+func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Server, error) {
+	response, err := apiRepo.client.Request(ctx, domain.APIRequest{
+		Method: http.MethodGet,
+		URL:    "/gdaemon_api/servers/{id}",
 		PathParams: map[string]string{
 			"id": strconv.Itoa(id),
 		},
@@ -130,7 +171,7 @@ func (apiRepo *apiRepo) FindByID(ctx context.Context, id int) (*domain.Server, e
 		return nil, nil
 	}
 	if response.StatusCode() != http.StatusOK {
-		return nil, invalidResponseFromAPIServer
+		return nil, NewErrInvalidResponseFromAPI(response.StatusCode(), response.Body())
 	}
 
 	var srv serverStruct
@@ -204,4 +245,40 @@ func (apiRepo *apiRepo) FindByID(ctx context.Context, id int) (*domain.Server, e
 	)
 
 	return server, nil
+}
+
+func (apiRepo *apiServerRepo) Save(ctx context.Context, server *domain.Server) error {
+	status := uint8(0)
+	if server.IsActive() {
+		status = 1
+	}
+
+	srv := serverSaveStruct{
+		Installed:        uint8(server.InstallationStatus()),
+		ProcessActive:    status,
+		LastProcessCheck: server.LastStatusCheck().Format("2006-01-02 15:04:05"),
+	}
+
+	marshalled, err := json.Marshal(srv)
+	if err != nil {
+		return errors.WithMessage(err, "[repositories.apiServerRepo] failed to marshal server")
+	}
+
+	resp, err := apiRepo.client.Request(ctx, domain.APIRequest{
+		Method: http.MethodPut,
+		URL:    "/gdaemon_api/servers/{id}",
+		Body:   marshalled,
+		PathParams: map[string]string{
+			"id": strconv.Itoa(server.ID()),
+		},
+	})
+	if err != nil {
+		return errors.WithMessage(err, "[repositories.apiServerRepo] failed to saving server")
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body())
+	}
+
+	return nil
 }

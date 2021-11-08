@@ -35,13 +35,15 @@ const (
 	end
 )
 
-type ServerCommandFactory struct{
-	cfg *config.Config
+type ServerCommandFactory struct {
+	cfg        *config.Config
+	serverRepo domain.ServerRepository
 }
 
-func NewFactory(cfg *config.Config) *ServerCommandFactory {
+func NewFactory(cfg *config.Config, serverRepo domain.ServerRepository) *ServerCommandFactory {
 	return &ServerCommandFactory{
 		cfg,
+		serverRepo,
 	}
 }
 
@@ -65,7 +67,7 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 	case Status:
 		return newStatusServer(factory.cfg)
 	case Install:
-		return newInstallServer(factory.cfg)
+		return newInstallServer(factory.cfg, factory.serverRepo)
 	case Update:
 		return newUpdateServer(factory.cfg)
 	case Reinstall:
@@ -109,6 +111,9 @@ func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domai
 
 	command = strings.ReplaceAll(command, "{game}", server.Game().StartCode)
 	command = strings.ReplaceAll(command, "{user}", server.User())
+
+	command = strings.ReplaceAll(command, "{node_work_path}", cfg.WorkPath)
+
 
 	for k, v := range server.Vars() {
 		command = strings.ReplaceAll(command, "{"+k+"}", v)

@@ -97,7 +97,12 @@ func definitions(cfg *config.Config) []di.Def {
 		{
 			Name: serverCommandFactoryDef,
 			Build: func(ctn di.Container) (interface{}, error) {
-				return game_server_commands.NewFactory(cfg), nil
+				serverRepository := ctn.Get(serverRepositoryDef).(domain.ServerRepository)
+
+				return game_server_commands.NewFactory(
+					cfg,
+					serverRepository,
+				), nil
 			},
 		},
 	}

@@ -46,7 +46,9 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Status, "")
 
 	var err error
-	cmd.result, err = components.ExecWithWriter(ctx, command, path, cmd.output)
+	cmd.result, err = components.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
+		WorkDir: path,
+	})
 	if err != nil {
 		return err
 	}

@@ -22,6 +22,7 @@ type Suite struct {
 
 	TaskManager      *gdaemon_scheduler.TaskManager
 	GDTaskRepository *mocks.GDTaskRepository
+	ServerRepository *mocks.ServerRepository
 	Cache            interfaces.Cache
 	Cfg              *config.Config
 
@@ -32,6 +33,7 @@ func (suite *Suite) SetupSuite() {
 	var err error
 
 	suite.GDTaskRepository = mocks.NewGDTaskRepository()
+	suite.ServerRepository = mocks.NewServerRepository()
 
 
 	suite.Cfg = &config.Config{
@@ -49,7 +51,7 @@ func (suite *Suite) SetupSuite() {
 	suite.TaskManager = gdaemon_scheduler.NewTaskManager(
 		suite.GDTaskRepository,
 		suite.Cache,
-		game_server_commands.NewFactory(suite.Cfg),
+		game_server_commands.NewFactory(suite.Cfg, suite.ServerRepository),
 		suite.Cfg,
 	)
 }

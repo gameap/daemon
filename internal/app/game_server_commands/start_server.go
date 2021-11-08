@@ -6,6 +6,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/pkg/errors"
 )
 
 type startServer struct {
@@ -29,10 +30,12 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
-	s.result, err = components.ExecWithWriter(ctx, command, path, s.output)
+	s.result, err = components.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
+		WorkDir: path,
+	})
 	s.complete = true
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "[game_server_commands.startServer] failed to execute start command")
 	}
 
 	return nil
