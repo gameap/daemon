@@ -27,12 +27,23 @@ func (suite *Suite) SetupTest() {
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-	os.MkdirAll(suite.WorkPath + "/server", 0777)
-	copy.Copy("../../../servers/scripts", suite.WorkPath + "/server")
+
+	err = os.MkdirAll(suite.WorkPath+"/server", 0777)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+
+	err = copy.Copy("../../../servers/scripts", suite.WorkPath+"/server")
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 
 	suite.Cfg.WorkPath = suite.WorkPath
 }
 
 func (suite *Suite) TearDownTest() {
-	os.RemoveAll(suite.WorkPath)
+	err := os.RemoveAll(suite.WorkPath)
+	if err != nil {
+		suite.T().Log(err)
+	}
 }

@@ -15,9 +15,9 @@ func convertToCode(v interface{}) (uint8, error) {
 		return v.(uint8), nil
 	case int8:
 		return uint8(v.(int8)), nil
+	default:
+		return 0, errInvalidMessage
 	}
-
-	return 0, errInvalidMessage
 }
 
 func convertToUint64(v interface{}) (uint64, error) {
@@ -42,9 +42,9 @@ func convertToUint64(v interface{}) (uint64, error) {
 		return v.(uint64), nil
 	case int64:
 		return uint64(v.(int64)), nil
+	default:
+		return 0, errInvalidMessage
 	}
-
-	return 0, errInvalidMessage
 }
 
 type readDirMessage struct {
@@ -66,7 +66,6 @@ func createReadDirMessage(m message) (*readDirMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-
 
 	return &readDirMessage{
 		directory,

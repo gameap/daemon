@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// SafeBuffer is a goroutine safe bytes.Buffer
+// SafeBuffer is a goroutine safe bytes.Buffer.
 type SafeBuffer struct {
 	buffer bytes.Buffer
 	mu     *sync.Mutex

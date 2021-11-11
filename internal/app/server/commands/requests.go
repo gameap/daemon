@@ -9,7 +9,7 @@ import (
 var errInvalidCommandExecMessage = errors.New("unknown binn value, cannot be presented as execute command message")
 
 type commandExec struct {
-	Kind uint8
+	Kind    uint8
 	Command string
 	WorkDir string
 }

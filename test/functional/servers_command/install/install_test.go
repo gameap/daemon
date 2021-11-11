@@ -16,7 +16,7 @@ func (suite *Suite) TestInstall_NoRules() {
 
 	err := cmd.Execute(context.Background(), server)
 
-	suite.ErrorIs(game_server_commands.DefinedNoGameInstallationRulesError, err)
+	suite.ErrorIs(game_server_commands.ErrDefinedNoGameInstallationRulesError, err)
 }
 
 func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameInstalled() {

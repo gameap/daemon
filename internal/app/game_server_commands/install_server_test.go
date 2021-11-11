@@ -10,6 +10,7 @@ import (
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/test/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -192,7 +193,7 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg)
+	install := newInstallServer(cfg, mocks.NewServerRepository())
 
 	err = install.Execute(context.Background(), givenRemoteInstallationServer(t))
 
@@ -210,7 +211,7 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg)
+	install := newInstallServer(cfg, mocks.NewServerRepository())
 
 	err = install.Execute(context.Background(), givenLocalInstallationServer(t))
 

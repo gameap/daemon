@@ -151,7 +151,7 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 	cmd, gameServerCmdExist := taskServerCommandMap[task.Task()]
 
 	if !gameServerCmdExist {
-		return InvalidTaskError
+		return ErrInvalidTaskError
 	}
 
 	cmdFunc := manager.serverCommandFactory.LoadServerCommandFunc(cmd)
@@ -193,7 +193,7 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 	return nil
 }
 
-func (manager *TaskManager) failTask(ctx context.Context, task *domain.GDTask) {
+func (manager *TaskManager) failTask(_ context.Context, task *domain.GDTask) {
 	err := task.SetStatus(domain.GDTaskStatusError)
 	if err != nil {
 		log.Error(err)

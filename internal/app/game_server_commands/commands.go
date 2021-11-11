@@ -114,7 +114,6 @@ func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domai
 
 	command = strings.ReplaceAll(command, "{node_work_path}", cfg.WorkPath)
 
-
 	for k, v := range server.Vars() {
 		command = strings.ReplaceAll(command, "{"+k+"}", v)
 	}

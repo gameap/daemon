@@ -5,15 +5,18 @@ import (
 	"os"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/test/functional"
+	"github.com/gameap/daemon/test/mocks"
 )
 
 type NotInstalledServerSuite struct {
 	functional.GameServerSuite
 
-	CommandFactory *game_server_commands.ServerCommandFactory
+	CommandFactory   *game_server_commands.ServerCommandFactory
 	Cfg              *config.Config
+	ServerRepository domain.ServerRepository
 	WorkPath         string
 }
 
@@ -21,11 +24,13 @@ func (suite *NotInstalledServerSuite) SetupSuite() {
 	suite.Cfg = &config.Config{
 		Scripts: config.Scripts{
 			Start: "{command}",
-			Stop: "{command}",
+			Stop:  "{command}",
 		},
 	}
 
-	suite.CommandFactory = game_server_commands.NewFactory(suite.Cfg)
+	suite.ServerRepository = mocks.NewServerRepository()
+
+	suite.CommandFactory = game_server_commands.NewFactory(suite.Cfg, suite.ServerRepository)
 }
 
 func (suite *NotInstalledServerSuite) SetupTest() {

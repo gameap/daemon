@@ -15,7 +15,7 @@ func (suite *Suite) TestFindByStatus_Success() {
 		http.StatusOK,
 		jsonWaitingTasksResponseBody,
 	)
-	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JsonApiGetServerResponseBody)
+	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JSONApiGetServerResponseBody)
 
 	gdtasks, err := suite.GDTaskRepository.FindByStatus(context.Background(), domain.GDTaskStatusWaiting)
 

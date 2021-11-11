@@ -3,9 +3,9 @@ package config
 import "errors"
 
 var (
-	EmptyNodeIDError  = errors.New("empty node ID")
-	EmptyAPIHostError = errors.New("empty API Host")
-	EmptyAPIKeyError  = errors.New("empty API Key")
+	ErrEmptyNodeID  = errors.New("empty node ID")
+	ErrEmptyAPIHost = errors.New("empty API Host")
+	ErrEmptyAPIKey  = errors.New("empty API Key")
 )
 
 type Scripts struct {
@@ -47,7 +47,7 @@ type Config struct {
 	DrivesList []string `yaml:"drives_list"`
 
 	StatsUpdatePeriod   int `yaml:"stats_update_period"`
-	StatsDbUpdatePeriod int `yaml:"stats_db_update_period"`
+	StatsDBUpdatePeriod int `yaml:"stats_db_update_period"`
 
 	// Log config
 	LogLevel  string `yaml:"log_level"`
@@ -72,15 +72,15 @@ func NewConfig() *Config {
 
 func (c *Config) Validate() error {
 	if c.NodeID == 0 {
-		return EmptyNodeIDError
+		return ErrEmptyNodeID
 	}
 
 	if c.APIHost == "" {
-		return EmptyAPIHostError
+		return ErrEmptyAPIHost
 	}
 
 	if c.APIKey == "" {
-		return EmptyAPIKeyError
+		return ErrEmptyAPIKey
 	}
 
 	return nil

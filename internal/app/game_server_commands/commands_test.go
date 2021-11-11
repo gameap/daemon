@@ -58,7 +58,7 @@ func TestMakeFullCommand(t *testing.T) {
 		time.Now(),
 		map[string]string{
 			"default_map": "de_dust2",
-			"tickrate": "1000",
+			"tickrate":    "1000",
 		},
 		map[string]string{},
 		time.Now(),
@@ -82,5 +82,4 @@ func TestMakeFullCommand(t *testing.T) {
 		"-- ./start-command --default-map de_dust2 --tickrate 1000",
 		command,
 	)
-
 }

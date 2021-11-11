@@ -54,7 +54,7 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 
 	lastUpdated, ok := repo.lastUpdated.Load(id)
 
-	if ok && lastUpdated.(time.Time).Sub(time.Now()) > updateTimeout {
+	if ok && time.Until(lastUpdated.(time.Time)) > updateTimeout {
 		server, err = repo.innerRepo.FindByID(ctx, id)
 		if err != nil {
 			return nil, err

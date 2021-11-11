@@ -32,11 +32,11 @@ const maxSteamCMDInstallTries = 3
 
 var repeatableSteamCMDInstallResults = hashset.New(7, 8)
 
-var DefinedNoGameInstallationRulesError = errors.New("could not determine the rules for installing the game")
+var ErrDefinedNoGameInstallationRulesError = errors.New("could not determine the rules for installing the game")
 
 var (
-	allInstallationMethodsFailed = errors.New("all installation methods failed")
-	installViaSteamCMDFailed = errors.New("failed to install via steamcmd")
+	errAllInstallationMethodsFailed = errors.New("all installation methods failed")
+	errInstallViaSteamCMDFailed     = errors.New("failed to install via steamcmd")
 )
 
 type installationRule struct {
@@ -133,7 +133,7 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 
 	gameRules := sd.DefineGameRules(&game)
 	if len(gameRules) == 0 {
-		return DefinedNoGameInstallationRulesError
+		return ErrDefinedNoGameInstallationRulesError
 	}
 
 	_, _ = cmd.output.Write([]byte("Installing game files ...\n"))
@@ -290,6 +290,11 @@ func (in *installator) Install(ctx context.Context, server *domain.Server, rules
 	var success bool
 
 	for _, rule := range rules {
+		if rule.Action == unknownAction {
+			log.Error("Unknown action found suddenly")
+			continue
+		}
+
 		err = in.install(ctx, server, *rule)
 		if err != nil {
 			_, _ = in.output.Write([]byte(err.Error() + "\n"))
@@ -306,7 +311,7 @@ func (in *installator) Install(ctx context.Context, server *domain.Server, rules
 	}
 
 	if !success {
-		return allInstallationMethodsFailed
+		return errAllInstallationMethodsFailed
 	}
 
 	return nil
@@ -423,7 +428,7 @@ func (in *installator) installFromSteam(
 	}
 
 	if result != SuccessResult {
-		return installViaSteamCMDFailed
+		return errInstallViaSteamCMDFailed
 	}
 
 	return nil

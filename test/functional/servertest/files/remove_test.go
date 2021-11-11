@@ -65,13 +65,3 @@ func (suite *Suite) TestNotExistFileFail() {
 	suite.Equal(response.StatusError, response.Code(r[0].(uint8)))
 	suite.Equal("Path not exist", r[1].(string))
 }
-
-//func (suite *Suite) TestInvalidPathFail() {
-//	suite.Auth(server.ModeFiles)
-//	msg := []interface{}{files.FileRemove, "/", true}
-//
-//	r := suite.ClientWriteReadAndDecodeList(msg)
-//
-//	suite.Equal(response.StatusError, response.Code(r[0].(uint8)))
-//	suite.Equal("Invalid path", r[1].(string))
-//}

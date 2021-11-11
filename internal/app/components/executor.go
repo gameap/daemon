@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var EmptyCommandError = errors.New("empty command")
+var ErrEmptyCommand = errors.New("empty command")
 
 type ExecutorOptions struct {
 	WorkDir string
@@ -40,7 +40,7 @@ func Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte,
 
 func ExecWithWriter(ctx context.Context, command string, out io.Writer, options ExecutorOptions) (int, error) {
 	if command == "" {
-		return -1, EmptyCommandError
+		return -1, ErrEmptyCommand
 	}
 
 	args, err := shellquote.Split(command)

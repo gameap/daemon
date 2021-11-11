@@ -117,8 +117,11 @@ func (suite *Suite) Auth(mode server.Mode) {
 }
 
 func (suite *Suite) ClientWrite(b []byte) {
-	suite.Client.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	_, err := suite.Client.Write(b)
+	err := suite.Client.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+	_, err = suite.Client.Write(b)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
@@ -126,8 +129,12 @@ func (suite *Suite) ClientWrite(b []byte) {
 
 func (suite *Suite) ClientRead(b []byte) {
 	suite.Client.ConnectionState()
-	suite.Client.SetReadDeadline(time.Now().Add(30 * time.Second))
-	_, err := suite.Client.Read(b)
+	err := suite.Client.SetReadDeadline(time.Now().Add(30 * time.Second))
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+
+	_, err = suite.Client.Read(b)
 	if err != nil {
 		suite.T().Fatal(err)
 	}

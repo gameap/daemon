@@ -47,7 +47,7 @@ func (s *restartServer) Execute(ctx context.Context, server *domain.Server) erro
 		return s.restartViaStopStart(ctx, server)
 	}
 
-	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Restart, server.RestartCommand())
+	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Restart, server.StartCommand())
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error

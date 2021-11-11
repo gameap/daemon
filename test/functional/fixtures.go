@@ -35,7 +35,7 @@ var GameServer = domain.NewServer(
 	time.Now(),
 	map[string]string{
 		"default_map": "de_dust2",
-		"tickrate": "1000",
+		"tickrate":    "1000",
 	},
 	map[string]string{},
 	time.Now(),

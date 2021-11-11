@@ -67,5 +67,4 @@ func (suite *Suite) TestUploadSuccess() {
 		}
 		suite.Equal(fileContents, contents)
 	}
-
 }

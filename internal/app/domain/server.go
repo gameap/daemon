@@ -202,7 +202,7 @@ func (s *Server) SetSetting(key string, value string) {
 	s.settings[key] = value
 }
 
-func (s *Server) SetStatus(processActive bool)  {
+func (s *Server) SetStatus(processActive bool) {
 	s.processActive = processActive
 	s.lastProcessCheck = time.Now()
 }

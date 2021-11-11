@@ -17,7 +17,7 @@ func main() {
 	}
 
 	conf := &tls.Config{
-		Certificates:             []tls.Certificate{cer},
+		Certificates:       []tls.Certificate{cer},
 		InsecureSkipVerify: true,
 	}
 

@@ -6,7 +6,7 @@ import (
 	"github.com/et-nik/binngo/decode"
 )
 
-var errUnknownValueAuthMessage = errors.New("Сannot be presented as authMessage")
+var errUnknownValueAuthMessage = errors.New("cannot be presented as authMessage")
 
 type authMessage struct {
 	Login    string
@@ -37,7 +37,7 @@ func createAuthMessageFromSliceInterface(v []interface{}) (*authMessage, error) 
 	return &authMessage{
 		login,
 		password,
-		Mode(md),
+		md,
 	}, nil
 }
 
@@ -69,7 +69,7 @@ func convertToMode(v interface{}) Mode {
 		return Mode(v.(uint16))
 	case uint32:
 		return Mode(v.(uint32))
+	default:
+		return ModeUnknown
 	}
-
-	return ModeUnknown
 }

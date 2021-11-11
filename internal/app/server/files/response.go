@@ -106,14 +106,23 @@ func createfileDetailsResponse(path string) (*fileDetailsResponse, error) {
 		Size:             uint64(fi.Size()),
 		Type:             uint8(fType),
 		ModificationTime: uint64(fi.ModTime().Unix()),
-		AccessTime:		  uint64(stat.Atim.Sec),
-		CreateTime:		  uint64(stat.Ctim.Sec),
+		AccessTime:       uint64(stat.Atim.Sec),
+		CreateTime:       uint64(stat.Ctim.Sec),
 		Perm:             uint32(fi.Mode().Perm()),
-		Mime:			  mime,
+		Mime:             mime,
 	}, nil
 }
 
 func (fdr fileDetailsResponse) MarshalBINN() ([]byte, error) {
-	resp := []interface{}{fdr.Name, fdr.Size, fdr.Type, fdr.ModificationTime, fdr.AccessTime, fdr.CreateTime, fdr.Perm, fdr.Mime}
+	resp := []interface{}{
+		fdr.Name,
+		fdr.Size,
+		fdr.Type,
+		fdr.ModificationTime,
+		fdr.AccessTime,
+		fdr.CreateTime,
+		fdr.Perm,
+		fdr.Mime,
+	}
 	return binngo.Marshal(&resp)
 }

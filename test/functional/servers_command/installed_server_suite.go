@@ -13,8 +13,14 @@ type InstalledServerSuite struct {
 func (suite *InstalledServerSuite) SetupTest() {
 	suite.NotInstalledServerSuite.SetupTest()
 
-	os.MkdirAll(suite.WorkPath + "/server", 0777)
-	copy.Copy("../../../servers/scripts", suite.WorkPath + "/server")
+	err := os.MkdirAll(suite.WorkPath + "/server", 0777)
+	if err != nil {
+		suite.T().Fatal()
+	}
+	err = copy.Copy("../../../servers/scripts", suite.WorkPath + "/server")
+	if err != nil {
+		suite.T().Fatal()
+	}
 
 	suite.Cfg.WorkPath = suite.WorkPath
 }

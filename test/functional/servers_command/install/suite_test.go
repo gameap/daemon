@@ -16,8 +16,14 @@ type Suite struct {
 func (suite *Suite) SetupTest() {
 	suite.NotInstalledServerSuite.SetupTest()
 
-	os.MkdirAll(suite.WorkPath + "/repository", 0777)
-	copy.Copy("../../../files/local_repository", suite.WorkPath + "/repository")
+	err := os.MkdirAll(suite.WorkPath+"/repository", 0777)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+	err = copy.Copy("../../../files/local_repository", suite.WorkPath + "/repository")
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 }
 
 func TestSuite(t *testing.T) {

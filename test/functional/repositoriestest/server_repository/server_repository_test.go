@@ -15,7 +15,7 @@ func (suite *Suite) TestNotFound() {
 }
 
 func (suite *Suite) TestSuccess() {
-	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JsonApiGetServerResponseBody)
+	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JSONApiGetServerResponseBody)
 
 	server, err := suite.ServerRepository.FindByID(context.Background(), 1)
 
@@ -54,8 +54,8 @@ func (suite *Suite) TestSuccess() {
 
 func (suite *Suite) TestWhenTokenIsInvalid_ExpectSuccess() {
 	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusUnauthorized, nil)
-	suite.GivenAPIResponse("/gdaemon_api/get_token", http.StatusOK, repositoriestest.JsonApiGetTokenResponseBody)
-	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JsonApiGetServerResponseBody)
+	suite.GivenAPIResponse("/gdaemon_api/get_token", http.StatusOK, repositoriestest.JSONApiGetTokenResponseBody)
+	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JSONApiGetServerResponseBody)
 
 	server, err := suite.ServerRepository.FindByID(context.Background(), 1)
 

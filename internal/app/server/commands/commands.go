@@ -9,7 +9,7 @@ import (
 	"github.com/gameap/daemon/internal/app/server/response"
 )
 
-type Commands struct {}
+type Commands struct{}
 
 func NewCommands() *Commands {
 	return &Commands{}
@@ -39,14 +39,13 @@ func (c Commands) executeCommand(ctx context.Context, msg commandExec, writer io
 		response.WriteResponse(writer, response.Response{
 			Code: response.StatusError,
 			Info: err.Error(),
-
 		})
 		return
 	}
 
 	response.WriteResponse(writer, Response{
-		Code: response.StatusOK,
+		Code:     response.StatusOK,
 		ExitCode: exitCode,
-		Output: string(out),
+		Output:   string(out),
 	})
 }

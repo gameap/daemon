@@ -19,8 +19,8 @@ import (
 const maxActualizeCount = 1
 
 var (
-	invalidAPIResponse           = errors.New("failed to get gdaemon API token")
-	actualizeTokenActionIsLocked = errors.New("actualize token action is already locked")
+	errInvalidAPIResponse           = errors.New("failed to get gdaemon API token")
+	errActualizeTokenActionIsLocked = errors.New("actualize token action is already locked")
 )
 
 type APIClient struct {
@@ -31,10 +31,6 @@ type APIClient struct {
 	tokenMutex    *lock.CASMutex
 	apiServerTime time.Time
 	token         string
-}
-
-type innerClient interface {
-	SetHeaders(headers map[string]string) *innerClient
 }
 
 func NewAPICaller(ctx context.Context, cfg *config.Config, client *resty.Client) (*APIClient, error) {
@@ -112,7 +108,7 @@ func (c *APIClient) request(ctx context.Context, request domain.APIRequest, deep
 func (c *APIClient) actualizeToken(ctx context.Context) error {
 	locked := c.tokenMutex.TryLockWithContext(ctx)
 	if !locked {
-		return actualizeTokenActionIsLocked
+		return errActualizeTokenActionIsLocked
 	}
 	defer c.tokenMutex.Unlock()
 
@@ -129,7 +125,7 @@ func (c *APIClient) actualizeToken(ctx context.Context) error {
 	}
 
 	if response.IsError() {
-		return invalidAPIResponse
+		return errInvalidAPIResponse
 	}
 
 	message := struct {

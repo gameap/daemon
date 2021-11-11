@@ -13,6 +13,7 @@ import (
 	"github.com/gameap/daemon/internal/app"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gorilla/mux"
+	"github.com/pkg/errors"
 	"github.com/sarulabs/di"
 	"github.com/stretchr/testify/suite"
 )
@@ -59,7 +60,7 @@ func (suite *Suite) SetupSuite() {
 		APIKey:  "0oKyfcfjZOycicaazEgW6sHw9cYUMJDVJl0pXKjMYu44eoBWBwvXUJZdv6z6OfKs",
 	}
 
-	getTokenJson, err := json.Marshal(struct {
+	getTokenJSON, err := json.Marshal(struct {
 		Token     string `json:"token"`
 		TimeStamp int64  `json:"timestamp"`
 	}{
@@ -71,7 +72,7 @@ func (suite *Suite) SetupSuite() {
 	}
 
 	suite.setupAPIServer()
-	suite.GivenAPIResponse("/gdaemon_api/get_token", http.StatusOK, getTokenJson)
+	suite.GivenAPIResponse("/gdaemon_api/get_token", http.StatusOK, getTokenJSON)
 
 	builder, err := app.NewBuilder(suite.Cfg)
 	if err != nil {
@@ -108,7 +109,7 @@ func (suite *Suite) setupAPIServer() {
 	go func() {
 		defer suite.wg.Done()
 
-		if err := suite.apiServer.ListenAndServe(); err != http.ErrServerClosed {
+		if err := suite.apiServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			suite.T().Fatal(err)
 		}
 	}()
@@ -134,7 +135,7 @@ func (suite *Suite) apiTestServerHandler(writer http.ResponseWriter, request *ht
 	suite.apiResponses[request.RequestURI] = suite.apiResponses[request.RequestURI][1:]
 
 	writer.WriteHeader(response.StatusCode)
-	writer.Write(response.Body)
+	_, _ = writer.Write(response.Body)
 }
 
 func (suite *Suite) appendPutCall(uri string, body []byte) {

@@ -1,6 +1,6 @@
 package repositoriestest
 
-var JsonApiGetServerResponseBody = []byte(`
+var JSONApiGetServerResponseBody = []byte(`
 {
     "id": 1,
     "uuid": "94cdfde4-15a4-40b9-8043-260e6a0b5b67",
@@ -110,7 +110,7 @@ var JsonApiGetServerResponseBody = []byte(`
     ]
 }`)
 
-var JsonApiGetTokenResponseBody = []byte(`
+var JSONApiGetTokenResponseBody = []byte(`
 {
     "token": "dYCw9ADVnS03leY9dLlckgaxiG59uKF3KMCcpmXpJUKYmlQXuAhvHtCYbL6hG3Ce",
 	"timestamp": 0

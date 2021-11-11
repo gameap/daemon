@@ -35,10 +35,13 @@ func NewGDTasksRepository(
 	}
 }
 
-func (repository *GDTasksRepository) FindByStatus(ctx context.Context, status domain.GDTaskStatus) ([]*domain.GDTask, error) {
+func (repository *GDTasksRepository) FindByStatus(
+	ctx context.Context,
+	status domain.GDTaskStatus,
+) ([]*domain.GDTask, error) {
 	resp, err := repository.client.Request(ctx, domain.APIRequest{
 		Method: http.MethodGet,
-		URL: "/gdaemon_api/tasks",
+		URL:    "/gdaemon_api/tasks",
 		QueryParams: map[string]string{
 			"filter[status]": string(status),
 			"append":         "status_num",
@@ -80,7 +83,7 @@ func (repository *GDTasksRepository) FindByStatus(ctx context.Context, status do
 func (repository *GDTasksRepository) FindByID(ctx context.Context, id int) (*domain.GDTask, error) {
 	resp, err := repository.client.Request(ctx, domain.APIRequest{
 		Method: http.MethodGet,
-		URL: "/gdaemon_api/tasks/{id}",
+		URL:    "/gdaemon_api/tasks/{id}",
 		PathParams: map[string]string{
 			"id": strconv.Itoa(id),
 		},
@@ -90,14 +93,26 @@ func (repository *GDTasksRepository) FindByID(ctx context.Context, id int) (*dom
 		return nil, err
 	}
 
-	var gdTask domain.GDTask
+	var tsk task
 
-	err = json.Unmarshal(resp.Body(), &gdTask)
+	err = json.Unmarshal(resp.Body(), &tsk)
 	if err != nil {
 		return nil, err
 	}
 
-	return &gdTask, nil
+	server, err := repository.serverRepository.FindByID(ctx, tsk.Server)
+	if err != nil {
+		return nil, err
+	}
+
+	return domain.NewGDTask(
+		tsk.ID,
+		tsk.RunAfterID,
+		server,
+		domain.GDTaskCommand(tsk.Task),
+		tsk.Cmd,
+		domain.GDTaskStatus(tsk.Status),
+	), nil
 }
 
 func (repository *GDTasksRepository) Save(ctx context.Context, gdtask *domain.GDTask) error {
@@ -110,8 +125,8 @@ func (repository *GDTasksRepository) Save(ctx context.Context, gdtask *domain.GD
 
 	resp, err := repository.client.Request(ctx, domain.APIRequest{
 		Method: http.MethodPut,
-		URL: "/gdaemon_api/tasks/{id}",
-		Body: marshalled,
+		URL:    "/gdaemon_api/tasks/{id}",
+		Body:   marshalled,
 		PathParams: map[string]string{
 			"id": strconv.Itoa(gdtask.ID()),
 		},
@@ -137,8 +152,8 @@ func (repository *GDTasksRepository) AppendOutput(ctx context.Context, gdtask *d
 
 	resp, err := repository.client.Request(ctx, domain.APIRequest{
 		Method: http.MethodPut,
-		URL: "/gdaemon_api/tasks/{id}/output",
-		Body: marshalled,
+		URL:    "/gdaemon_api/tasks/{id}/output",
+		Body:   marshalled,
 		PathParams: map[string]string{
 			"id": strconv.Itoa(gdtask.ID()),
 		},
