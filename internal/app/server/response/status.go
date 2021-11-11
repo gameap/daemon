@@ -1,12 +1,12 @@
 package response
 
 import (
-	"errors"
 	"io"
 
 	"github.com/et-nik/binngo"
 	"github.com/et-nik/binngo/decode"
 	"github.com/et-nik/binngo/encode"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -84,7 +84,7 @@ func WriteResponse(writer io.Writer, r encode.Marshaler) {
 
 	n, err := writer.Write(writeBytes)
 	if err != nil {
-		log.Warnln(n, err)
+		log.Warnln(n, errors.WithMessage(err, "failed to write response"))
 		return
 	}
 }

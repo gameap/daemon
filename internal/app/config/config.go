@@ -66,7 +66,10 @@ type Config struct {
 
 func NewConfig() *Config {
 	return &Config{
-		LogLevel: "warning",
+		ListenIP:   "0.0.0.0",
+		ListenPort: 31717,
+
+		LogLevel: "info",
 	}
 }
 

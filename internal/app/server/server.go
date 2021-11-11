@@ -13,6 +13,7 @@ import (
 	"github.com/gameap/daemon/internal/app/server/commands"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -128,13 +129,13 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	decoder := decode.NewDecoder(conn)
 	err := decoder.Decode(&msg)
 	if err != nil {
-		log.Warnln(err)
+		log.Warnln(errors.WithMessage(err, "failed to decode message"))
 		return
 	}
 
 	authMsg, err := createAuthMessageFromSliceInterface(msg)
 	if err != nil {
-		log.Warnln(err)
+		log.Warnln(errors.WithMessage(err, "failed to create auth message"))
 
 		response.WriteResponse(conn, response.Response{
 			Code: response.StatusError,
