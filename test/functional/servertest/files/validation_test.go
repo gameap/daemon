@@ -23,7 +23,7 @@ func (suite *Suite) TestStringMessage() {
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	assert.Equal(suite.T(), response.StatusError, response.Code(r[0].(uint8)))
-	assert.Equal(suite.T(), "Failed to decode message", r[1])
+	assert.Contains(suite.T(), r[1], "Failed to decode message")
 }
 
 func (suite *Suite) TestInvalidOperationCode() {

@@ -7,7 +7,6 @@ import (
 	"github.com/et-nik/binngo/decode"
 	"github.com/et-nik/binngo/encode"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 var errUnknownBinn = errors.New("unknown binn value, cannot be presented as status")
@@ -73,18 +72,18 @@ func (r *Response) UnmarshalBINN(bytes []byte) error {
 	return nil
 }
 
-func WriteResponse(writer io.Writer, r encode.Marshaler) {
+func WriteResponse(writer io.Writer, r encode.Marshaler) error {
 	writeBytes, err := binngo.Marshal(&r)
 	if err != nil {
-		log.Error(err)
-		return
+		return errors.WithMessage(err, "failed to marshal response")
 	}
 
 	writeBytes = append(writeBytes, []byte{0xFF, 0xFF, 0xFF, 0xFF}...)
 
-	n, err := writer.Write(writeBytes)
+	_, err = writer.Write(writeBytes)
 	if err != nil {
-		log.Warnln(n, errors.WithMessage(err, "failed to write response"))
-		return
+		return errors.WithMessage(err, "failed to write response")
 	}
+
+	return nil
 }

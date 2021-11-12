@@ -2,10 +2,7 @@ package files
 
 import (
 	"os"
-	"strconv"
-	"time"
 
-	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
@@ -31,40 +28,74 @@ func (suite *Suite) TestDownloadSuccess() {
 }
 
 func (suite *Suite) TestUploadSuccess() {
-	suite.Auth(server.ModeFiles)
-	tempDirDestination := os.TempDir() + "/files_test_destination_" + strconv.Itoa(int(time.Now().UnixNano()))
-	fileDestination := tempDirDestination + "/file"
-	msg := []interface{}{
-		files.FileSend,
-		files.GetFileFromClient,
-		fileDestination,
-		uint64(12),
-		true,
-		0666,
-	}
-
+	suite.Authenticate()
+	fileContents := []byte{'f', 'i', 'l', 'e', 'c', 'o', 'n', 't', 'e', 'n', 't', 's'}
+	msg := suite.givenUploadMessage(len(fileContents))
 	r := suite.ClientWriteReadAndDecodeList(msg)
-
 	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
 
 	// Transfer the file
-	fileContents := []byte{'f', 'i', 'l', 'e', 'c', 'o', 'n', 't', 'e', 'n', 't', 's'}
+	suite.ClientFileContentsWrite(fileContents)
+	r = suite.readMessageFromClient()
 
-	suite.ClientWrite(fileContents)
-	buf := make([]byte, 256)
-	suite.ClientRead(buf)
-	r = []interface{}{}
-	err := decode.Unmarshal(buf, &r)
+	assert.Equal(suite.T(), response.StatusOK, response.Code(r[0].(uint8)))
+	suite.assertUploadedFileSize(len(fileContents))
+	suite.assertUploadedFileContents(fileContents)
+}
+
+func (suite *Suite) TestUploadBigFileSuccess() {
+	suite.Authenticate()
+	msg := suite.givenUploadMessage(1000000)
+	r := suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
+
+	// Transfer the file
+	for i := 0; i < 100000; i++ {
+		suite.ClientFileContentsWrite([]byte(`_big_file_`))
+	}
+	r = suite.readMessageFromClient()
+
+
+	assert.Equal(suite.T(), response.StatusOK, response.Code(r[0].(uint8)))
+	suite.Require().FileExists(suite.tempFileDestination)
+	suite.assertUploadedFileSize(1000000)
+	suite.assertFirstAndLastFileBytes([]byte(`_big_file__big_file_`), []byte(`_big_file__big_file_`))
+}
+
+func (suite *Suite) TestUploadRaccoonSuccess() {
+	suite.Authenticate()
+	fileContents, err := os.ReadFile("../../../files/raccoon.jpg")
 	if err != nil {
 		suite.T().Fatal(err)
 	}
+	msg := suite.givenUploadMessage(len(fileContents))
+	r := suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
+
+	suite.ClientFileContentsWrite(fileContents)
+	r = suite.readMessageFromClient()
 
 	assert.Equal(suite.T(), response.StatusOK, response.Code(r[0].(uint8)))
-	if suite.FileExists(fileDestination) {
-		contents, err := os.ReadFile(fileDestination)
-		if err != nil {
-			suite.T().Fatal(err)
-		}
-		suite.Equal(fileContents, contents)
-	}
+	suite.assertUploadedFileSize(len(fileContents))
+	suite.assertUploadedFileContents(fileContents)
+}
+
+func (suite *Suite) TestUpload_WhenListDirectoryCommandExecutedBefore_Success() {
+	suite.Authenticate()
+	// Read Directory
+	readDirMsg := []interface{}{files.ReadDir, "../../../../test/files", files.ListWithDetails}
+	r := suite.ClientWriteReadAndDecodeList(readDirMsg)
+	suite.Require().Equal(response.StatusOK, response.Code(r[0].(uint8)))
+	// File arrange
+	fileContents := []byte(`filecontents`)
+	msg := suite.givenUploadMessage(len(fileContents))
+	r = suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
+
+	suite.ClientFileContentsWrite(fileContents)
+	r = suite.readMessageFromClient()
+
+	assert.Equal(suite.T(), response.StatusOK, response.Code(r[0].(uint8)))
+	suite.assertUploadedFileSize(len(fileContents))
+	suite.assertUploadedFileContents(fileContents)
 }

@@ -1,6 +1,7 @@
 package servertest
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/response"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -20,6 +22,8 @@ const (
 	ClientCert = "../../../../config/certs/client.crt"
 	ClientKey  = "../../../../config/certs/client.key"
 )
+
+const timeout = 5000 * time.Second
 
 type Suite struct {
 	suite.Suite
@@ -117,7 +121,27 @@ func (suite *Suite) Auth(mode server.Mode) {
 }
 
 func (suite *Suite) ClientWrite(b []byte) {
-	err := suite.Client.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	suite.T().Helper()
+
+	err := suite.Client.SetWriteDeadline(time.Now().Add(timeout))
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+	_, err = suite.Client.Write(b)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+
+	_, err = suite.Client.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF})
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+}
+
+func (suite *Suite) ClientFileContentsWrite(b []byte) {
+	suite.T().Helper()
+
+	err := suite.Client.SetWriteDeadline(time.Now().Add(timeout))
 	if err != nil {
 		suite.T().Fatal(err)
 	}
@@ -129,7 +153,7 @@ func (suite *Suite) ClientWrite(b []byte) {
 
 func (suite *Suite) ClientRead(b []byte) {
 	suite.Client.ConnectionState()
-	err := suite.Client.SetReadDeadline(time.Now().Add(30 * time.Second))
+	err := suite.Client.SetReadDeadline(time.Now().Add(timeout))
 	if err != nil {
 		suite.T().Fatal(err)
 	}
@@ -141,20 +165,26 @@ func (suite *Suite) ClientRead(b []byte) {
 }
 
 func (suite *Suite) ClientWriteReadAndDecodeList(msg interface{}) []interface{} {
-	bytes, err := binngo.Marshal(msg)
+	suite.T().Helper()
+
+	b, err := binngo.Marshal(msg)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
 
-	suite.ClientWrite(bytes)
-
-	buf := make([]byte, 256)
-	suite.ClientRead(buf)
+	suite.ClientWrite(b)
 
 	var r []interface{}
-	err = decode.Unmarshal(buf, &r)
+	decoder := decode.NewDecoder(suite.Client)
+	err = decoder.Decode(&r)
 	if err != nil {
-		suite.T().Fatal(err)
+		suite.T().Fatal(errors.WithMessage(err, "failed to unmarshal client response"))
+	}
+
+	endBytes := make([]byte, 4)
+	suite.ClientRead(endBytes)
+	if !bytes.Equal(endBytes, []byte{0xFF, 0xFF, 0xFF, 0xFF}) {
+		suite.T().Fatal("invalid end bytes")
 	}
 
 	return r

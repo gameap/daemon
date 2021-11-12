@@ -13,6 +13,7 @@ import (
 	"github.com/gameap/daemon/internal/app/server/commands"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
+	servercommon "github.com/gameap/daemon/internal/app/server/server_common"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -39,7 +40,7 @@ type Server struct {
 }
 
 type componentHandler interface {
-	Handle(ctx context.Context, readWriter io.ReadWriter)
+	Handle(ctx context.Context, readWriter io.ReadWriter) error
 }
 
 func NewServer(ip string, port int, certFile string, keyFile string, credConfig CredentialsConfig) (*Server, error) {
@@ -50,7 +51,7 @@ func NewServer(ip string, port int, certFile string, keyFile string, credConfig 
 		keyFile:     keyFile,
 		credConfig:  credConfig,
 		quit:        make(chan struct{}),
-		connTimeout: 1 * time.Second,
+		connTimeout: 5000 * time.Second,
 	}, nil
 }
 
@@ -108,13 +109,16 @@ func (srv *Server) serve(ctx context.Context) error {
 
 		srv.wg.Add(1)
 		go func() {
-			srv.handleConnection(ctx, conn)
+			err = srv.handleConnection(ctx, conn)
+			if err != nil {
+				log.Warn(errors.WithMessage(err, "handle connection"))
+			}
 			srv.wg.Done()
 		}()
 	}
 }
 
-func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
+func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) error {
 	defer func() {
 		log.Tracef("Closing connection from %s", conn.RemoteAddr())
 		err := conn.Close()
@@ -123,42 +127,52 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		}
 	}()
 
+	err := conn.SetDeadline(time.Now().Add(srv.connTimeout))
+	if err != nil {
+		return err
+	}
+
 	log.Infof("Connected: %s", conn.RemoteAddr())
 
 	var msg []interface{}
 	decoder := decode.NewDecoder(conn)
-	err := decoder.Decode(&msg)
+	err = decoder.Decode(&msg)
 	if err != nil {
 		log.Warnln(errors.WithMessage(err, "failed to decode message"))
-		return
+		return err
 	}
 
 	authMsg, err := createAuthMessageFromSliceInterface(msg)
 	if err != nil {
 		log.Warnln(errors.WithMessage(err, "failed to create auth message"))
 
-		response.WriteResponse(conn, response.Response{
+		return response.WriteResponse(conn, response.Response{
 			Code: response.StatusError,
 			Info: "Invalid message",
 		})
-
-		return
 	}
 
 	if !srv.auth(authMsg.Login, authMsg.Password) {
-		response.WriteResponse(conn, response.Response{
+		return response.WriteResponse(conn, response.Response{
 			Code: response.StatusError,
 			Info: "Auth failed",
 		})
-		return
 	}
 
-	response.WriteResponse(conn, response.Response{
+	err = response.WriteResponse(conn, response.Response{
 		Code: response.StatusOK,
 		Info: "Auth success",
 	})
+	if err != nil {
+		return errors.WithMessage(err, "failed to write auth response")
+	}
 
-	srv.serveComponent(ctx, conn, authMsg.Mode)
+	err = servercommon.ReadEndBytes(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	return srv.serveComponent(ctx, conn, authMsg.Mode)
 }
 
 func (srv *Server) auth(login string, password string) bool {
@@ -171,7 +185,7 @@ func (srv *Server) auth(login string, password string) bool {
 	return true
 }
 
-func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) {
+func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) error {
 	var handler componentHandler
 	switch m {
 	case ModeCommands:
@@ -179,23 +193,35 @@ func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) {
 	case ModeFiles:
 		handler = files.NewFiles()
 	default:
-		response.WriteResponse(conn, response.Response{
+		err := response.WriteResponse(conn, response.Response{
 			Code: response.StatusError,
 			Info: "Invalid mode",
 		})
-		return
+		if err != nil {
+			log.Error(err)
+			return err
+		}
 	}
 
 	for {
 		select {
 		case <-srv.quit:
-			return
+			return nil
 		default:
 			err := conn.SetDeadline(time.Now().Add(srv.connTimeout))
 			if err != nil {
-				return
+				return err
 			}
-			handler.Handle(ctx, conn)
+
+			err = handler.Handle(ctx, conn)
+			if err != nil {
+				return err
+			}
+
+			err = servercommon.ReadEndBytes(ctx, conn)
+			if err != nil {
+				return err
+			}
 		}
 	}
 }

@@ -2,7 +2,6 @@ package files
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,11 +9,13 @@ import (
 
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/server/response"
+	servercommon "github.com/gameap/daemon/internal/app/server/server_common"
 	"github.com/otiai10/copy"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
-type operationHandlerFunc func(message message, readWriter io.ReadWriter)
+type operationHandlerFunc func(message message, readWriter io.ReadWriter) error
 
 type Files struct {
 	handlers map[Operation]operationHandlerFunc
@@ -36,65 +37,70 @@ func NewFiles() *Files {
 	}
 }
 
-func (f *Files) Handle(_ context.Context, readWriter io.ReadWriter) {
+func (f *Files) Handle(ctx context.Context, readWriter io.ReadWriter) error {
+	//var endRead bool
+	//defer func(ctx context.Context, reader io.Reader) {
+	//	if !endRead {
+	//		err := servercommon.ReadEndBytes(ctx, reader)
+	//		if err != nil {
+	//			log.Warn(err)
+	//		}
+	//	}
+	//}(ctx, readWriter)
+
 	var msg message
 
 	decoder := decode.NewDecoder(readWriter)
 	err := decoder.Decode(&msg)
 	if err != nil {
-		response.WriteResponse(readWriter, response.Response{
+		return response.WriteResponse(readWriter, response.Response{
 			Code: response.StatusError,
-			Info: "Failed to decode message",
+			Info: "Failed to decode message: " + err.Error(),
 		})
-		return
 	}
 
 	if len(msg) == 0 {
-		response.WriteResponse(readWriter, response.Response{
+		return response.WriteResponse(readWriter, response.Response{
 			Code: response.StatusError,
 			Info: "Invalid message",
 		})
-		return
 	}
 
 	op, err := convertToCode(msg[0])
 	if err != nil {
-		response.WriteResponse(readWriter, response.Response{
+		return response.WriteResponse(readWriter, response.Response{
 			Code: response.StatusError,
 			Info: "Invalid message",
 		})
-		return
 	}
 
 	handler, ok := f.handlers[Operation(op)]
 	if !ok {
-		response.WriteResponse(readWriter, response.Response{
+		return response.WriteResponse(readWriter, response.Response{
 			Code: response.StatusError,
 			Info: "Invalid operation",
 		})
-		return
 	}
 
-	handler(msg, readWriter)
+	return handler(msg, readWriter)
 }
 
-func writeError(readWriter io.Writer, message string) {
-	response.WriteResponse(readWriter, response.Response{
+func writeError(readWriter io.Writer, message string) error {
+	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusError,
 		Info: message,
 	})
 }
 
-func readDir(m message, readWriter io.ReadWriter) {
+func readDir(m message, readWriter io.ReadWriter) error {
 	message, err := createReadDirMessage(m)
 	if message == nil || err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
 
 	dir, err := os.ReadDir(message.Directory)
 	if err != nil {
-		return
+		return err
 	}
 
 	resp := make([]*fileInfoResponse, len(dir))
@@ -108,46 +114,41 @@ func readDir(m message, readWriter io.ReadWriter) {
 		resp[i] = createFileInfoResponse(fi)
 	}
 
-	response.WriteResponse(readWriter, response.Response{
+	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 		Data: resp,
 	})
 }
 
-func makeDir(m message, readWriter io.ReadWriter) {
+func makeDir(m message, readWriter io.ReadWriter) error {
 	message, err := createMkDirMessage(m)
 	if message == nil || err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
 
 	err = os.MkdirAll(message.Directory, os.ModePerm)
 	if err != nil {
 		log.Error(err)
-		writeError(readWriter, "Failed to make directory")
-		return
+		return writeError(readWriter, "Failed to make directory")
 	}
 
-	response.WriteResponse(readWriter, response.Response{
+	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 	})
 }
 
-func moveCopy(m message, readWriter io.ReadWriter) {
+func moveCopy(m message, readWriter io.ReadWriter) error {
 	message, err := createMoveMessage(m)
 	if message == nil || err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
 
 	if _, err := os.Stat(message.Source); os.IsNotExist(err) {
-		writeError(readWriter, fmt.Sprintf("Source \"%s\" not found", message.Source))
-		return
+		return writeError(readWriter, fmt.Sprintf("Source \"%s\" not found", message.Source))
 	}
 
 	if _, err := os.Stat(message.Destination); !os.IsNotExist(err) {
-		writeError(readWriter, fmt.Sprintf("Destination \"%s\" already exists", message.Destination))
-		return
+		return writeError(readWriter, fmt.Sprintf("Destination \"%s\" already exists", message.Destination))
 	}
 
 	if message.Copy {
@@ -162,96 +163,104 @@ func moveCopy(m message, readWriter io.ReadWriter) {
 		)
 		if err != nil {
 			log.Error(err)
-			writeError(readWriter, "Failed to copy")
-			return
+			return writeError(readWriter, "Failed to copy")
 		}
 	} else {
 		err := os.Rename(message.Source, message.Destination)
 		if err != nil {
 			log.Error(err)
-			writeError(readWriter, "Failed to move")
-			return
+			return writeError(readWriter, "Failed to move")
 		}
 	}
 
-	response.WriteResponse(readWriter, response.Response{
+	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 	})
 }
 
-func fileSend(m message, readWriter io.ReadWriter) {
+func fileSend(m message, readWriter io.ReadWriter) error {
 	if len(m) < 2 {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
 
 	op, err := convertToCode(m[1])
 	if err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
+	}
+
+	err = servercommon.ReadEndBytes(context.TODO(), readWriter)
+	if err != nil {
+		return errors.WithMessage(err, "failed to read end bytes")
 	}
 
 	switch op {
 	case SendFileToClient:
-		uploadFileToClient(m, readWriter)
+		return uploadFileToClient(m, readWriter)
 	case GetFileFromClient:
-		downloadFileFromClient(m, readWriter)
+		return downloadFileFromClient(m, readWriter)
 	default:
-		writeError(readWriter, "Invalid file send operation")
+		return writeError(readWriter, "Invalid file send operation")
 	}
 }
 
-func uploadFileToClient(m message, readWriter io.ReadWriter) {
+func uploadFileToClient(m message, readWriter io.ReadWriter) error {
 	message, err := createSendFileToClientMessage(m)
 	if message == nil || err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
 
 	fi, err := os.Stat(message.FilePath)
 	if err != nil {
 		log.Error(err)
-		writeError(readWriter, fmt.Sprintf("File \"%s\" error", message.FilePath))
-		return
+		return writeError(readWriter, fmt.Sprintf("File \"%s\" error", message.FilePath))
 	}
 	if os.IsNotExist(err) {
-		writeError(readWriter, fmt.Sprintf("File \"%s\" not found", message.FilePath))
-		return
+		return writeError(readWriter, fmt.Sprintf("File \"%s\" not found", message.FilePath))
 	}
 
 	if !fi.Mode().IsRegular() {
-		writeError(readWriter, fmt.Sprintf("\"%s\" is not a file", message.FilePath))
-		return
+		return writeError(readWriter, fmt.Sprintf("\"%s\" is not a file", message.FilePath))
 	}
 
 	file, err := os.Open(message.FilePath)
-	defer file.Close()
+
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			log.Error(err)
+		}
+	}(file)
+
 	if err != nil {
 		log.Error(err)
-		writeError(readWriter, fmt.Sprintf("Failed to open file \"%s\"", message.FilePath))
-		return
+		return writeError(readWriter, fmt.Sprintf("Failed to open file \"%s\"", message.FilePath))
 	}
 
-	response.WriteResponse(readWriter, response.Response{
+	err = response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusReadyToTransfer,
 		Info: "File is ready to transfer",
 		Data: uint64(fi.Size()),
 	})
+	if err != nil {
+		return err
+	}
 
 	_, err = io.Copy(readWriter, file)
 	if err != nil {
 		log.Error(err)
-		writeError(readWriter, "Failed to transfer file")
-		return
+		return writeError(readWriter, "Failed to transfer file")
 	}
+
+	return nil
 }
 
-func downloadFileFromClient(m message, readWriter io.ReadWriter) {
+func downloadFileFromClient(m message, readWriter io.ReadWriter) error {
 	message, err := createGetFileFromClientMessage(m)
 	if message == nil || err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
+
+	log.Debugf("Starting transferring file from client: filepath: %s, filesize: %d", message.FilePath, message.FileSize)
 
 	dir := path.Dir(message.FilePath)
 	_, err = os.Stat(dir)
@@ -260,61 +269,63 @@ func downloadFileFromClient(m message, readWriter io.ReadWriter) {
 			err := os.MkdirAll(dir, 0755)
 			if err != nil {
 				log.Error(err)
-				writeError(readWriter, fmt.Sprintf("Failed to make directory \"%s\"", dir))
-				return
+				return writeError(readWriter, fmt.Sprintf("Failed to make directory \"%s\"", dir))
 			}
 		} else {
-			writeError(readWriter, fmt.Sprintf("File path \"%s\" not found", dir))
-			return
+			return writeError(readWriter, fmt.Sprintf("File path \"%s\" not found", dir))
 		}
 	} else if err != nil {
 		log.Error(err)
-		writeError(readWriter, fmt.Sprintf("Directory \"%s\" error", dir))
-		return
+		return writeError(readWriter, fmt.Sprintf("Directory \"%s\" error", dir))
 	}
 
 	file, err := os.OpenFile(message.FilePath, os.O_CREATE|os.O_WRONLY, message.Perms)
 	if err != nil {
 		log.Error(err)
-		writeError(readWriter, "Failed to open file")
-		return
+		return writeError(readWriter, "Failed to open file")
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			log.Error(err)
+		}
+	}(file)
 
-	response.WriteResponse(readWriter, response.Response{
+	err = response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusReadyToTransfer,
 		Info: "File is ready to transfer",
 	})
+	if err != nil {
+		return err
+	}
 
 	_, err = io.CopyN(file, readWriter, int64(message.FileSize))
 	if err != nil {
 		log.Error(err)
-		writeError(readWriter, "Failed to transfer file")
-		return
+		return writeError(readWriter, "Failed to transfer file")
 	}
 
-	response.WriteResponse(readWriter, response.Response{
+	log.Debug("File successfully transfered")
+
+	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 	})
 }
 
-func remove(m message, readWriter io.ReadWriter) {
+func remove(m message, readWriter io.ReadWriter) error {
 	message, err := createRemoveMessage(m)
 	if message == nil || err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
 
 	cleanedPath := path.Clean(message.Path)
 
 	if cleanedPath == "." || cleanedPath == "/" {
-		writeError(readWriter, "Invalid path")
-		return
+		return writeError(readWriter, "Invalid path")
 	}
 
 	if _, err := os.Stat(cleanedPath); errors.Is(err, os.ErrNotExist) {
-		writeError(readWriter, "Path not exist")
-		return
+		return writeError(readWriter, "Path not exist")
 	}
 
 	if message.Recursive {
@@ -325,52 +336,46 @@ func remove(m message, readWriter io.ReadWriter) {
 
 	if err != nil {
 		log.Error(err)
-		writeError(readWriter, "Failed to remove")
-		return
+		return writeError(readWriter, "Failed to remove")
 	}
 
-	response.WriteResponse(readWriter, response.Response{
+	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 	})
 }
 
-func fileInfo(m message, readWriter io.ReadWriter) {
+func fileInfo(m message, readWriter io.ReadWriter) error {
 	message, err := createFileInfoMessage(m)
 	if message == nil || err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
 
 	r, err := createfileDetailsResponse(message.Path)
 	if err != nil {
-		writeError(readWriter, "Failed to read file details")
-		return
+		return writeError(readWriter, "Failed to read file details")
 	}
 
-	response.WriteResponse(readWriter, response.Response{
+	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 		Data: r,
 	})
 }
 
-func chmod(m message, readWriter io.ReadWriter) {
+func chmod(m message, readWriter io.ReadWriter) error {
 	message, err := createChmodMessage(m)
 	if message == nil || err != nil {
-		writeError(readWriter, "Invalid message")
-		return
+		return writeError(readWriter, "Invalid message")
 	}
 
 	err = os.Chmod(message.Path, os.FileMode(message.Perm))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
-		writeError(readWriter, "Path not exist")
-		return
+		return writeError(readWriter, "Path not exist")
 	}
 	if err != nil {
-		writeError(readWriter, "Failed to change permissions")
-		return
+		return writeError(readWriter, "Failed to change permissions")
 	}
 
-	response.WriteResponse(readWriter, response.Response{
+	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 	})
 }

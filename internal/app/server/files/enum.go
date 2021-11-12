@@ -18,6 +18,6 @@ const (
 )
 
 const (
-	SendFileToClient  = 1
-	GetFileFromClient = 2
+	GetFileFromClient = 1
+	SendFileToClient  = 2
 )

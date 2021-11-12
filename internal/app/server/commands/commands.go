@@ -15,36 +15,33 @@ func NewCommands() *Commands {
 	return &Commands{}
 }
 
-func (c *Commands) Handle(ctx context.Context, readWriter io.ReadWriter) {
+func (c *Commands) Handle(ctx context.Context, readWriter io.ReadWriter) error {
 	var msg commandExec
 	decoder := decode.NewDecoder(readWriter)
 	err := decoder.Decode(&msg)
 	if err != nil {
-		response.WriteResponse(readWriter, response.Response{
+		return response.WriteResponse(readWriter, response.Response{
 			Code: response.StatusError,
 			Info: "Failed to decode message",
 		})
-		return
 	}
 
-	c.executeCommand(ctx, msg, readWriter)
+	return c.executeCommand(ctx, msg, readWriter)
 }
 
-func (c Commands) executeCommand(ctx context.Context, msg commandExec, writer io.Writer) {
+func (c Commands) executeCommand(ctx context.Context, msg commandExec, writer io.Writer) error {
 	out, exitCode, err := components.Exec(ctx, msg.Command, components.ExecutorOptions{
 		WorkDir: msg.WorkDir,
 	})
 
 	if err != nil {
-		response.WriteResponse(writer, response.Response{
+		return response.WriteResponse(writer, response.Response{
 			Code: response.StatusError,
 			Info: err.Error(),
-
 		})
-		return
 	}
 
-	response.WriteResponse(writer, Response{
+	return response.WriteResponse(writer, Response{
 		Code: response.StatusOK,
 		ExitCode: exitCode,
 		Output: string(out),
