@@ -4,9 +4,11 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
 )
@@ -17,6 +19,7 @@ type NotInstalledServerSuite struct {
 	CommandFactory   *game_server_commands.ServerCommandFactory
 	Cfg              *config.Config
 	ServerRepository domain.ServerRepository
+	Executor         interfaces.Executor
 	WorkPath         string
 }
 
@@ -29,8 +32,9 @@ func (suite *NotInstalledServerSuite) SetupSuite() {
 	}
 
 	suite.ServerRepository = mocks.NewServerRepository()
+	suite.Executor = components.NewExecutor()
 
-	suite.CommandFactory = game_server_commands.NewFactory(suite.Cfg, suite.ServerRepository)
+	suite.CommandFactory = game_server_commands.NewFactory(suite.Cfg, suite.ServerRepository, suite.Executor)
 }
 
 func (suite *NotInstalledServerSuite) SetupTest() {
@@ -45,5 +49,8 @@ func (suite *NotInstalledServerSuite) SetupTest() {
 }
 
 func (suite *NotInstalledServerSuite) TearDownTest() {
-	os.RemoveAll(suite.WorkPath)
+	err := os.RemoveAll(suite.WorkPath)
+	if err != nil {
+		suite.T().Log(err)
+	}
 }

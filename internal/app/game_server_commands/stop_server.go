@@ -6,6 +6,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/interfaces"
 )
 
 type stopServer struct {
@@ -13,10 +14,11 @@ type stopServer struct {
 	bufCommand
 }
 
-func newStopServer(cfg *config.Config) *stopServer {
+func newStopServer(cfg *config.Config, executor interfaces.Executor) *stopServer {
 	return &stopServer{
 		baseCommand{
 			cfg: cfg,
+			executor: executor,
 			complete: false,
 			result: UnknownResult,
 		},
@@ -29,7 +31,7 @@ func (s *stopServer) Execute(ctx context.Context, server *domain.Server) error {
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
-	s.result, err = components.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
+	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
 		WorkDir: path,
 	})
 	s.complete = true

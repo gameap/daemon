@@ -38,12 +38,18 @@ const (
 type ServerCommandFactory struct {
 	cfg        *config.Config
 	serverRepo domain.ServerRepository
+	executor interfaces.Executor
 }
 
-func NewFactory(cfg *config.Config, serverRepo domain.ServerRepository) *ServerCommandFactory {
+func NewFactory(
+	cfg *config.Config,
+	serverRepo domain.ServerRepository,
+	executor interfaces.Executor,
+) *ServerCommandFactory {
 	return &ServerCommandFactory{
 		cfg,
 		serverRepo,
+		executor,
 	}
 }
 
@@ -54,26 +60,27 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 
 	switch cmd {
 	case Start:
-		return newStartServer(factory.cfg)
+		return newStartServer(factory.cfg, factory.executor)
 	case Stop:
-		return newStopServer(factory.cfg)
+		return newStopServer(factory.cfg, factory.executor)
 	case Restart:
 		return newRestartServer(
 			factory.cfg,
-			newStatusServer(factory.cfg),
-			newStopServer(factory.cfg),
-			newStartServer(factory.cfg),
+			factory.executor,
+			newStatusServer(factory.cfg, factory.executor),
+			newStopServer(factory.cfg, factory.executor),
+			newStartServer(factory.cfg, factory.executor),
 		)
 	case Status:
-		return newStatusServer(factory.cfg)
+		return newStatusServer(factory.cfg, factory.executor)
 	case Install:
-		return newInstallServer(factory.cfg, factory.serverRepo)
+		return newInstallServer(factory.cfg, factory.executor, factory.serverRepo)
 	case Update:
-		return newUpdateServer(factory.cfg)
+		return newUpdateServer(factory.cfg, factory.executor)
 	case Reinstall:
-		return newUpdateServer(factory.cfg)
+		return newUpdateServer(factory.cfg, factory.executor)
 	case Delete:
-		return newDeleteServer(factory.cfg)
+		return newDeleteServer(factory.cfg, factory.executor)
 	}
 
 	return nil
@@ -122,6 +129,7 @@ func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domai
 }
 
 type baseCommand struct {
+	executor interfaces.Executor
 	cfg      *config.Config
 	complete bool
 	result   int

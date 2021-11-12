@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gameap/daemon/internal/app"
+	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/game_server_commands"
@@ -23,6 +24,7 @@ type Suite struct {
 	TaskManager      *gdaemon_scheduler.TaskManager
 	GDTaskRepository *mocks.GDTaskRepository
 	ServerRepository *mocks.ServerRepository
+	Executor         interfaces.Executor
 	Cache            interfaces.Cache
 	Cfg              *config.Config
 
@@ -35,6 +37,7 @@ func (suite *Suite) SetupSuite() {
 	suite.GDTaskRepository = mocks.NewGDTaskRepository()
 	suite.ServerRepository = mocks.NewServerRepository()
 
+	suite.Executor = components.NewExecutor()
 
 	suite.Cfg = &config.Config{
 		Scripts: config.Scripts{
@@ -51,7 +54,11 @@ func (suite *Suite) SetupSuite() {
 	suite.TaskManager = gdaemon_scheduler.NewTaskManager(
 		suite.GDTaskRepository,
 		suite.Cache,
-		game_server_commands.NewFactory(suite.Cfg, suite.ServerRepository),
+		game_server_commands.NewFactory(
+			suite.Cfg,
+			suite.ServerRepository,
+			suite.Executor,
+		),
 		suite.Cfg,
 	)
 }

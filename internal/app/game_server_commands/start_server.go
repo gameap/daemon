@@ -6,6 +6,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
@@ -14,10 +15,11 @@ type startServer struct {
 	bufCommand
 }
 
-func newStartServer(cfg *config.Config) *startServer {
+func newStartServer(cfg *config.Config, executor interfaces.Executor) *startServer {
 	return &startServer{
 		baseCommand{
 			cfg: cfg,
+			executor: executor,
 			complete: false,
 			result: UnknownResult,
 		},
@@ -30,7 +32,7 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
-	s.result, err = components.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
+	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
 		WorkDir: path,
 	})
 	s.complete = true

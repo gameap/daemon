@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +20,7 @@ func TestStartServer(t *testing.T) {
 		},
 	}
 	server := givenServerWithStartCommand(t, "./run.sh")
-	startServerCommand := newStartServer(cfg)
+	startServerCommand := newStartServer(cfg, components.NewExecutor())
 
 	err := startServerCommand.Execute(context.Background(), server)
 
@@ -40,7 +41,7 @@ func TestStartServer_ReadOutput(t *testing.T) {
 	}
 	server := givenServerWithStartCommand(t, "./run2.sh")
 	ctx, cancel := context.WithCancel(context.Background())
-	startServerCommand := newStartServer(cfg)
+	startServerCommand := newStartServer(cfg, components.NewExecutor())
 	go func() {
 		err := startServerCommand.Execute(ctx, server)
 		if err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/hashicorp/go-getter"
 	"github.com/otiai10/copy"
 	"github.com/pkg/errors"
@@ -52,13 +53,14 @@ type installServer struct {
 	serverRepo  domain.ServerRepository
 }
 
-func newInstallServer(cfg *config.Config, serverRepo domain.ServerRepository) *installServer {
+func newInstallServer(cfg *config.Config, executor interfaces.Executor, serverRepo domain.ServerRepository) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newInstallator(cfg, buffer)
 
 	return &installServer{
 		baseCommand{
 			cfg:      cfg,
+			executor: executor,
 			complete: false,
 			result:   UnknownResult,
 		},
@@ -107,7 +109,7 @@ func (cmd *installServer) installByScript(ctx context.Context, server *domain.Se
 	_, _ = cmd.output.Write([]byte("Script: " + command + "\n\n"))
 
 	var err error
-	cmd.result, err = components.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
+	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkPath,
 	})
 

@@ -5,13 +5,14 @@ import (
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/interfaces"
 )
 
 type updateServer struct {
 	cfg *config.Config
 }
 
-func newUpdateServer(cfg *config.Config) *updateServer {
+func newUpdateServer(cfg *config.Config, executor interfaces.Executor) *updateServer {
 	return &updateServer{cfg}
 }
 

@@ -172,12 +172,12 @@ func (srv *Server) auth(login string, password string) bool {
 }
 
 func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) {
-	var componentHandler componentHandler
+	var handler componentHandler
 	switch m {
 	case ModeCommands:
-		componentHandler = commands.NewCommands()
+		handler = commands.NewCommands()
 	case ModeFiles:
-		componentHandler = files.NewFiles()
+		handler = files.NewFiles()
 	default:
 		response.WriteResponse(conn, response.Response{
 			Code: response.StatusError,
@@ -195,7 +195,7 @@ func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) {
 			if err != nil {
 				return
 			}
-			componentHandler.Handle(ctx, conn)
+			handler.Handle(ctx, conn)
 		}
 	}
 }

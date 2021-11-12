@@ -2,8 +2,10 @@ package interfaces
 
 import (
 	"context"
+	"io"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/domain"
 )
 
@@ -41,4 +43,9 @@ type APIResponse interface {
 	StatusCode() int
 
 	Error() interface{}
+}
+
+type Executor interface {
+	Exec(ctx context.Context, command string, options components.ExecutorOptions) ([]byte, int, error)
+	ExecWithWriter(ctx context.Context, command string, out io.Writer, options components.ExecutorOptions) (int, error)
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/interfaces"
 )
 
 type statusServer struct {
@@ -13,10 +14,11 @@ type statusServer struct {
 	bufCommand
 }
 
-func newStatusServer(cfg *config.Config) *statusServer {
+func newStatusServer(cfg *config.Config, executor interfaces.Executor) *statusServer {
 	return &statusServer{
 		baseCommand{
 			cfg: cfg,
+			executor: executor,
 			complete: false,
 			result: UnknownResult,
 		},
@@ -29,7 +31,7 @@ func (s *statusServer) Execute(ctx context.Context, server *domain.Server) error
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
-	s.result, err = components.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
+	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
 		WorkDir: path,
 	})
 	s.complete = true

@@ -42,6 +42,12 @@ func TestMakeFullCommand(t *testing.T) {
 		},
 		domain.GameMod{
 			Name: "public",
+			Vars: []domain.GameModVarTemplate{
+				{
+					Key: "maxplayers",
+					DefaultValue: "500",
+				},
+			},
 		},
 		"1.3.3.7",
 		1337,
@@ -50,7 +56,7 @@ func TestMakeFullCommand(t *testing.T) {
 		"paS$w0rD",
 		"server-dir",
 		"gameap-user",
-		"./start-command --default-map {default_map} --tickrate {tickrate}",
+		"./start-command --default-map {default_map} --tickrate {tickrate} --maxplayers {maxplayers}",
 		"",
 		"",
 		"",
@@ -79,7 +85,7 @@ func TestMakeFullCommand(t *testing.T) {
 		"--rcon-password paS$w0rD "+
 		"--game cstrike "+
 		"--user gameap-user "+
-		"-- ./start-command --default-map de_dust2 --tickrate 1000",
+		"-- ./start-command --default-map de_dust2 --tickrate 1000 --maxplayers 500",
 		command,
 	)
 }

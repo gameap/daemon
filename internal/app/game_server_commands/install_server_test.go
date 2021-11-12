@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/test/mocks"
@@ -193,7 +194,7 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg, mocks.NewServerRepository())
+	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
 
 	err = install.Execute(context.Background(), givenRemoteInstallationServer(t))
 
@@ -211,7 +212,7 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg, mocks.NewServerRepository())
+	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
 
 	err = install.Execute(context.Background(), givenLocalInstallationServer(t))
 

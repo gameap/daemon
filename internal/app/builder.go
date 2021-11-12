@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/game_server_commands"
@@ -31,6 +32,7 @@ const (
 	cacheManagerDef = "cacheManager"
 	storeDef        = "store"
 	apiCallerDef    = "apiCaller"
+	executorDef     = "executorDef"
 
 	gdaemonTasksRepositoryDef = "gdaemonTasksRepository"
 	serverRepositoryDef       = "serverRepository"
@@ -72,6 +74,12 @@ func definitions(cfg *config.Config) []di.Def {
 				return restyClient, nil
 			},
 		},
+		{
+			Name: executorDef,
+			Build: func(ctn di.Container) (interface{}, error) {
+				return components.NewExecutor(), nil
+			},
+		},
 		// Repositories
 		{
 			Name: gdaemonTasksRepositoryDef,
@@ -98,10 +106,12 @@ func definitions(cfg *config.Config) []di.Def {
 			Name: serverCommandFactoryDef,
 			Build: func(ctn di.Container) (interface{}, error) {
 				serverRepository := ctn.Get(serverRepositoryDef).(domain.ServerRepository)
+				executor := ctn.Get(executorDef).(interfaces.Executor)
 
 				return game_server_commands.NewFactory(
 					cfg,
 					serverRepository,
+					executor,
 				), nil
 			},
 		},

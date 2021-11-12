@@ -23,6 +23,26 @@ type ExecutorOptions struct {
 	Env     map[string]string
 }
 
+type Executor struct{}
+
+func NewExecutor() *Executor {
+	return &Executor{}
+}
+
+func (e *Executor) Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte, int, error) {
+	return Exec(ctx, command, options)
+}
+
+func (e *Executor) ExecWithWriter(ctx context.Context, command string, out io.Writer, options ExecutorOptions) (int, error) {
+	_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, command)))
+
+	result, err := ExecWithWriter(ctx, command, out, options)
+
+	_, _ = out.Write([]byte("\nExited with " + strconv.Itoa(result) + "\n"))
+
+	return result, err
+}
+
 func Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte, int, error) {
 	buf := NewSafeBuffer()
 	exitCode, err := ExecWithWriter(ctx, command, buf, options)
@@ -63,8 +83,6 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 		return -1, errors.Wrap(err, "executable file not found")
 	}
 
-	_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, command)))
-
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = options.WorkDir
 	cmd.Stdout = out
@@ -79,8 +97,6 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 			return -1, err
 		}
 	}
-
-	_, _ = out.Write([]byte("\nExited with " + strconv.Itoa(cmd.ProcessState.ExitCode()) + "\n"))
 
 	return cmd.ProcessState.ExitCode(), nil
 }

@@ -56,14 +56,9 @@ func NewTaskManager(
 }
 
 func (manager *TaskManager) Run(ctx context.Context) error {
-	//tasksToRepeat, err := manager.repository.FindByStatus(ctx, domain.GDTaskStatusWorking)
-	//if err != nil {
-	//	return err
-	//}
-	//manager.queue.Insert(tasksToRepeat)
+	manager.failWorkingTaskAfterRestart(ctx)
 
 	err := manager.updateTasksIfNeeded(ctx)
-
 	if err != nil {
 		log.Error(err)
 	}
@@ -81,6 +76,27 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 			}
 
 			time.Sleep(5 * time.Second)
+		}
+	}
+}
+
+func (manager *TaskManager) failWorkingTaskAfterRestart(ctx context.Context) {
+	workingTasks, err := manager.repository.FindByStatus(ctx, domain.GDTaskStatusWorking)
+	if err != nil {
+		log.Error(err)
+	}
+
+	for _, task := range workingTasks {
+		err = task.SetStatus(domain.GDTaskStatusError)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+
+		manager.appendTaskOutput(ctx, task, []byte("Working task failed. GameAP Daemon was restarted."))
+		err = manager.repository.Save(ctx, task)
+		if err != nil {
+			log.Error(err)
 		}
 	}
 }
