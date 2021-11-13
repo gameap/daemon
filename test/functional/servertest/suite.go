@@ -10,6 +10,7 @@ import (
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/response"
+	"github.com/gameap/daemon/test/mocks"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -29,10 +30,15 @@ type Suite struct {
 	suite.Suite
 	Server *server.Server
 	Client *tls.Conn
+
+	TaskStatsReader *mocks.TasksStatsReader
 }
 
 func (suite *Suite) SetupSuite() {
 	var err error
+
+	suite.TaskStatsReader = &mocks.TasksStatsReader{}
+
 	suite.Server, err = server.NewServer(
 		"127.0.0.1",
 		31717,
@@ -43,6 +49,7 @@ func (suite *Suite) SetupSuite() {
 			Login:                  "login",
 			Password:               "password",
 		},
+		suite.TaskStatsReader,
 	)
 	if err != nil {
 		suite.T().Fatal(err)

@@ -10,13 +10,17 @@ import (
 	"time"
 
 	"github.com/et-nik/binngo/decode"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/server/commands"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
 	servercommon "github.com/gameap/daemon/internal/app/server/server_common"
+	"github.com/gameap/daemon/internal/app/server/status"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
+
+var errInvalidMode = errors.New("invalid server mode")
 
 type CredentialsConfig struct {
 	PasswordAuthentication bool
@@ -37,13 +41,22 @@ type Server struct {
 	wg       sync.WaitGroup
 
 	connTimeout time.Duration
+
+	taskStatsReader domain.GDTaskStatsReader
 }
 
 type componentHandler interface {
 	Handle(ctx context.Context, readWriter io.ReadWriter) error
 }
 
-func NewServer(ip string, port int, certFile string, keyFile string, credConfig CredentialsConfig) (*Server, error) {
+func NewServer(
+	ip string,
+	port int,
+	certFile string,
+	keyFile string,
+	credConfig CredentialsConfig,
+	taskStatsReader domain.GDTaskStatsReader,
+) (*Server, error) {
 	return &Server{
 		ip:          ip,
 		port:        port,
@@ -51,7 +64,8 @@ func NewServer(ip string, port int, certFile string, keyFile string, credConfig 
 		keyFile:     keyFile,
 		credConfig:  credConfig,
 		quit:        make(chan struct{}),
-		connTimeout: 5000 * time.Second,
+		connTimeout: 5 * time.Second,
+		taskStatsReader: taskStatsReader,
 	}, nil
 }
 
@@ -110,23 +124,22 @@ func (srv *Server) serve(ctx context.Context) error {
 		srv.wg.Add(1)
 		go func() {
 			err = srv.handleConnection(ctx, conn)
-			if err != nil {
+			if err != nil && !errors.Is(err, io.EOF) {
 				log.Warn(errors.WithMessage(err, "handle connection"))
 			}
+
+			log.Tracef("Closing connection from %s", conn.RemoteAddr())
+			err = conn.Close()
+			if err != nil {
+				log.Error(err)
+			}
+
 			srv.wg.Done()
 		}()
 	}
 }
 
 func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) error {
-	defer func() {
-		log.Tracef("Closing connection from %s", conn.RemoteAddr())
-		err := conn.Close()
-		if err != nil {
-			return
-		}
-	}()
-
 	err := conn.SetDeadline(time.Now().Add(srv.connTimeout))
 	if err != nil {
 		return err
@@ -137,6 +150,9 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) error {
 	var msg []interface{}
 	decoder := decode.NewDecoder(conn)
 	err = decoder.Decode(&msg)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
 	if err != nil {
 		log.Warnln(errors.WithMessage(err, "failed to decode message"))
 		return err
@@ -192,6 +208,8 @@ func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) er
 		handler = commands.NewCommands()
 	case ModeFiles:
 		handler = files.NewFiles()
+	case ModeStatus:
+		handler = status.NewStatus(srv.taskStatsReader)
 	default:
 		err := response.WriteResponse(conn, response.Response{
 			Code: response.StatusError,
@@ -201,6 +219,8 @@ func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) er
 			log.Error(err)
 			return err
 		}
+
+		return errInvalidMode
 	}
 
 	for {

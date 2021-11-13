@@ -38,20 +38,13 @@ func NewFiles() *Files {
 }
 
 func (f *Files) Handle(ctx context.Context, readWriter io.ReadWriter) error {
-	//var endRead bool
-	//defer func(ctx context.Context, reader io.Reader) {
-	//	if !endRead {
-	//		err := servercommon.ReadEndBytes(ctx, reader)
-	//		if err != nil {
-	//			log.Warn(err)
-	//		}
-	//	}
-	//}(ctx, readWriter)
-
 	var msg message
 
 	decoder := decode.NewDecoder(readWriter)
 	err := decoder.Decode(&msg)
+	if errors.Is(err, io.EOF) {
+		return io.EOF
+	}
 	if err != nil {
 		return response.WriteResponse(readWriter, response.Response{
 			Code: response.StatusError,

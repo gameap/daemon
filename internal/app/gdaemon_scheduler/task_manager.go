@@ -37,7 +37,6 @@ type TaskManager struct {
 	commandsInProgress   sync.Map // map[domain.GDTask]interfaces.Command
 	queue                taskQueue
 	cache                interfaces.Cache
-
 }
 
 func NewTaskManager(
@@ -78,6 +77,19 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 			time.Sleep(5 * time.Second)
 		}
 	}
+}
+
+func (manager *TaskManager) Stats() domain.GDTaskStats {
+	stats := domain.GDTaskStats{}
+
+	manager.commandsInProgress.Range(func(key, value interface{}) bool {
+		stats.WorkingCount++
+		return true
+	})
+
+	stats.WaitingCount = manager.queue.Len()
+
+	return stats
 }
 
 func (manager *TaskManager) failWorkingTaskAfterRestart(ctx context.Context) {
@@ -322,4 +334,8 @@ func (q *taskQueue) WorkingTasks() ([]int, []*domain.GDTask) {
 	}
 
 	return ids, tasks
+}
+
+func (q *taskQueue) Len() int {
+	return len(q.tasks)
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/game_server_commands"
+	gdscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/repositories"
 	"github.com/go-resty/resty/v2"
@@ -38,6 +39,8 @@ const (
 	serverRepositoryDef       = "serverRepository"
 
 	serverCommandFactoryDef = "serverCommandFactory"
+
+	gdTaskManger = "gdTaskManager"
 )
 
 func definitions(cfg *config.Config) []di.Def {
@@ -112,6 +115,18 @@ func definitions(cfg *config.Config) []di.Def {
 					cfg,
 					serverRepository,
 					executor,
+				), nil
+			},
+		},
+		// Services
+		{
+			Name: gdTaskManger,
+			Build: func(ctn di.Container) (interface{}, error) {
+				return gdscheduler.NewTaskManager(
+					ctn.Get(gdaemonTasksRepositoryDef).(domain.GDTaskRepository),
+					ctn.Get(cacheManagerDef).(interfaces.Cache),
+					ctn.Get(serverCommandFactoryDef).(*game_server_commands.ServerCommandFactory),
+					cfg,
 				), nil
 			},
 		},

@@ -32,8 +32,8 @@ github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/emirpasic/gods v1.12.0 h1:QAUIPSaCu4G+POclxeqb3F+WPpdKqFGlw36+yOzGlrg=
 github.com/emirpasic/gods v1.12.0/go.mod h1:YfzfFFoVP/catgzJb4IKIqXjX78Ha8FMSDh3ymbK86o=
-github.com/et-nik/binngo v0.2.2 h1:vFvKOv2BimaZhLel1dYmiFZDO41jwyKf+ypLglMLYC0=
-github.com/et-nik/binngo v0.2.2/go.mod h1:HOH2odEMYV+YMstNUnW5CvUbI29WYH8rD/bQjp/Ly5o=
+github.com/et-nik/binngo v0.2.3 h1:wraB2yty+1Xjsy6yw1kZbuqv4A0UTOzwEbUXQ2njLbE=
+github.com/et-nik/binngo v0.2.3/go.mod h1:HOH2odEMYV+YMstNUnW5CvUbI29WYH8rD/bQjp/Ly5o=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
 github.com/gabriel-vasile/mimetype v1.3.0 h1:4YOHITFLyYwF+iqG0ybSLGArRItynpfwdlWRmJnd75E=
 github.com/gabriel-vasile/mimetype v1.3.0/go.mod h1:fA8fi6KUiG7MgQQ+mEWotXoEOvmxRtOJlERCzSmRvr8=

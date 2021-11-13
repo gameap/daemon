@@ -5,8 +5,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/logger"
 	"golang.org/x/sync/errgroup"
 
@@ -36,6 +38,8 @@ func Run(args []string) {
 }
 
 func initialize(c *cli.Context) error {
+	domain.StartTime = time.Now()
+
 	cfg, err := config.Load(c.String("config"))
 	if err != nil {
 		return err

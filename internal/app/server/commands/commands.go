@@ -7,6 +7,7 @@ import (
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/server/response"
+	"github.com/pkg/errors"
 )
 
 type Commands struct {}
@@ -19,6 +20,9 @@ func (c *Commands) Handle(ctx context.Context, readWriter io.ReadWriter) error {
 	var msg commandExec
 	decoder := decode.NewDecoder(readWriter)
 	err := decoder.Decode(&msg)
+	if errors.Is(err, io.EOF) {
+		return io.EOF
+	}
 	if err != nil {
 		return response.WriteResponse(readWriter, response.Response{
 			Code: response.StatusError,
