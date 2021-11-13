@@ -30,14 +30,15 @@ type apiRequests [][]byte
 type Suite struct {
 	suite.Suite
 
-	Cfg          *config.Config
-	Container    di.Container
+	Cfg       *config.Config
+	Container di.Container
 
 	apiResponses map[string]apiResponses
 	apiServer    *http.Server
 	wg           *sync.WaitGroup
 
-	apiPutCalled map[string]apiRequests
+	apiPutCalled  map[string]apiRequests
+	apiPostCalled map[string]apiRequests
 }
 
 func (suite *Suite) GivenAPIResponse(path string, status int, body []byte) {
@@ -52,7 +53,10 @@ func (suite *Suite) GivenAPIResponse(path string, status int, body []byte) {
 
 func (suite *Suite) SetupSuite() {
 	suite.apiPutCalled = map[string]apiRequests{}
+	suite.apiPostCalled = map[string]apiRequests{}
+
 	suite.apiResponses = map[string]apiResponses{}
+
 	suite.wg = &sync.WaitGroup{}
 
 	suite.Cfg = &config.Config{
@@ -100,8 +104,8 @@ func (suite *Suite) setupAPIServer() {
 
 	router := mux.NewRouter()
 	router.PathPrefix("/").
-		HandlerFunc(suite.apiTestServerHandler).
-		Methods("GET", "PUT")
+		Methods(http.MethodGet, http.MethodPost, http.MethodPut).
+		HandlerFunc(suite.apiTestServerHandler)
 
 	http.Handle("/", router)
 
@@ -129,6 +133,13 @@ func (suite *Suite) apiTestServerHandler(writer http.ResponseWriter, request *ht
 		}
 
 		suite.appendPutCall(request.RequestURI, body)
+	} else if request.Method == http.MethodPost {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			suite.T().Fatal(err)
+		}
+
+		suite.appendPostCall(request.RequestURI, body)
 	}
 
 	response := responses[0]
@@ -148,10 +159,42 @@ func (suite *Suite) appendPutCall(uri string, body []byte) {
 	}
 }
 
+func (suite *Suite) appendPostCall(uri string, body []byte) {
+	_, exist := suite.apiPostCalled[uri]
+
+	if exist {
+		suite.apiPostCalled[uri] = append(suite.apiPostCalled[uri], body)
+	} else {
+		suite.apiPostCalled[uri] = [][]byte{body}
+	}
+}
+
 func (suite *Suite) AssertAPIPutCalled(url string, body []byte) {
 	suite.T().Helper()
 
-	urlCalled, isCalled := suite.apiPutCalled[url]
+	suite.AssertAPICalled(http.MethodPut, url, body)
+}
+
+func (suite *Suite) AssertAPIPostCalled(url string, body []byte) {
+	suite.T().Helper()
+
+	suite.AssertAPICalled(http.MethodPost, url, body)
+}
+
+func (suite *Suite) AssertAPICalled(method string, url string, body []byte) {
+	suite.T().Helper()
+
+	var urlCalled apiRequests
+	var isCalled bool
+
+	if method == http.MethodPut {
+		urlCalled, isCalled = suite.apiPutCalled[url]
+	} else if method == http.MethodPost {
+		urlCalled, isCalled = suite.apiPostCalled[url]
+	} else {
+		suite.T().Fatal("Unsupported http method to assert")
+	}
+
 	if !isCalled {
 		suite.T().Error(fmt.Sprintf("api call not found (%s)", url))
 		return
@@ -165,6 +208,10 @@ func (suite *Suite) AssertAPIPutCalled(url string, body []byte) {
 	}
 
 	if !equalFound {
-		suite.T().Error(fmt.Sprintf("api call not found (%s)", url))
+		suite.T().Error(fmt.Sprintf(
+			"api call not found (%s)\n"+
+				"found: \n%s",
+			url, urlCalled,
+		))
 	}
 }

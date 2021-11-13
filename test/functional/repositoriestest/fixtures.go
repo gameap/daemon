@@ -116,3 +116,20 @@ var JSONApiGetTokenResponseBody = []byte(`
 	"timestamp": 0
 }
 `)
+
+var JSONApiGetServersTasks = []byte(`
+[
+    {
+        "id": 1,
+        "command": "restart",
+        "server_id": 1,
+        "repeat": 0,
+        "repeat_period": 600,
+        "counter": 0,
+        "execute_date": "2021-11-14 00:00:00",
+        "payload": null,
+        "created_at": "2021-11-13T11:41:32.000000Z",
+        "updated_at": "2021-11-13T12:44:41.000000Z"
+    }
+]
+`)

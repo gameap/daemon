@@ -19,6 +19,7 @@ import (
 const maxActualizeCount = 1
 
 var (
+	errInvalidRequestMethod         = errors.New("invalid request method")
 	errInvalidAPIResponse           = errors.New("failed to get gdaemon API token")
 	errActualizeTokenActionIsLocked = errors.New("actualize token action is already locked")
 )
@@ -83,10 +84,12 @@ func (c *APIClient) request(ctx context.Context, request domain.APIRequest, deep
 	switch request.Method {
 	case http.MethodGet:
 		response, err = restyRequest.Get(request.URL)
+	case http.MethodPost:
+		response, err = restyRequest.Post(request.URL)
 	case http.MethodPut:
 		response, err = restyRequest.Put(request.URL)
 	default:
-		return nil, errors.New("invalid request method")
+		return nil, errInvalidRequestMethod
 	}
 
 	if err != nil {

@@ -55,7 +55,7 @@ func (r *runner) runGDaemonServer(ctx context.Context, cfg *config.Config) func(
 				Login:                  cfg.DaemonLogin,
 				Password:               cfg.DaemonPassword,
 			},
-			r.container.Get(gdTaskManger).(domain.GDTaskStatsReader),
+			r.container.Get(gdTaskMangerDef).(domain.GDTaskStatsReader),
 		)
 		if err != nil {
 			return err
@@ -67,7 +67,7 @@ func (r *runner) runGDaemonServer(ctx context.Context, cfg *config.Config) func(
 
 func (r *runner) runGDaemonTaskScheduler(ctx context.Context, cfg *config.Config) func() error {
 	return func() error {
-		taskManager := r.container.Get(gdTaskManger).(*gdaemon_scheduler.TaskManager)
+		taskManager := r.container.Get(gdTaskMangerDef).(*gdaemon_scheduler.TaskManager)
 
 		return taskManager.Run(ctx)
 	}

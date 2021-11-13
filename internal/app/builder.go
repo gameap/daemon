@@ -35,12 +35,13 @@ const (
 	apiCallerDef    = "apiCaller"
 	executorDef     = "executorDef"
 
-	gdaemonTasksRepositoryDef = "gdaemonTasksRepository"
-	serverRepositoryDef       = "serverRepository"
+	gdaemonTaskRepositoryDef = "gdaemonTasksRepository"
+	serverRepositoryDef      = "serverRepository"
+	serverTaskRepositoryDef   = "serverTaskRepository"
 
 	serverCommandFactoryDef = "serverCommandFactory"
 
-	gdTaskManger = "gdTaskManager"
+	gdTaskMangerDef = "gdTaskManager"
 )
 
 func definitions(cfg *config.Config) []di.Def {
@@ -85,12 +86,12 @@ func definitions(cfg *config.Config) []di.Def {
 		},
 		// Repositories
 		{
-			Name: gdaemonTasksRepositoryDef,
+			Name: gdaemonTaskRepositoryDef,
 			Build: func(ctn di.Container) (interface{}, error) {
 				apiClient := ctn.Get(apiCallerDef).(interfaces.APIRequestMaker)
 				serverRepository := ctn.Get(serverRepositoryDef).(domain.ServerRepository)
 
-				return repositories.NewGDTasksRepository(
+				return repositories.NewGDTaskRepository(
 					apiClient,
 					serverRepository,
 				), nil
@@ -102,6 +103,15 @@ func definitions(cfg *config.Config) []di.Def {
 				apiClient := ctn.Get(apiCallerDef).(interfaces.APIRequestMaker)
 
 				return repositories.NewServerRepository(apiClient), nil
+			},
+		},
+		{
+			Name: serverTaskRepositoryDef,
+			Build: func(ctn di.Container) (interface{}, error) {
+				apiClient := ctn.Get(apiCallerDef).(interfaces.APIRequestMaker)
+				serverRepository := ctn.Get(serverRepositoryDef).(domain.ServerRepository)
+
+				return repositories.NewServerTaskRepository(apiClient, serverRepository), nil
 			},
 		},
 		// Factories
@@ -120,10 +130,10 @@ func definitions(cfg *config.Config) []di.Def {
 		},
 		// Services
 		{
-			Name: gdTaskManger,
+			Name: gdTaskMangerDef,
 			Build: func(ctn di.Container) (interface{}, error) {
 				return gdscheduler.NewTaskManager(
-					ctn.Get(gdaemonTasksRepositoryDef).(domain.GDTaskRepository),
+					ctn.Get(gdaemonTaskRepositoryDef).(domain.GDTaskRepository),
 					ctn.Get(cacheManagerDef).(interfaces.Cache),
 					ctn.Get(serverCommandFactoryDef).(*game_server_commands.ServerCommandFactory),
 					cfg,

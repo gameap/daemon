@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-type GDTasksRepository struct {
+type GDTaskRepository struct {
 	client           interfaces.APIRequestMaker
 	serverRepository domain.ServerRepository
 }
@@ -25,17 +25,17 @@ type task struct {
 	Status     string `json:"status"`
 }
 
-func NewGDTasksRepository(
+func NewGDTaskRepository(
 	client interfaces.APIRequestMaker,
 	serverRepository domain.ServerRepository,
-) *GDTasksRepository {
-	return &GDTasksRepository{
+) *GDTaskRepository {
+	return &GDTaskRepository{
 		client:           client,
 		serverRepository: serverRepository,
 	}
 }
 
-func (repository *GDTasksRepository) FindByStatus(
+func (repository *GDTaskRepository) FindByStatus(
 	ctx context.Context,
 	status domain.GDTaskStatus,
 ) ([]*domain.GDTask, error) {
@@ -47,31 +47,34 @@ func (repository *GDTasksRepository) FindByStatus(
 			"append":         "status_num",
 		},
 	})
-
 	if err != nil {
-		return nil, err
+		return nil, errors.WithMessage(err, "failed to get gameap daemon tasks")
 	}
 
-	var tsk []task
-	err = json.Unmarshal(resp.Body(), &tsk)
+	var items []task
+	err = json.Unmarshal(resp.Body(), &items)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithMessage(err, "failed to unmarshal gameap daemon tasks")
 	}
 
 	var tasks []*domain.GDTask
-	for i := range tsk {
-		server, err := repository.serverRepository.FindByID(ctx, tsk[i].Server)
+	for i := range items {
+		server, err := repository.serverRepository.FindByID(ctx, items[i].Server)
 		if err != nil {
-			return nil, err
+			return nil, errors.WithMessage(err, "failed to join server to gameap daemon task")
+		}
+
+		if server == nil {
+			return nil, errInvalidServerID
 		}
 
 		gdTask := domain.NewGDTask(
-			tsk[i].ID,
-			tsk[i].RunAfterID,
+			items[i].ID,
+			items[i].RunAfterID,
 			server,
-			domain.GDTaskCommand(tsk[i].Task),
-			tsk[i].Cmd,
-			domain.GDTaskStatus(tsk[i].Status),
+			domain.GDTaskCommand(items[i].Task),
+			items[i].Cmd,
+			domain.GDTaskStatus(items[i].Status),
 		)
 
 		tasks = append(tasks, gdTask)
@@ -80,7 +83,7 @@ func (repository *GDTasksRepository) FindByStatus(
 	return tasks, nil
 }
 
-func (repository *GDTasksRepository) FindByID(ctx context.Context, id int) (*domain.GDTask, error) {
+func (repository *GDTaskRepository) FindByID(ctx context.Context, id int) (*domain.GDTask, error) {
 	resp, err := repository.client.Request(ctx, domain.APIRequest{
 		Method: http.MethodGet,
 		URL:    "/gdaemon_api/tasks/{id}",
@@ -115,7 +118,7 @@ func (repository *GDTasksRepository) FindByID(ctx context.Context, id int) (*dom
 	), nil
 }
 
-func (repository *GDTasksRepository) Save(ctx context.Context, gdtask *domain.GDTask) error {
+func (repository *GDTaskRepository) Save(ctx context.Context, gdtask *domain.GDTask) error {
 	marshalled, err := json.Marshal(struct {
 		Status uint8 `json:"status"`
 	}{gdtask.StatusNum()})
@@ -132,7 +135,7 @@ func (repository *GDTasksRepository) Save(ctx context.Context, gdtask *domain.GD
 		},
 	})
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "failed to save gameap daemon task")
 	}
 
 	if resp.StatusCode() != http.StatusOK {
@@ -142,7 +145,7 @@ func (repository *GDTasksRepository) Save(ctx context.Context, gdtask *domain.GD
 	return nil
 }
 
-func (repository *GDTasksRepository) AppendOutput(ctx context.Context, gdtask *domain.GDTask, output []byte) error {
+func (repository *GDTaskRepository) AppendOutput(ctx context.Context, gdtask *domain.GDTask, output []byte) error {
 	marshalled, err := json.Marshal(struct {
 		Output string `json:"output"`
 	}{string(output)})
@@ -159,7 +162,7 @@ func (repository *GDTasksRepository) AppendOutput(ctx context.Context, gdtask *d
 		},
 	})
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "failed to save gameap daemon task")
 	}
 
 	if resp.StatusCode() != http.StatusOK {
