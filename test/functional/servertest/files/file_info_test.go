@@ -66,3 +66,18 @@ func (suite *Suite) TestSymlinkInfoSuccess() {
 	assert.Equal(suite.T(), uint16(0777), fInfo[6])
 	assert.Equal(suite.T(), "", fInfo[7])
 }
+
+func (suite *Suite) TestFileInfo_EmptyFile_Success() {
+	suite.Authenticate()
+	msg := []interface{}{files.FileInfo, "../../../../test/files/empty_file.txt"}
+
+	r := suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
+	fInfo, ok := r[2].([]interface{})
+	suite.Require().True(ok)
+	suite.Equal("empty_file.txt", fInfo[0])
+	suite.Equal(uint8(0), fInfo[1])
+	suite.Equal(uint8(2), fInfo[2])
+	suite.Equal(uint16(0664), fInfo[6])
+	suite.Equal("", fInfo[7])
+}

@@ -91,7 +91,7 @@ func createfileDetailsResponse(path string) (*fileDetailsResponse, error) {
 	stat := fi.Sys().(*syscall.Stat_t)
 
 	var mime string
-	if fType == typeFile {
+	if fType == typeFile && stat.Size > 0 {
 		mm, err := mimetype.DetectFile(path)
 
 		if err != nil {

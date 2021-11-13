@@ -55,7 +55,7 @@ type installServer struct {
 
 func newInstallServer(cfg *config.Config, executor interfaces.Executor, serverRepo domain.ServerRepository) *installServer {
 	buffer := components.NewSafeBuffer()
-	inst := newInstallator(cfg, buffer)
+	inst := newInstallator(cfg, executor, buffer)
 
 	return &installServer{
 		baseCommand{
@@ -106,7 +106,6 @@ func (cmd *installServer) installByScript(ctx context.Context, server *domain.Se
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Install, "")
 
 	_, _ = cmd.output.Write([]byte("Executing install script ...\n"))
-	_, _ = cmd.output.Write([]byte("Script: " + command + "\n\n"))
 
 	var err error
 	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
@@ -276,14 +275,27 @@ func (d *installationRulesDefiner) DefineGameModRules(gameMod *domain.GameMod) [
 	return rules
 }
 
+type installatorKind uint8
+
+const (
+	installer installatorKind = iota + 1
+	updater
+	reinstaller
+)
+
 type installator struct {
-	cfg    *config.Config
-	output io.ReadWriter
+	cfg      *config.Config
+	executor interfaces.Executor
+	output   io.ReadWriter
+	kind     installatorKind
 }
 
-func newInstallator(cfg *config.Config, output io.ReadWriter) *installator {
+func newInstallator(cfg *config.Config, executor interfaces.Executor, output io.ReadWriter) *installator {
 	return &installator{
-		cfg, output,
+		cfg:      cfg,
+		executor: executor,
+		output:   output,
+		kind:     installer,
 	}
 }
 
@@ -345,7 +357,7 @@ func (in *installator) getAndUnpackFiles(
 		Mode: getter.ClientModeAny,
 	}
 
-	in.writeOutput("Downloading from " + source + " to " + dst + " ...")
+	in.writeOutput("Downloading and unpacking from " + source + " to " + dst + " ...")
 
 	err := c.Get()
 	if err != nil {
@@ -396,17 +408,16 @@ func (in *installator) installFromSteam(
 
 	execCmd.WriteString(" +app_update ")
 	execCmd.WriteString(source)
-	execCmd.WriteString("  +quit")
+	execCmd.WriteString(" +quit")
 
 	in.writeOutput("Installing from steam ...")
-	in.writeOutput("SteamCMD command: " + execCmd.String() + "\n\n")
 
 	var installTries uint8 = 0
 
 	var result int
 	var err error
 	for installTries < maxSteamCMDInstallTries {
-		result, err = components.ExecWithWriter(
+		result, err = in.executor.ExecWithWriter(
 			ctx,
 			execCmd.String(),
 			output,

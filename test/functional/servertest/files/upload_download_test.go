@@ -27,6 +27,21 @@ func (suite *Suite) TestDownloadSuccess() {
 	suite.Equal("file.txt\n", string(buf))
 }
 
+func (suite *Suite) TestDownload_EmptyFile_Success() {
+	suite.Auth(server.ModeFiles)
+	msg := []interface{}{files.FileSend, files.SendFileToClient, "../../../../test/files/empty_file.txt"}
+	r := suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
+	suite.Equal("File is ready to transfer", r[1].(string))
+	suite.Equal(uint8(0), r[2].(uint8))
+
+	// Transfer the file
+	buf := make([]byte, 0)
+	suite.ClientRead(buf)
+
+	suite.Equal("", string(buf))
+}
+
 func (suite *Suite) TestUploadSuccess() {
 	suite.Authenticate()
 	fileContents := []byte{'f', 'i', 'l', 'e', 'c', 'o', 'n', 't', 'e', 'n', 't', 's'}
