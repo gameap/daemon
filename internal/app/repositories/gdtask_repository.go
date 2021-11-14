@@ -48,20 +48,27 @@ func (repository *GDTaskRepository) FindByStatus(
 		},
 	})
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get gameap daemon tasks")
+		return nil, errors.WithMessage(err, "[repositories.GDTaskRepository] failed to find gameap daemon tasks")
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, errors.WithMessage(
+			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			"[repositories.GDTaskRepository] failed to find gameap daemon tasks",
+		)
 	}
 
 	var items []task
 	err = json.Unmarshal(resp.Body(), &items)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to unmarshal gameap daemon tasks")
+		return nil, errors.WithMessage(err, "[repositories.GDTaskRepository] failed to unmarshal gameap daemon tasks")
 	}
 
 	var tasks []*domain.GDTask
 	for i := range items {
 		server, err := repository.serverRepository.FindByID(ctx, items[i].Server)
 		if err != nil {
-			return nil, errors.WithMessage(err, "failed to join server to gameap daemon task")
+			return nil, errors.WithMessage(err, "[repositories.GDTaskRepository] failed to join server to gameap daemon task")
 		}
 
 		if server == nil {
@@ -123,7 +130,7 @@ func (repository *GDTaskRepository) Save(ctx context.Context, gdtask *domain.GDT
 		Status uint8 `json:"status"`
 	}{gdtask.StatusNum()})
 	if err != nil {
-		return errors.WithMessage(err, "failed to marshal gd task")
+		return errors.WithMessage(err, "[repositories.GDTaskRepository] failed to marshal gd task")
 	}
 
 	resp, err := repository.client.Request(ctx, domain.APIRequest{
@@ -139,7 +146,10 @@ func (repository *GDTaskRepository) Save(ctx context.Context, gdtask *domain.GDT
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body())
+		return errors.WithMessage(
+			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			"[repositories.GDTaskRepository] failed to save gameap daemon task",
+		)
 	}
 
 	return nil
@@ -150,7 +160,7 @@ func (repository *GDTaskRepository) AppendOutput(ctx context.Context, gdtask *do
 		Output string `json:"output"`
 	}{string(output)})
 	if err != nil {
-		return errors.WithMessage(err, "failed to marshal output")
+		return errors.WithMessage(err, "[repositories.GDTaskRepository] failed to marshal output")
 	}
 
 	resp, err := repository.client.Request(ctx, domain.APIRequest{
@@ -162,11 +172,14 @@ func (repository *GDTaskRepository) AppendOutput(ctx context.Context, gdtask *do
 		},
 	})
 	if err != nil {
-		return errors.WithMessage(err, "failed to save gameap daemon task")
+		return errors.WithMessage(err, "[repositories.GDTaskRepository] failed to save gameap daemon task")
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body())
+		return errors.WithMessage(
+			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			"[repositories.GDTaskRepository] failed to save gameap daemon task",
+		)
 	}
 
 	return nil

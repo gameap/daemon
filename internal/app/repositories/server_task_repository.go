@@ -44,20 +44,27 @@ func (repo *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTas
 	})
 
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get server tasks")
+		return nil, errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to find game server tasks")
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, errors.WithMessage(
+			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			"[repositories.ServerTaskRepository] failed to find game servers tasks",
+		)
 	}
 
 	var items []serverTask
 	err = json.Unmarshal(resp.Body(), &items)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to unmarshal server tasks")
+		return nil, errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to unmarshal server tasks")
 	}
 
 	var tasks []*domain.ServerTask
 	for i := range items {
 		server, err := repo.serverRepository.FindByID(ctx, items[i].ServerID)
 		if err != nil {
-			return nil, errors.WithMessage(err, "failed to join server to server task")
+			return nil, errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to join server to server task")
 		}
 		if server == nil {
 			return nil, errInvalidServerID
@@ -65,7 +72,7 @@ func (repo *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTas
 
 		executeDate, err := time.Parse("2006-01-02 15:04:05", items[i].ExecuteDate)
 		if err != nil {
-			return nil, errors.WithMessage(err, "failed to parse server task execute date")
+			return nil, errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to parse server task execute date")
 		}
 
 		task := domain.NewServerTask(
@@ -99,11 +106,14 @@ func (repo *ServerTaskRepository) Save(ctx context.Context, task *domain.ServerT
 		},
 	})
 	if err != nil {
-		return errors.WithMessage(err, "failed to save server task")
+		return errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to save server task")
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body())
+		return errors.WithMessage(
+			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			"[repositories.ServerTaskRepository] failed to save server task",
+		)
 	}
 
 	return nil
@@ -116,7 +126,7 @@ func (repo *ServerTaskRepository) Fail(ctx context.Context, task *domain.ServerT
 		Output: string(output),
 	})
 	if err != nil {
-		return errors.WithMessage(err, "failed to marshal server task output")
+		return errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to marshal server task output")
 	}
 
 	resp, err := repo.client.Request(ctx, domain.APIRequest{
@@ -128,11 +138,14 @@ func (repo *ServerTaskRepository) Fail(ctx context.Context, task *domain.ServerT
 		},
 	})
 	if err != nil {
-		return errors.WithMessage(err, "failed to save server task fail info")
+		return errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to save server task fail info")
 	}
 
-	if resp.StatusCode() != http.StatusCreated {
-		return NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body())
+	if resp.StatusCode() != http.StatusOK || resp.StatusCode() != http.StatusCreated {
+		return errors.WithMessage(
+			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			"[repositories.ServerTaskRepository] failed to save server task fail info",
+		)
 	}
 
 	return nil

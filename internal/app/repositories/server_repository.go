@@ -171,7 +171,10 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 		return nil, nil
 	}
 	if response.StatusCode() != http.StatusOK {
-		return nil, NewErrInvalidResponseFromAPI(response.StatusCode(), response.Body())
+		return nil, errors.WithMessage(
+			NewErrInvalidResponseFromAPI(response.StatusCode(), response.Body()),
+			"[repositories.apiServerRepo] failed find game server",
+		)
 	}
 
 	var srv serverStruct
@@ -277,7 +280,10 @@ func (apiRepo *apiServerRepo) Save(ctx context.Context, server *domain.Server) e
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body())
+		return errors.WithMessage(
+			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			"[repositories.apiServerRepo] failed to saving server",
+		)
 	}
 
 	return nil
