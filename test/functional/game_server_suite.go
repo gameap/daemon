@@ -46,6 +46,10 @@ func (suite *GameServerSuite) GivenServerForGameAndMod(game domain.Game, mod dom
 	)
 }
 
+func (suite *GameServerSuite) GivenServerWithStartCommand(startCommand string) *domain.Server {
+	return suite.GivenServerWithStartAndStopCommand(startCommand, "")
+}
+
 func (suite *GameServerSuite) GivenServerWithStartAndStopCommand(startCommand string, stopCommand string) *domain.Server {
 	suite.T().Helper()
 

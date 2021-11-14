@@ -74,3 +74,24 @@ func (s ServerTask) MarshalJSON() ([]byte, error) {
 		ExecuteDate: s.ExecuteDate.Format("2006-01-02 15:04:05"),
 	})
 }
+
+func (s *ServerTask) IncreaseCountersAndTime() {
+	s.prolongTask()
+	s.Counter++
+}
+
+func (s *ServerTask) RepeatEndlessly() bool {
+	return s.Repeat == 0 || s.Repeat == -1
+}
+
+func (s *ServerTask) CanExecute() bool {
+	return s.RepeatEndlessly() || s.Repeat > s.Counter
+}
+
+func (s *ServerTask) prolongTask() {
+	s.ExecuteDate = s.ExecuteDate.Add(s.RepeatPeriod)
+
+	if s.ExecuteDate.Before(time.Now()) {
+		s.ExecuteDate = time.Now().Add(s.RepeatPeriod)
+	}
+}

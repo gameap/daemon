@@ -10,6 +10,7 @@ import (
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/servers_loop"
+	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 	"github.com/sarulabs/di"
 )
 
@@ -82,5 +83,17 @@ func (r *runner) runServersLoop(ctx context.Context, cfg *config.Config) func() 
 		)
 
 		return loop.Run(ctx)
+	}
+}
+
+func (r *runner) runServerScheduler(ctx context.Context, cfg *config.Config) func() error {
+	return func() error {
+		scheduler := serversscheduler.NewScheduler(
+			cfg,
+			r.container.Get(serverTaskRepositoryDef).(domain.ServerTaskRepository),
+			r.container.Get(serverCommandFactoryDef).(*game_server_commands.ServerCommandFactory),
+		)
+
+		return scheduler.Run(ctx)
 	}
 }

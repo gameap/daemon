@@ -158,10 +158,6 @@ func (suite *Suite) GivenSequenceGDTaskForServer(server *domain.Server) []*domai
 	return tasks
 }
 
-func (suite *Suite) GivenServerWithStartCommand(startCommand string) *domain.Server {
-	return suite.GivenServerWithStartAndStopCommand(startCommand, "")
-}
-
 func (suite *Suite) AssertFileContents(file string, expectedContents []byte) {
 	suite.T().Helper()
 

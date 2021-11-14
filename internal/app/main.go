@@ -68,6 +68,7 @@ func initialize(c *cli.Context) error {
 	group.Go(processManager.runGDaemonServer(ctx, cfg))
 	group.Go(processManager.runGDaemonTaskScheduler(ctx, cfg))
 	group.Go(processManager.runServersLoop(ctx, cfg))
+	group.Go(processManager.runServerScheduler(ctx, cfg))
 
 	err = group.Wait()
 	if err != nil {
