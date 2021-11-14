@@ -141,7 +141,7 @@ func (repo *ServerTaskRepository) Fail(ctx context.Context, task *domain.ServerT
 		return errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to save server task fail info")
 	}
 
-	if resp.StatusCode() != http.StatusOK || resp.StatusCode() != http.StatusCreated {
+	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusCreated {
 		return errors.WithMessage(
 			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
 			"[repositories.ServerTaskRepository] failed to save server task fail info",

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"strconv"
+	"syscall"
 
 	"github.com/gopherclass/go-shellquote"
 	"github.com/pkg/errors"
@@ -18,8 +19,8 @@ var ErrEmptyCommand = errors.New("empty command")
 
 type ExecutorOptions struct {
 	WorkDir string
-	User    string
-	Group   string
+	Uid     string
+	Gid     string
 	Env     map[string]string
 }
 
@@ -87,6 +88,19 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 	cmd.Dir = options.WorkDir
 	cmd.Stdout = out
 	cmd.Stderr = out
+
+	if options.Uid != "" && options.Gid != "" {
+		uid, err := strconv.Atoi(options.Uid)
+		if err != nil {
+			return -1, errors.WithMessage(err, "[game_server_commands.installator] invalid user uid")
+		}
+
+		gid, err := strconv.Atoi(options.Uid)
+		if err != nil {
+			return -1, errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
+		}
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+	}
 
 	err = cmd.Run()
 	if err != nil {

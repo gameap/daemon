@@ -207,11 +207,13 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 
 	if cmd.IsComplete() {
 		if cmd.Result() == game_server_commands.SuccessResult {
+			manager.commandsInProgress.Delete(*task)
 			err := task.SetStatus(domain.GDTaskStatusSuccess)
 			if err != nil {
 				return err
 			}
 		} else {
+			manager.commandsInProgress.Delete(*task)
 			manager.failTask(ctx, task)
 		}
 	}

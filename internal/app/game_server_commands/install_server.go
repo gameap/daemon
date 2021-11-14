@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/user"
 	"strconv"
 	"strings"
 
@@ -364,6 +365,13 @@ func (in *installator) getAndUnpackFiles(
 		return errors.WithMessage(err, "[game_server_commands.installator] failed to download files")
 	}
 
+	err = in.chown(dst, server.User())
+	if err != nil {
+		err = errors.WithMessage(err, "[game_server_commands.installator] failed to chown files")
+		in.writeOutput(err.Error())
+		return err
+	}
+
 	in.writeOutput("Downloading successfully completed")
 
 	return nil
@@ -380,7 +388,16 @@ func (in *installator) copyDirectoryFromLocalRepository(
 
 	err := copy.Copy(source, dst)
 	if err != nil {
-		return errors.WithMessage(err, "[game_server_commands.installator] failed to copy files")
+		err = errors.WithMessage(err, "[game_server_commands.installator] failed to copy files")
+		in.writeOutput(err.Error())
+		return err
+	}
+
+	err = in.chown(dst, server.User())
+	if err != nil {
+		err = errors.WithMessage(err, "[game_server_commands.installator] failed to chown files")
+		in.writeOutput(err.Error())
+		return err
 	}
 
 	in.writeOutput("Copying files successfully completed")
@@ -395,35 +412,36 @@ func (in *installator) installFromSteam(
 	server *domain.Server,
 	source string,
 ) error {
-	execCmd := strings.Builder{}
-
-	execCmd.WriteString(cfg.SteamCMDPath)
-	execCmd.WriteString("/")
-	execCmd.WriteString(config.SteamCMDExecutableFile)
-	execCmd.WriteString(" +login anonymous")
-
-	execCmd.WriteString(" +force_install_dir \"")
-	execCmd.WriteString(makeFullServerPath(cfg, server.Dir()))
-	execCmd.WriteString("\"")
-
-	execCmd.WriteString(" +app_update ")
-	execCmd.WriteString(source)
-	execCmd.WriteString(" +quit")
+	execCmd := in.makeSteamCMDCommand(source, server)
 
 	in.writeOutput("Installing from steam ...")
 
 	var installTries uint8 = 0
+
+	executorOptions := components.ExecutorOptions{
+		WorkDir: cfg.WorkPath,
+	}
+
+	if isRootUser() && server.User() != "" {
+		systemUser, err := user.Lookup(server.User())
+		if err != nil {
+			err = errors.WithMessage(err, "[game_server_commands.installator] failed to lookup user")
+			in.writeOutput(err.Error())
+			return err
+		}
+
+		executorOptions.Uid = systemUser.Uid
+		executorOptions.Gid = systemUser.Gid
+	}
 
 	var result int
 	var err error
 	for installTries < maxSteamCMDInstallTries {
 		result, err = in.executor.ExecWithWriter(
 			ctx,
-			execCmd.String(),
+			execCmd,
 			output,
-			components.ExecutorOptions{
-				WorkDir: cfg.WorkPath,
-			},
+			executorOptions,
 		)
 		if err != nil {
 			return err
@@ -442,6 +460,53 @@ func (in *installator) installFromSteam(
 
 	if result != SuccessResult {
 		return errInstallViaSteamCMDFailed
+	}
+
+	return nil
+}
+
+func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) string {
+	execCmd := strings.Builder{}
+
+	execCmd.WriteString(in.cfg.SteamCMDPath)
+	execCmd.WriteString("/")
+	execCmd.WriteString(config.SteamCMDExecutableFile)
+	execCmd.WriteString(" +login anonymous")
+
+	execCmd.WriteString(" +force_install_dir \"")
+	execCmd.WriteString(makeFullServerPath(in.cfg, server.Dir()))
+	execCmd.WriteString("\"")
+
+	execCmd.WriteString(" +app_update ")
+	execCmd.WriteString(appID)
+	execCmd.WriteString(" +quit")
+
+	return execCmd.String()
+}
+
+func (in *installator) chown(dst string, userName string) error {
+	if !isRootUser() {
+		return nil
+	}
+
+	systemUser, err := user.Lookup(userName)
+	if err != nil {
+		err = errors.WithMessage(err, "[game_server_commands.installator] failed to lookup user")
+		in.writeOutput(err.Error())
+		return err
+	}
+
+	uid, err := strconv.Atoi(systemUser.Uid)
+	if err != nil {
+		return errors.WithMessage(err, "[game_server_commands.installator] invalid user uid")
+	}
+	gid, err := strconv.Atoi(systemUser.Uid)
+	if err != nil {
+		return errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
+	}
+	err = chownR(dst, uid, gid)
+	if err != nil {
+		return err
 	}
 
 	return nil

@@ -1,11 +1,7 @@
 package config
 
-import "errors"
-
-var (
-	ErrEmptyNodeID  = errors.New("empty node ID")
-	ErrEmptyAPIHost = errors.New("empty API Host")
-	ErrEmptyAPIKey  = errors.New("empty API Key")
+import (
+	"os"
 )
 
 type Scripts struct {
@@ -73,17 +69,33 @@ func NewConfig() *Config {
 	}
 }
 
-func (c *Config) Validate() error {
-	if c.NodeID == 0 {
+func (cfg *Config) Validate() error {
+	if cfg.NodeID == 0 {
 		return ErrEmptyNodeID
 	}
 
-	if c.APIHost == "" {
+	if cfg.APIHost == "" {
 		return ErrEmptyAPIHost
 	}
 
-	if c.APIKey == "" {
+	if cfg.APIKey == "" {
 		return ErrEmptyAPIKey
+	}
+
+	if _, err := os.Stat(cfg.CACertificateFile); err != nil {
+		return NewInvalidFileError("invalid CA Certificate file", err)
+	}
+
+	if _, err := os.Stat(cfg.CACertificateFile); err != nil {
+		return NewInvalidFileError("invalid CA certificate file (ca_certificate_file)", err)
+	}
+
+	if _, err := os.Stat(cfg.CertificateChainFile); err != nil {
+		return NewInvalidFileError("invalid certificate chain file (certificate_chain_file)", err)
+	}
+
+	if _, err := os.Stat(cfg.PrivateKeyFile); err != nil {
+		return NewInvalidFileError("invalid private key file (private_key_file)", err)
 	}
 
 	return nil

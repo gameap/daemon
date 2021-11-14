@@ -22,6 +22,8 @@ func Load(path string) (*Config, error) {
 		cfg, err = loadIni(path)
 	}
 
+	cfg = updatePaths(path, cfg)
+
 	if err != nil {
 		return nil, err
 	}
@@ -102,4 +104,30 @@ func loadIni(path string) (*Config, error) {
 		Strings(" ")
 
 	return cfg, nil
+}
+
+func updatePaths(cfgPath string, cfg *Config) *Config {
+	if !filepath.IsAbs(cfgPath) {
+		cfgPath, _ = filepath.Abs(cfgPath)
+	}
+
+	cfgDirPath := filepath.Dir(cfgPath)
+
+	if !filepath.IsAbs(cfg.CACertificateFile) {
+		cfg.CACertificateFile, _ = filepath.Abs(filepath.Clean(cfgDirPath + "/" + cfg.CACertificateFile))
+	}
+
+	if !filepath.IsAbs(cfg.CertificateChainFile) {
+		cfg.CertificateChainFile, _ = filepath.Abs(filepath.Clean(cfgDirPath + "/" + cfg.CertificateChainFile))
+	}
+
+	if !filepath.IsAbs(cfg.PrivateKeyFile) {
+		cfg.PrivateKeyFile, _ = filepath.Abs(filepath.Clean(cfgDirPath + "/" + cfg.PrivateKeyFile))
+	}
+
+	if !filepath.IsAbs(cfg.DHFile) {
+		cfg.DHFile, _ = filepath.Abs(filepath.Clean(cfgDirPath + "/" + cfg.DHFile))
+	}
+
+	return cfg
 }

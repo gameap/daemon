@@ -7,9 +7,9 @@ daemon_password: seCrEt-PaSSW0rD
 api_host: http://localhost:2080
 api_key: KxL6shP6Q4aEJeLXIaoe8mXpkIrTTFSQMKWt1qAfBZ2TQe42YvzDzrlwVZ2F5pgH
 
-ca_certificate_file: ./config/certs_panel/ca.crt
-certificate_chain_file: ./config/certs_panel/server.crt
-private_key_file: ./config/certs_panel/server.key
+ca_certificate_file: ./certs_panel/ca.crt
+certificate_chain_file: ./certs_panel/server.crt
+private_key_file: ./certs_panel/server.key
 # private_key_password: abracadabra
 dh_file: /etc/gameap-daemon/certs_panel/dh2048.pem
 
