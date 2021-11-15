@@ -97,7 +97,22 @@ func (task *GDTask) Server() *Server {
 func (task *GDTask) SetStatus(status GDTaskStatus) error {
 	task.status = status
 
+	task.affectServer()
+
 	return nil
+}
+
+func (task *GDTask) affectServer() {
+	if task.IsInstallation() {
+		switch task.status {
+		case GDTaskStatusError, GDTaskStatusWaiting:
+			task.server.SetInstallationStatus(ServerNotInstalled)
+		case GDTaskStatusSuccess:
+			task.server.SetInstallationStatus(ServerInstalled)
+		case GDTaskStatusWorking:
+			task.server.SetInstallationStatus(ServerInstallInProcess)
+		}
+	}
 }
 
 func (task *GDTask) IsWaiting() bool {
@@ -112,4 +127,10 @@ func (task *GDTask) IsComplete() bool {
 	return task.status == GDTaskStatusError ||
 		task.status == GDTaskStatusSuccess ||
 		task.status == GDTaskStatusCanceled
+}
+
+func (task *GDTask) IsInstallation() bool {
+	return task.task == GDTaskGameServerInstall ||
+		task.task == GDTaskGameServerUpdate ||
+		task.task == GDTaskGameServerReinstall
 }

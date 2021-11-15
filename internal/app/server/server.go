@@ -11,6 +11,7 @@ import (
 
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/gameap/daemon/internal/app/server/commands"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
@@ -145,7 +146,9 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
-	log.Infof("Connected: %s", conn.RemoteAddr())
+	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+		"client": conn.RemoteAddr(),
+	}))
 
 	var msg []interface{}
 	decoder := decode.NewDecoder(conn)
@@ -154,13 +157,13 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) error {
 		return nil
 	}
 	if err != nil {
-		log.Warnln(errors.WithMessage(err, "failed to decode message"))
-		return err
+		logger.Logger(ctx).WithError(err).Warn("failed to decode message")
+		return errors.WithMessage(err, "failed to decode message")
 	}
 
 	authMsg, err := createAuthMessageFromSliceInterface(msg)
 	if err != nil {
-		log.Warnln(errors.WithMessage(err, "failed to create auth message"))
+		logger.Logger(ctx).WithError(err).Warn("failed to create auth message")
 
 		return response.WriteResponse(conn, response.Response{
 			Code: response.StatusError,

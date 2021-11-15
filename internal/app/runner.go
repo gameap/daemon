@@ -8,6 +8,7 @@ import (
 	"github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/servers_loop"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
@@ -20,8 +21,8 @@ type runner struct {
 	container di.Container
 }
 
-func newProcessManager(cfg *config.Config) (*runner, error) {
-	builder, err := NewBuilder(cfg)
+func newProcessManager(cfg *config.Config, logger *log.Logger) (*runner, error) {
+	builder, err := NewBuilder(cfg, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +65,11 @@ func (r *runner) runGDaemonServer(ctx context.Context, cfg *config.Config) func(
 			return err
 		}
 
+		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+			"service": "gameap daemon server",
+		}))
+
+		log.Trace("Running gameap damon server...")
 		return runService(ctx, srv.Run)
 	}
 }
@@ -72,6 +78,11 @@ func (r *runner) runGDaemonTaskScheduler(ctx context.Context, cfg *config.Config
 	return func() error {
 		taskManager := r.container.Get(gdTaskMangerDef).(*gdaemon_scheduler.TaskManager)
 
+		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+			"service": "gdtask scheduler",
+		}))
+
+		log.Trace("Running gdtask scheduler...")
 		return runService(ctx, taskManager.Run)
 	}
 }
@@ -84,6 +95,11 @@ func (r *runner) runServersLoop(ctx context.Context, cfg *config.Config) func() 
 			cfg,
 		)
 
+		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+			"service": "servers loop",
+		}))
+
+		log.Trace("Running server loop...")
 		return runService(ctx, loop.Run)
 	}
 }
@@ -96,6 +112,11 @@ func (r *runner) runServerScheduler(ctx context.Context, cfg *config.Config) fun
 			r.container.Get(serverCommandFactoryDef).(*game_server_commands.ServerCommandFactory),
 		)
 
+		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+			"service": "server tasks scheduler",
+		}))
+
+		log.Trace("Running server tasks scheduler...")
 		return runService(ctx, scheduler.Run)
 	}
 }

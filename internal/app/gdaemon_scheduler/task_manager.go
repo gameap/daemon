@@ -9,6 +9,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -59,7 +60,7 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 
 	err := manager.updateTasksIfNeeded(ctx)
 	if err != nil {
-		log.Error(err)
+		logger.Logger(ctx).Error(err)
 	}
 
 	for {
@@ -71,7 +72,7 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 
 			err = manager.updateTasksIfNeeded(ctx)
 			if err != nil {
-				log.Error(err)
+				logger.Logger(ctx).Error(err)
 			}
 
 			time.Sleep(5 * time.Second)
@@ -95,20 +96,20 @@ func (manager *TaskManager) Stats() domain.GDTaskStats {
 func (manager *TaskManager) failWorkingTaskAfterRestart(ctx context.Context) {
 	workingTasks, err := manager.repository.FindByStatus(ctx, domain.GDTaskStatusWorking)
 	if err != nil {
-		log.Error(err)
+		logger.Logger(ctx).Error(err)
 	}
 
 	for _, task := range workingTasks {
 		err = task.SetStatus(domain.GDTaskStatusError)
 		if err != nil {
-			log.Error(err)
+			logger.Logger(ctx).Error(err)
 			continue
 		}
 
 		manager.appendTaskOutput(ctx, task, []byte("Working task failed. GameAP Daemon was restarted."))
 		err = manager.repository.Save(ctx, task)
 		if err != nil {
-			log.Error(err)
+			logger.Logger(ctx).Error(err)
 		}
 	}
 }
@@ -123,6 +124,11 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		return
 	}
 
+	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+		"gdTaskID": task.ID(),
+		"gameServerID": task.Server().ID(),
+	}))
+
 	var err error
 	if task.IsWaiting() {
 		err = manager.executeTask(ctx, task)
@@ -131,19 +137,21 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 	}
 
 	if err != nil {
-		log.Error(errors.WithMessage(err, "task execution failed"))
+		logger.Logger(ctx).WithError(err).Error("task execution failed")
 
 		manager.appendTaskOutput(ctx, task, []byte(err.Error()))
 		manager.failTask(ctx, task)
 	}
 
 	if task.IsComplete() {
+		logger.Debug(ctx, "Task completed")
+
 		manager.queue.Remove(task)
 
 		err = manager.repository.Save(ctx, task)
 		if err != nil {
 			err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
-			log.Error(err)
+			logger.Error(ctx, err)
 		}
 	}
 }
@@ -173,7 +181,7 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 	err = manager.repository.Save(ctx, task)
 	if err != nil {
 		err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
-		log.Error(err)
+		logger.Error(ctx, err)
 	}
 
 	cmd, gameServerCmdExist := taskServerCommandMap[task.Task()]
@@ -186,9 +194,12 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 
 	manager.commandsInProgress.Store(*task, cmdFunc)
 
+	logger.Debug(ctx, "Running task command")
+
 	go func() {
 		err = cmdFunc.Execute(ctx, task.Server())
 		if err != nil {
+			logger.Warn(ctx, err)
 			manager.appendTaskOutput(ctx, task, []byte(err.Error()))
 			manager.failTask(ctx, task)
 		}
@@ -223,10 +234,10 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 	return nil
 }
 
-func (manager *TaskManager) failTask(_ context.Context, task *domain.GDTask) {
+func (manager *TaskManager) failTask(ctx context.Context, task *domain.GDTask) {
 	err := task.SetStatus(domain.GDTaskStatusError)
 	if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 	}
 }
 
@@ -237,7 +248,7 @@ func (manager *TaskManager) appendTaskOutput(ctx context.Context, task *domain.G
 
 	err := manager.repository.AppendOutput(ctx, task, output)
 	if err != nil {
-		log.Error(err)
+		logger.Logger(ctx).Error(err)
 	}
 }
 

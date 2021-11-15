@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/build"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/logger"
@@ -40,6 +41,9 @@ func Run(args []string) {
 func initialize(c *cli.Context) error {
 	domain.StartTime = time.Now()
 
+	log.Infof("GameAP Daemon version: %s", build.Version)
+	log.Infof("Build Date: %s", build.BuildDate)
+
 	cfg, err := config.Load(c.String("config"))
 	if err != nil {
 		return err
@@ -53,9 +57,11 @@ func initialize(c *cli.Context) error {
 	log.Info("Starting...")
 
 	ctx := shutdownContext(context.Background())
+	lo := logger.NewLogger(*cfg)
+	ctx = logger.WithLogger(ctx, lo)
 	group, ctx := errgroup.WithContext(ctx)
 
-	processManager, err := newProcessManager(cfg)
+	processManager, err := newProcessManager(cfg, lo)
 	if err != nil {
 		return err
 	}

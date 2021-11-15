@@ -7,12 +7,13 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	commands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/app/logger"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	statusTimeout = 5 * time.Second
-	loopDuration  = 30 * time.Second
+	commandTimeout = 10 * time.Second
+	loopDuration   = 30 * time.Second
 )
 
 type ServersLoop struct {
@@ -60,16 +61,31 @@ func (l *ServersLoop) tick(ctx context.Context) {
 	for i := range ids {
 		server, err := l.serverRepo.FindByID(ctx, ids[i])
 		if err != nil {
-			log.Error(err)
+			logger.Error(ctx, err)
 			continue
 		}
 
-		err = l.checkStatus(ctx, server)
+		ctxWithServer := logger.WithLogger(ctx, logger.Logger(ctx).WithField("gameServerID", server.ID()))
+
+		err = l.pipeline(ctxWithServer, server, []pipelineHandler{l.checkStatus, l.startIfNeeded})
 		if err != nil {
-			log.Error(err)
+			logger.Error(ctx, err)
 			continue
 		}
 	}
+}
+
+type pipelineHandler func(ctx context.Context, server *domain.Server) error
+
+func (l *ServersLoop) pipeline(ctx context.Context, server *domain.Server, handlers []pipelineHandler) error {
+	for _, h := range handlers {
+		err := h(ctx, server)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) error {
@@ -79,7 +95,7 @@ func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) er
 
 	statusCmd := l.serverCommandFactory.LoadServerCommandFunc(commands.Status)
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, statusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
 	err := statusCmd.Execute(ctxWithTimeout, server)
@@ -89,6 +105,28 @@ func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) er
 
 	server.SetStatus(statusCmd.Result() == commands.SuccessResult)
 	err = l.serverRepo.Save(ctx, server)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) error {
+	if server.InstallationStatus() != domain.ServerInstalled {
+		return nil
+	}
+
+	if server.IsActive() || !server.AutoStart() {
+		return nil
+	}
+
+	statusCmd := l.serverCommandFactory.LoadServerCommandFunc(commands.Start)
+
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+
+	err := statusCmd.Execute(ctxWithTimeout, server)
 	if err != nil {
 		return err
 	}

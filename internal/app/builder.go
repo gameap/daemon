@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
@@ -12,15 +13,16 @@ import (
 	"github.com/gameap/daemon/internal/app/repositories"
 	"github.com/go-resty/resty/v2"
 	"github.com/sarulabs/di"
+	log "github.com/sirupsen/logrus"
 )
 
-func NewBuilder(cfg *config.Config) (*di.Builder, error) {
+func NewBuilder(cfg *config.Config, logger *log.Logger) (*di.Builder, error) {
 	builder, err := di.NewBuilder()
 	if err != nil {
 		return nil, err
 	}
 
-	err = builder.Add(definitions(cfg)...)
+	err = builder.Add(definitions(cfg, logger)...)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +46,7 @@ const (
 	gdTaskMangerDef = "gdTaskManager"
 )
 
-func definitions(cfg *config.Config) []di.Def {
+func definitions(cfg *config.Config, logger *log.Logger) []di.Def {
 	return []di.Def{
 		{
 			Name: cacheManagerDef,
@@ -74,6 +76,9 @@ func definitions(cfg *config.Config) []di.Def {
 				restyClient := resty.New()
 				restyClient.SetHostURL(cfg.APIHost)
 				restyClient.SetHeader("User-Agent", "GameAP Daemon/3.0")
+				restyClient.RetryCount = 30
+				restyClient.RetryMaxWaitTime = 10 * time.Minute
+				restyClient.SetLogger(logger)
 
 				return restyClient, nil
 			},

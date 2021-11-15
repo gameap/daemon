@@ -8,6 +8,7 @@ import (
 	"path"
 
 	"github.com/et-nik/binngo/decode"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/gameap/daemon/internal/app/server/response"
 	servercommon "github.com/gameap/daemon/internal/app/server/server_common"
 	"github.com/otiai10/copy"
@@ -15,7 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type operationHandlerFunc func(message message, readWriter io.ReadWriter) error
+type operationHandlerFunc func(ctx context.Context, message message, readWriter io.ReadWriter) error
 
 type Files struct {
 	handlers map[Operation]operationHandlerFunc
@@ -75,7 +76,7 @@ func (f *Files) Handle(ctx context.Context, readWriter io.ReadWriter) error {
 		})
 	}
 
-	return handler(msg, readWriter)
+	return handler(ctx, msg, readWriter)
 }
 
 func writeError(readWriter io.Writer, message string) error {
@@ -85,7 +86,7 @@ func writeError(readWriter io.Writer, message string) error {
 	})
 }
 
-func readDir(m message, readWriter io.ReadWriter) error {
+func readDir(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createReadDirMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -113,7 +114,7 @@ func readDir(m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func makeDir(m message, readWriter io.ReadWriter) error {
+func makeDir(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createMkDirMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -121,7 +122,7 @@ func makeDir(m message, readWriter io.ReadWriter) error {
 
 	err = os.MkdirAll(message.Directory, os.ModePerm)
 	if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 		return writeError(readWriter, "Failed to make directory")
 	}
 
@@ -130,7 +131,7 @@ func makeDir(m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func moveCopy(m message, readWriter io.ReadWriter) error {
+func moveCopy(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createMoveMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -155,13 +156,13 @@ func moveCopy(m message, readWriter io.ReadWriter) error {
 			},
 		)
 		if err != nil {
-			log.Error(err)
+			logger.Error(ctx, err)
 			return writeError(readWriter, "Failed to copy")
 		}
 	} else {
 		err := os.Rename(message.Source, message.Destination)
 		if err != nil {
-			log.Error(err)
+			logger.Error(ctx, err)
 			return writeError(readWriter, "Failed to move")
 		}
 	}
@@ -171,7 +172,7 @@ func moveCopy(m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func fileSend(m message, readWriter io.ReadWriter) error {
+func fileSend(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	if len(m) < 2 {
 		return writeError(readWriter, "Invalid message")
 	}
@@ -181,30 +182,34 @@ func fileSend(m message, readWriter io.ReadWriter) error {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	err = servercommon.ReadEndBytes(context.TODO(), readWriter)
+	err = servercommon.ReadEndBytes(ctx, readWriter)
 	if err != nil {
 		return errors.WithMessage(err, "failed to read end bytes")
 	}
 
 	switch op {
 	case SendFileToClient:
-		return uploadFileToClient(m, readWriter)
+		return uploadFileToClient(ctx, m, readWriter)
 	case GetFileFromClient:
-		return downloadFileFromClient(m, readWriter)
+		return downloadFileFromClient(ctx, m, readWriter)
 	default:
 		return writeError(readWriter, "Invalid file send operation")
 	}
 }
 
-func uploadFileToClient(m message, readWriter io.ReadWriter) error {
+func uploadFileToClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createSendFileToClientMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
+	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+		"filepath": message.FilePath,
+	}))
+
 	fi, err := os.Stat(message.FilePath)
 	if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 		return writeError(readWriter, fmt.Sprintf("File \"%s\" error", message.FilePath))
 	}
 	if os.IsNotExist(err) {
@@ -220,12 +225,12 @@ func uploadFileToClient(m message, readWriter io.ReadWriter) error {
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
-			log.Error(err)
+			logger.Error(ctx, err)
 		}
 	}(file)
 
 	if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 		return writeError(readWriter, fmt.Sprintf("Failed to open file \"%s\"", message.FilePath))
 	}
 
@@ -238,22 +243,29 @@ func uploadFileToClient(m message, readWriter io.ReadWriter) error {
 		return err
 	}
 
+	logger.Debug(ctx, "Starting file transfer")
+
 	_, err = io.Copy(readWriter, file)
 	if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 		return writeError(readWriter, "Failed to transfer file")
 	}
 
 	return nil
 }
 
-func downloadFileFromClient(m message, readWriter io.ReadWriter) error {
+func downloadFileFromClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createGetFileFromClientMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	log.Debugf("Starting transferring file from client: filepath: %s, filesize: %d", message.FilePath, message.FileSize)
+	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+		"filepath": message.FilePath,
+		"filesize": message.FileSize,
+	}))
+
+	logger.Debug(ctx, "Starting transferring file from client")
 
 	dir := path.Dir(message.FilePath)
 	_, err = os.Stat(dir)
@@ -261,26 +273,26 @@ func downloadFileFromClient(m message, readWriter io.ReadWriter) error {
 		if message.MakeDirs {
 			err := os.MkdirAll(dir, 0755)
 			if err != nil {
-				log.Error(err)
+				logger.Error(ctx, err)
 				return writeError(readWriter, fmt.Sprintf("Failed to make directory \"%s\"", dir))
 			}
 		} else {
 			return writeError(readWriter, fmt.Sprintf("File path \"%s\" not found", dir))
 		}
 	} else if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 		return writeError(readWriter, fmt.Sprintf("Directory \"%s\" error", dir))
 	}
 
 	file, err := os.OpenFile(message.FilePath, os.O_CREATE|os.O_WRONLY, message.Perms)
 	if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 		return writeError(readWriter, "Failed to open file")
 	}
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
-			log.Error(err)
+			logger.Error(ctx, err)
 		}
 	}(file)
 
@@ -294,18 +306,18 @@ func downloadFileFromClient(m message, readWriter io.ReadWriter) error {
 
 	_, err = io.CopyN(file, readWriter, int64(message.FileSize))
 	if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 		return writeError(readWriter, "Failed to transfer file")
 	}
 
-	log.Debug("File successfully transfered")
+	logger.Debug(ctx, "File successfully transfered")
 
 	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 	})
 }
 
-func remove(m message, readWriter io.ReadWriter) error {
+func remove(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createRemoveMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -328,7 +340,7 @@ func remove(m message, readWriter io.ReadWriter) error {
 	}
 
 	if err != nil {
-		log.Error(err)
+		logger.Error(ctx, err)
 		return writeError(readWriter, "Failed to remove")
 	}
 
@@ -337,7 +349,7 @@ func remove(m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func fileInfo(m message, readWriter io.ReadWriter) error {
+func fileInfo(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createFileInfoMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -354,7 +366,7 @@ func fileInfo(m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func chmod(m message, readWriter io.ReadWriter) error {
+func chmod(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createChmodMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")

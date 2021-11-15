@@ -73,21 +73,10 @@ func newInstallServer(cfg *config.Config, executor interfaces.Executor, serverRe
 
 func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) error {
 	defer func() {
-		err := cmd.defineAndSaveServerStatus(ctx, server)
-		if err != nil {
-			log.Error(err)
-		}
-	}()
-	defer func() {
 		cmd.complete = true
 	}()
 
 	var err error
-
-	err = cmd.setServerIntallationStatus(ctx, server, domain.ServerInstallInProcess)
-	if err != nil {
-		return err
-	}
 
 	if cmd.cfg.Scripts.Install != "" {
 		err = cmd.installByScript(ctx, server)
@@ -162,28 +151,6 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 	cmd.result = SuccessResult
 
 	return nil
-}
-
-func (cmd *installServer) setServerIntallationStatus(
-	ctx context.Context,
-	server *domain.Server,
-	status domain.InstallationStatus,
-) error {
-	server.SetInstallationStatus(status)
-	return cmd.serverRepo.Save(ctx, server)
-}
-
-func (cmd *installServer) defineAndSaveServerStatus(ctx context.Context, server *domain.Server) error {
-	switch {
-	case !cmd.IsComplete():
-		server.SetInstallationStatus(domain.ServerInstallInProcess)
-	case cmd.Result() == 0:
-		server.SetInstallationStatus(domain.ServerInstalled)
-	case cmd.Result() != 0:
-		server.SetInstallationStatus(domain.ServerNotInstalled)
-	}
-
-	return cmd.serverRepo.Save(ctx, server)
 }
 
 type installationRulesDefiner struct{}

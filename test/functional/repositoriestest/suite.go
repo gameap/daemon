@@ -12,6 +12,7 @@ import (
 
 	"github.com/gameap/daemon/internal/app"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sarulabs/di"
@@ -62,6 +63,8 @@ func (suite *Suite) SetupSuite() {
 	suite.Cfg = &config.Config{
 		APIHost: "http://localhost:14323",
 		APIKey:  "0oKyfcfjZOycicaazEgW6sHw9cYUMJDVJl0pXKjMYu44eoBWBwvXUJZdv6z6OfKs",
+
+		LogLevel: "trace",
 	}
 
 	getTokenJSON, err := json.Marshal(struct {
@@ -78,7 +81,7 @@ func (suite *Suite) SetupSuite() {
 	suite.setupAPIServer()
 	suite.GivenAPIResponse("/gdaemon_api/get_token", http.StatusOK, getTokenJSON)
 
-	builder, err := app.NewBuilder(suite.Cfg)
+	builder, err := app.NewBuilder(suite.Cfg, logger.NewLogger(*suite.Cfg))
 	if err != nil {
 		suite.T().Fatal(err)
 	}

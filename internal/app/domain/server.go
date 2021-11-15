@@ -15,6 +15,7 @@ const (
 
 const autostartSettingKey = "autostart"
 const autostartCurrentSettingKey = "autostart_current"
+const updateBeforeStartSettingKey = "update_before_start"
 
 type ServerRepository interface {
 	IDs(ctx context.Context) ([]int, error)
@@ -219,6 +220,12 @@ func (s *Server) AutoStart() bool {
 	}
 
 	return autostart == "1" || autostart == "true"
+}
+
+func (s *Server) UpdateBeforeStart() bool {
+	updateBeforeStart := s.Setting(updateBeforeStartSettingKey)
+
+	return updateBeforeStart == "1" || updateBeforeStart == "true"
 }
 
 func (s *Server) InstallationStatus() InstallationStatus {

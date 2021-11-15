@@ -8,6 +8,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -41,7 +42,7 @@ func NewScheduler(
 func (s *Scheduler) Run(ctx context.Context) error {
 	err := s.updateTasksIfNeeded(ctx)
 	if err != nil {
-		log.Error(err)
+		logger.Logger(ctx).WithError(err).Warn("Failed to update game server tasks")
 	}
 
 	for {
@@ -53,7 +54,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 
 			err = s.updateTasksIfNeeded(ctx)
 			if err != nil {
-				log.Error(err)
+				logger.Logger(ctx).WithError(err).Warn("Failed to update game server tasks")
 			}
 
 			time.Sleep(updateTimeout)
@@ -66,6 +67,11 @@ func (s *Scheduler) runNext(ctx context.Context) {
 	if task == nil {
 		return
 	}
+
+	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+		"serverTaskID": task.ID,
+		"gameServerID": task.Server.ID(),
+	}))
 
 	if task.ExecuteDate.Before(time.Now()) {
 		s.queue.Remove(task)
@@ -82,6 +88,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) {
 
 	err := cmd.Execute(ctx, task.Server)
 	if err != nil {
+		logger.Logger(ctx).WithError(err).Warn("Failed to execute server task")
 		s.saveFailInfo(ctx, task, err.Error())
 		return
 	}
@@ -98,7 +105,7 @@ func (s *Scheduler) prolongTask(ctx context.Context, task *domain.ServerTask) {
 
 	err := s.repository.Save(ctx, task)
 	if err != nil {
-		log.Error(errors.WithMessage(err, "failed to prolong"))
+		logger.Logger(ctx).WithError(err).Warn("Failed to prolong game server task")
 	}
 
 	s.queue.Put(task)
