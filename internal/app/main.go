@@ -23,7 +23,7 @@ func Run(args []string) {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "config",
-				Value: "/etc/gameap-daemon/gameap-daemon.cfg",
+				Value: "",
 				Usage: "Path to gameap-daemon config",
 				Aliases: []string{"c"},
 			},

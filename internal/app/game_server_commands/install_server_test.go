@@ -69,7 +69,7 @@ func TestGameRulesDefiner_InvalidRepositoryValue_NoSourceExpected(t *testing.T) 
 func TestGameRulesDefiner_DefineGameRules_FromSteam(t *testing.T) {
 	rulesDefiner := installationRulesDefiner{}
 	game := &domain.Game{
-		SteamAppID: 90,
+		SteamAppID: domain.SteamAppID(90),
 	}
 
 	rules := rulesDefiner.DefineGameRules(game)
@@ -112,7 +112,7 @@ func TestInstallationRuleDefiner_InvalidRepositories_FromSteam(t *testing.T) {
 	game := &domain.Game{
 		RemoteRepository: "invalid-value",
 		LocalRepository: "invalid-value",
-		SteamAppID: 90,
+		SteamAppID: domain.SteamAppID(90),
 	}
 
 	rules := rulesDefiner.DefineGameRules(game)
@@ -127,7 +127,7 @@ func TestInstallationRuleDefiner_ValidRepositories_ExpectRemoteLocalAndSteamRepo
 	game := &domain.Game{
 		RemoteRepository: "https://example.com/file.zip",
 		LocalRepository: "/tmp",
-		SteamAppID: 90,
+		SteamAppID: domain.SteamAppID(90),
 	}
 
 	rules := rulesDefiner.DefineGameRules(game)

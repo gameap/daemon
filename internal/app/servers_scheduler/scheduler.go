@@ -63,6 +63,9 @@ func (s *Scheduler) Run(ctx context.Context) error {
 
 func (s *Scheduler) runNext(ctx context.Context) {
 	task := s.queue.Pop()
+	if task == nil {
+		return
+	}
 
 	if task.ExecuteDate.Before(time.Now()) {
 		s.queue.Remove(task)

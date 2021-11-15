@@ -207,7 +207,7 @@ func (d *installationRulesDefiner) DefineGameRules(game *domain.Game) []*install
 
 	if game.SteamAppID > 0 {
 		rule := &installationRule{
-			SourceValue: strconv.Itoa(game.SteamAppID),
+			SourceValue: game.SteamAppID.String(),
 			Action:      installFromSteam,
 		}
 		rules = append(rules, rule)

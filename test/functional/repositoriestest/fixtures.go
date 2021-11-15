@@ -43,8 +43,8 @@ var JSONApiGetServerResponseBody = []byte(`
         "engine_version": "1",
         "steam_app_id": 90,
         "steam_app_set_config": null,
-        "remote_repository": null,
-        "local_repository": null
+        "remote_repository": "http://files.gameap.ru/cstrike-1.6/hlcs_base.tar.xz",
+        "local_repository": "/srv/gameap/repository/hlcs_base.tar.xz"
     },
     "game_mod": {
         "id": 4,
@@ -89,7 +89,7 @@ var JSONApiGetServerResponseBody = []byte(`
             }
         ],
         "remote_repository": "http://files.gameap.ru/cstrike-1.6/amxx.tar.xz",
-        "local_repository": "",
+        "local_repository": "/srv/gameap/repository/cstrike-1.6/amxx.tar.xz",
         "default_start_cmd_linux": "./hlds_run -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}",
         "default_start_cmd_windows": "hlds.exe -console -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}",
         "kick_cmd": "kick #{id}",

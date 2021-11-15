@@ -99,6 +99,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 		if err != nil {
 			return -1, errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
 		}
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
 		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
 	}
 

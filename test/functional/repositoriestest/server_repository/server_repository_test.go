@@ -35,19 +35,21 @@ func (suite *Suite) TestSuccess() {
 	suite.Equal("./hlds_run -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}", server.StartCommand())
 	suite.Equal(map[string]string{
 		"default_map": "de_dust2",
+		"fps": "500",
+		"maxplayers": "32",
 	}, server.Vars())
 	suite.Equal(true, server.AutoStart())
 	suite.Equal("cstrike", server.Game().Code)
 	suite.Equal("cstrike", server.Game().StartCode)
 	suite.Equal("GoldSource", server.Game().Engine)
 	suite.Equal("1", server.Game().EngineVersion)
-	suite.Equal("", server.Game().RemoteRepository)
-	suite.Equal("", server.Game().LocalRepository)
+	suite.Equal("http://files.gameap.ru/cstrike-1.6/hlcs_base.tar.xz", server.Game().RemoteRepository)
+	suite.Equal("/srv/gameap/repository/hlcs_base.tar.xz", server.Game().LocalRepository)
 	suite.Equal("Counter-Strike 1.6", server.Game().Name)
 	suite.Equal(4, server.GameMod().ID)
 	suite.Equal("Classic (Standart)", server.GameMod().Name)
 	suite.Equal("http://files.gameap.ru/cstrike-1.6/amxx.tar.xz", server.GameMod().RemoteRepository)
-	suite.Equal("", server.GameMod().LocalRepository)
+	suite.Equal("/srv/gameap/repository/cstrike-1.6/amxx.tar.xz", server.GameMod().LocalRepository)
 	suite.Equal("./hlds_run -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}", server.GameMod().DefaultStartCMDLinux)
 	suite.Equal("hlds.exe -console -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}", server.GameMod().DefaultStartCMDWindows)
 }

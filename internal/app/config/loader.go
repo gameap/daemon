@@ -4,16 +4,27 @@ import (
 	"bufio"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/ini.v1"
 	"gopkg.in/yaml.v3"
 )
 
 func Load(path string) (*Config, error) {
-	ext := filepath.Ext(path)
 	var err error
 	var cfg *Config
+
+	if path == "" {
+		path = findConfigFile()
+	}
+
+	if path == "" {
+		return nil, ErrConfigNotFound
+	}
+
+	ext := filepath.Ext(path)
 
 	switch ext {
 	case ".yaml", ".yml":
@@ -130,4 +141,39 @@ func updatePaths(cfgPath string, cfg *Config) *Config {
 	}
 
 	return cfg
+}
+
+func findConfigFile() string {
+	cfgPaths := []string{
+		"./gameap-daemon.cfg",
+		"./gameap-daemon.yml",
+		"./gameap-daemon.yaml",
+		"/etc/gameap-daemon/gameap-daemon.cfg",
+		"/etc/gameap-daemon/gameap-daemon.yml",
+		"/etc/gameap-daemon/gameap-daemon.yaml",
+		"/etc/gameap-daemon/daemon.cfg",
+		"/etc/gameap-daemon/daemon.yml",
+		"/etc/gameap-daemon/daemon.yaml",
+		"/etc/gameap-daemon.cfg",
+		"/etc/gameap-daemon.yml",
+		"/etc/gameap-daemon.yaml",
+	}
+
+	systemUser, err := user.Current()
+	if err == nil {
+		cfgPaths = append(cfgPaths, systemUser.HomeDir + "/gameap-daemon.cfg")
+		cfgPaths = append(cfgPaths, systemUser.HomeDir + "/gameap-daemon.yml")
+		cfgPaths = append(cfgPaths, systemUser.HomeDir + "/gameap-daemon.yaml")
+	}
+
+	log.Info("Looking up configuration file")
+
+	for _, path := range cfgPaths{
+		if _, err = os.Stat(path); err == nil {
+			log.Infof("Found config file: %s", path)
+			return path
+		}
+	}
+
+	return ""
 }

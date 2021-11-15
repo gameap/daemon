@@ -10,6 +10,7 @@ var (
 	ErrEmptyNodeID              = errors.New("empty node ID")
 	ErrEmptyAPIHost             = errors.New("empty API Host")
 	ErrEmptyAPIKey              = errors.New("empty API Key")
+	ErrConfigNotFound           = errors.New("configuration file not found")
 )
 
 type InvalidFileError struct {

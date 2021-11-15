@@ -49,3 +49,12 @@ type Executor interface {
 	Exec(ctx context.Context, command string, options components.ExecutorOptions) ([]byte, int, error)
 	ExecWithWriter(ctx context.Context, command string, out io.Writer, options components.ExecutorOptions) (int, error)
 }
+
+type GameProcessController interface {
+	Start(ctx context.Context, server *domain.Server) (int, error)
+	Stop(ctx context.Context, server *domain.Server) (int, error)
+	Restart(ctx context.Context, server *domain.Server) (int, error)
+	Status(ctx context.Context, server *domain.Server) (int, error)
+	GetOutput(ctx context.Context, server *domain.Server) (int, error)
+	SendInput(ctx context.Context, server *domain.Server) (int, error)
+}

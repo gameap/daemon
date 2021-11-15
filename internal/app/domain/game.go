@@ -3,23 +3,54 @@ package domain
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 )
 
+type SteamAppID int
+
+func (appID *SteamAppID) UnmarshalJSON(bytes []byte) error {
+	if bytes[0] == '"' {
+		var id string
+		id = strings.Trim(string(bytes), "\"")
+
+		sId, err := strconv.Atoi(id)
+		if err != nil {
+			return err
+		}
+
+		*appID = SteamAppID(sId)
+	} else {
+		var id int
+		err := json.Unmarshal(bytes, &id)
+		if err != nil {
+			return err
+		}
+
+		*appID = SteamAppID(id)
+	}
+
+	return nil
+}
+
+func (appID SteamAppID) String() string {
+	return strconv.Itoa(int(appID))
+}
+
 type Game struct {
-	Code             string `json:"code"`
-	StartCode        string `json:"start_code"`
-	Name             string `json:"name"`
-	Engine           string `json:"engine"`
-	EngineVersion    string `json:"engine_version"`
-	SteamAppID       int    `json:"steam_app_id"`
+	Code             string     `json:"code"`
+	StartCode        string     `json:"start_code"`
+	Name             string     `json:"name"`
+	Engine           string     `json:"engine"`
+	EngineVersion    string     `json:"engine_version"`
+	SteamAppID       SteamAppID `json:"steam_app_id"`
 	SteamSettings    SteamSettings
 	RemoteRepository string `json:"remote_repository"`
 	LocalRepository  string `json:"local_repository"`
 }
 
 type SteamSettings struct {
-	SteamAPPID        int
-	SteamAPPSetConfig string
+	SteamAppID        SteamAppID
+	SteamAppSetConfig string
 }
 
 type GameModVarTemplate struct {
