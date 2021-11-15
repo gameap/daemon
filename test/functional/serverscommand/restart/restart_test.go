@@ -3,7 +3,7 @@ package restart
 import (
 	"context"
 
-	"github.com/gameap/daemon/internal/app/gameservercommands"
+	"github.com/gameap/daemon/internal/app/game_server_commands"
 )
 
 func (suite *Suite) TestRestartViaStartStop_ServerIsActive_ExecutedStatusStopAndStartCommands() {

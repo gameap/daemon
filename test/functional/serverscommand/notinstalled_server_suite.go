@@ -7,7 +7,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/gameservercommands"
+	"github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"

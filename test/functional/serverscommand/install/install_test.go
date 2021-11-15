@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/gameservercommands"
+	"github.com/gameap/daemon/internal/app/game_server_commands"
 )
 
 func (suite *Suite) TestInstall_NoRules() {
