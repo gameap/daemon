@@ -68,8 +68,8 @@ jobs:
           GOX_ARCHS: "${{ matrix.targets }}"
         run: |
           mkdir build-output
-          gox -verbose -osarch "$GOX_ARCHS" -ldflags="-X github.com/gameap/daemon/internal/app/build.Version=3.1 -X github.com/gameap/daemon/internal/app/build.BuildDate=$(date --rfc-3339=seconds)" -output "build-output/{{.Dir}}_{{.OS}}_{{.Arch}}" ./cmd/gameap-daemon
-          gox -verbose -osarch "$GOX_ARCHS" -tags debug -ldflags="-X github.com/gameap/daemon/internal/app/build.Version=3.1 -X github.com/gameap/daemon/internal/app/build.BuildDate=$(date --rfc-3339=seconds)" -output "build-output/{{.Dir}}_{{.OS}}_{{.Arch}}_debug" ./cmd/gameap-daemon
+          gox -verbose -osarch "$GOX_ARCHS" -output "build-output/{{.Dir}}_{{.OS}}_{{.Arch}}" ./cmd/gameap-daemon
+          gox -verbose -osarch "$GOX_ARCHS" -tags debug -output "build-output/{{.Dir}}_{{.OS}}_{{.Arch}}_debug" ./cmd/gameap-daemon
 
 
   test-cache:
