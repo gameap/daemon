@@ -1,3 +1,7 @@
+# GameAP Daemon
+
+The server management daemon
+
 # TODO
 
 * detailed errors

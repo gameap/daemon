@@ -25,6 +25,7 @@ type ServerRepository interface {
 
 type Settings map[string]string
 
+//nolint:maligned
 type Server struct {
 	id            int
 	enabled       bool

@@ -13,13 +13,13 @@ type fileType uint8
 
 const (
 	typeUnknown     fileType = 0
-	typeDir                  = 1
-	typeFile                 = 2
-	typeCharDevice           = 3
-	typeBlockDevice          = 4
-	typeNamedPipe            = 5
-	typeSymlink              = 6
-	typeSocket               = 7
+	typeDir         fileType = 1
+	typeFile        fileType = 2
+	typeCharDevice  fileType = 3
+	typeBlockDevice fileType = 4
+	typeNamedPipe   fileType = 5
+	typeSymlink     fileType = 6
+	typeSocket      fileType = 7
 )
 
 func fileTypeByMode(fileMode fs.FileMode) fileType {
@@ -70,6 +70,7 @@ func (fi fileInfoResponse) MarshalBINN() ([]byte, error) {
 	return binngo.Marshal(&resp)
 }
 
+//nolint:maligned
 type fileDetailsResponse struct {
 	Name             string
 	Size             uint64

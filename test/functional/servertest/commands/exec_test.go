@@ -79,10 +79,9 @@ func (suite *Suite) TestInvalidCommand() {
 
 	err = decode.Unmarshal(buf, &r)
 
-	if assert.NoError(suite.T(), err) {
-		assert.Equal(suite.T(), response.StatusError, response.Code(r[0].(uint8)))
-		assert.Contains(suite.T(), r[1], "Executable file not found")
-	}
+	suite.Require().NoError(err)
+	suite.Equal(response.StatusError, response.Code(r[0].(uint8)))
+	suite.Contains(r[1], "executable file not found")
 }
 
 func (suite *Suite) TestInvalidWorkDir() {
@@ -98,15 +97,14 @@ func (suite *Suite) TestInvalidWorkDir() {
 
 	err = decode.Unmarshal(buf, &r)
 
-	if assert.NoError(suite.T(), err) {
-		assert.Equal(suite.T(), response.StatusError, response.Code(r[0].(uint8)))
-		assert.Contains(suite.T(), r[1], "Invalid work directory")
-	}
+	suite.Require().NoError(err)
+	suite.Equal(response.StatusError, response.Code(r[0].(uint8)))
+	suite.Contains(r[1], "invalid work directory")
 }
 
 func (suite *Suite) TestInvalidMessage() {
 	suite.Auth(server.ModeCommands)
-	msg, err := binngo.Marshal(struct{
+	msg, err := binngo.Marshal(struct {
 		invalid string
 	}{
 		invalid: "echo hello",
@@ -121,8 +119,7 @@ func (suite *Suite) TestInvalidMessage() {
 
 	err = decode.Unmarshal(buf, &r)
 
-	if assert.NoError(suite.T(), err) {
-		assert.Equal(suite.T(), response.StatusError, response.Code(r[0].(uint8)))
-		assert.Equal(suite.T(), "Failed to decode message", r[1])
-	}
+	suite.Require().NoError(err)
+	suite.Equal(response.StatusError, response.Code(r[0].(uint8)))
+	suite.Equal("Failed to decode message", r[1])
 }

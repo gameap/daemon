@@ -11,7 +11,7 @@ type TasksStatsReader struct {
 
 func (t *TasksStatsReader) Stats() domain.GDTaskStats {
 	return domain.GDTaskStats{
-		t.WorkingCount,
-		t.WaitingCount,
+		WorkingCount: t.WorkingCount,
+		WaitingCount: t.WaitingCount,
 	}
 }

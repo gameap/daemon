@@ -16,7 +16,7 @@ type ServerTaskRepository struct {
 func NewServerTaskRepository() *ServerTaskRepository {
 	return &ServerTaskRepository{
 		items: make(map[int]*domain.ServerTask),
-		fails: make(map[int][][]byte, 0),
+		fails: make(map[int][][]byte),
 	}
 }
 
@@ -85,5 +85,5 @@ func (r *ServerTaskRepository) Clear() {
 	defer r.mutex.Unlock()
 
 	r.items = map[int]*domain.ServerTask{}
-	r.fails = make(map[int][][]byte, 0)
+	r.fails = make(map[int][][]byte)
 }

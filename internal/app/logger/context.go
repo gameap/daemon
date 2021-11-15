@@ -7,7 +7,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const loggerKey = "logger"
+type key int
+
+const (
+	loggerKey key = iota
+)
 
 func WithLogger(ctx context.Context, logger log.FieldLogger) context.Context {
 	return context.WithValue(ctx, loggerKey, logger)
@@ -25,11 +29,11 @@ func Logger(ctx context.Context) log.FieldLogger {
 	return nilLogger
 }
 
-func LoggerWithField(ctx context.Context, key string, value interface{}) log.FieldLogger {
+func WithField(ctx context.Context, key string, value interface{}) log.FieldLogger {
 	return Logger(ctx).WithField(key, value)
 }
 
-func LoggerWithFields(ctx context.Context, fields log.Fields) log.FieldLogger {
+func WithFields(ctx context.Context, fields log.Fields) log.FieldLogger {
 	return Logger(ctx).WithFields(fields)
 }
 
@@ -40,7 +44,6 @@ func Debug(ctx context.Context, args ...interface{}) {
 func Debugf(ctx context.Context, format string, args ...interface{}) {
 	Logger(ctx).Debugf(format, args...)
 }
-
 
 func Info(ctx context.Context, args ...interface{}) {
 	Logger(ctx).Info(args...)

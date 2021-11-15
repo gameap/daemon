@@ -117,7 +117,7 @@ func (suite *Suite) setupAPIServer() {
 		defer suite.wg.Done()
 
 		if err := suite.apiServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			suite.T().Fatal(err)
+			panic(err)
 		}
 	}()
 }
@@ -190,11 +190,12 @@ func (suite *Suite) AssertAPICalled(method string, url string, body []byte) {
 	var urlCalled apiRequests
 	var isCalled bool
 
-	if method == http.MethodPut {
-		urlCalled, isCalled = suite.apiPutCalled[url]
-	} else if method == http.MethodPost {
+	switch method {
+	case http.MethodPost:
 		urlCalled, isCalled = suite.apiPostCalled[url]
-	} else {
+	case http.MethodPut:
+		urlCalled, isCalled = suite.apiPutCalled[url]
+	default:
 		suite.T().Fatal("Unsupported http method to assert")
 	}
 

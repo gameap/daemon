@@ -6,7 +6,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 )
 
-const timeout = 4 * time.Second
+const timeout = 6 * time.Second
 
 func (suite *Suite) TestStartSuccess() {
 	server := suite.GivenServerWithStartCommand("./make_file_with_contents.sh")
@@ -14,7 +14,7 @@ func (suite *Suite) TestStartSuccess() {
 
 	suite.RunTaskManagerWithTimeout(timeout)
 
-	suite.AssertFileContents(suite.WorkPath + "/server/file.txt", []byte("FILE CONTENTS\n"))
+	suite.AssertFileContents(suite.WorkPath+"/server/file.txt", []byte("FILE CONTENTS\n"))
 	suite.AssertGDTaskExist(
 		domain.NewGDTask(
 			1,
@@ -73,5 +73,5 @@ func (suite *Suite) TestStartSequenceTasks() {
 
 	suite.RunTaskManagerWithTimeout(timeout)
 
-	suite.AssertFileContents(suite.WorkPath + "/server/file.txt", []byte("start\nstop\nstop\nstart\nstart\n"))
+	suite.AssertFileContents(suite.WorkPath+"/server/file.txt", []byte("start\nstop\nstop\nstart\nstart\n"))
 }

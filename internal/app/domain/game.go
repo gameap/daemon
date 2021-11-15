@@ -10,15 +10,14 @@ type SteamAppID int
 
 func (appID *SteamAppID) UnmarshalJSON(bytes []byte) error {
 	if bytes[0] == '"' {
-		var id string
-		id = strings.Trim(string(bytes), "\"")
+		id := strings.Trim(string(bytes), "\"")
 
-		sId, err := strconv.Atoi(id)
+		sID, err := strconv.Atoi(id)
 		if err != nil {
 			return err
 		}
 
-		*appID = SteamAppID(sId)
+		*appID = SteamAppID(sID)
 	} else {
 		var id int
 		err := json.Unmarshal(bytes, &id)
@@ -73,13 +72,13 @@ func (g *GameModVarTemplate) UnmarshalJSON(bytes []byte) error {
 
 	g.Key = v.Var
 
-	switch v.Default.(type) {
+	switch defaultValue := v.Default.(type) {
 	case string:
-		g.DefaultValue = v.Default.(string)
+		g.DefaultValue = defaultValue
 	case int:
-		g.DefaultValue = strconv.Itoa(v.Default.(int))
+		g.DefaultValue = strconv.Itoa(defaultValue)
 	case float64:
-		g.DefaultValue = strconv.Itoa(int(v.Default.(float64)))
+		g.DefaultValue = strconv.Itoa(int(defaultValue))
 	case bool:
 		if v.Default.(bool) {
 			g.DefaultValue = "1"

@@ -16,8 +16,8 @@ func (suite *Suite) TestChmodSuccess() {
 	tempFile, _ := os.CreateTemp(tempDir, "file")
 
 	tests := []struct {
-		name string
-		perm uint16
+		name     string
+		perm     uint16
 		expected string
 	}{
 		{"only owner read write", 0600, "-rw-------"},

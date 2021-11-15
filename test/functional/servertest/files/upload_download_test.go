@@ -70,7 +70,6 @@ func (suite *Suite) TestUploadBigFileSuccess() {
 	}
 	r = suite.readMessageFromClient()
 
-
 	assert.Equal(suite.T(), response.StatusOK, response.Code(r[0].(uint8)))
 	suite.Require().FileExists(suite.tempFileDestination)
 	suite.assertUploadedFileSize(1000000)

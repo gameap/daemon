@@ -161,14 +161,14 @@ func findConfigFile() string {
 
 	systemUser, err := user.Current()
 	if err == nil {
-		cfgPaths = append(cfgPaths, systemUser.HomeDir + "/gameap-daemon.cfg")
-		cfgPaths = append(cfgPaths, systemUser.HomeDir + "/gameap-daemon.yml")
-		cfgPaths = append(cfgPaths, systemUser.HomeDir + "/gameap-daemon.yaml")
+		cfgPaths = append(cfgPaths, systemUser.HomeDir+"/gameap-daemon.cfg")
+		cfgPaths = append(cfgPaths, systemUser.HomeDir+"/gameap-daemon.yml")
+		cfgPaths = append(cfgPaths, systemUser.HomeDir+"/gameap-daemon.yaml")
 	}
 
 	log.Info("Looking up configuration file")
 
-	for _, path := range cfgPaths{
+	for _, path := range cfgPaths {
 		if _, err = os.Stat(path); err == nil {
 			log.Infof("Found config file: %s", path)
 			return path

@@ -11,8 +11,8 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/gdaemon_scheduler"
+	"github.com/gameap/daemon/internal/app/gameservercommands"
+	"github.com/gameap/daemon/internal/app/gdaemonscheduler"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
@@ -21,14 +21,14 @@ import (
 type Suite struct {
 	functional.GameServerSuite
 
-	TaskManager      *gdaemon_scheduler.TaskManager
+	TaskManager      *gdaemonscheduler.TaskManager
 	GDTaskRepository *mocks.GDTaskRepository
 	ServerRepository *mocks.ServerRepository
 	Executor         interfaces.Executor
 	Cache            interfaces.Cache
 	Cfg              *config.Config
 
-	WorkPath         string
+	WorkPath string
 }
 
 func (suite *Suite) SetupSuite() {
@@ -42,7 +42,7 @@ func (suite *Suite) SetupSuite() {
 	suite.Cfg = &config.Config{
 		Scripts: config.Scripts{
 			Start: "{command}",
-			Stop: "{command}",
+			Stop:  "{command}",
 		},
 	}
 
@@ -51,10 +51,10 @@ func (suite *Suite) SetupSuite() {
 		suite.T().Fatal(err)
 	}
 
-	suite.TaskManager = gdaemon_scheduler.NewTaskManager(
+	suite.TaskManager = gdaemonscheduler.NewTaskManager(
 		suite.GDTaskRepository,
 		suite.Cache,
-		game_server_commands.NewFactory(
+		gameservercommands.NewFactory(
 			suite.Cfg,
 			suite.ServerRepository,
 			suite.Executor,
@@ -151,7 +151,7 @@ func (suite *Suite) GivenSequenceGDTaskForServer(server *domain.Server) []*domai
 	}
 
 	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(tasks), func(i, j int) { tasks[i], tasks[j] = tasks[j], tasks[i]})
+	rand.Shuffle(len(tasks), func(i, j int) { tasks[i], tasks[j] = tasks[j], tasks[i] })
 
 	suite.GDTaskRepository.Set(tasks)
 

@@ -38,6 +38,7 @@ type nodeInitial struct {
 	ScriptDelete        string `json:"script_delete"`
 }
 
+//nolint:funlen
 func (ncu *NodeConfigInitializer) Initialize(ctx context.Context, cfg *Config) error {
 	ncu.initDefault(cfg)
 

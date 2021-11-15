@@ -22,19 +22,19 @@ func NewServerTaskRepository(
 	serverRepository domain.ServerRepository,
 ) *ServerTaskRepository {
 	return &ServerTaskRepository{
-		client: client,
+		client:           client,
 		serverRepository: serverRepository,
 	}
 }
 
 type serverTask struct {
-	ID           int         `json:"id"`
-	Command      string      `json:"command"`
-	ServerID     int         `json:"server_id"`
-	Repeat       int         `json:"repeat"`
-	RepeatPeriod int         `json:"repeat_period"`
-	Counter      int         `json:"counter"`
-	ExecuteDate  string      `json:"execute_date"`
+	ID           int    `json:"id"`
+	Command      string `json:"command"`
+	ServerID     int    `json:"server_id"`
+	Repeat       int    `json:"repeat"`
+	RepeatPeriod int    `json:"repeat_period"`
+	Counter      int    `json:"counter"`
+	ExecuteDate  string `json:"execute_date"`
 }
 
 func (repo *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTask, error) {
@@ -60,7 +60,7 @@ func (repo *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTas
 		return nil, errors.WithMessage(err, "[repositories.ServerTaskRepository] failed to unmarshal server tasks")
 	}
 
-	var tasks []*domain.ServerTask
+	tasks := make([]*domain.ServerTask, 0, len(items))
 	for i := range items {
 		server, err := repo.serverRepository.FindByID(ctx, items[i].ServerID)
 		if err != nil {
@@ -80,7 +80,7 @@ func (repo *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTas
 			domain.ServerTaskCommand(items[i].Command),
 			server,
 			items[i].Repeat,
-			time.Duration(items[i].RepeatPeriod) * time.Second,
+			time.Duration(items[i].RepeatPeriod)*time.Second,
 			items[i].Counter,
 			executeDate,
 		)

@@ -39,7 +39,7 @@ func (suite *GameServerSuite) GivenServerForGameAndMod(game domain.Game, mod dom
 		time.Now(),
 		map[string]string{
 			"default_map": "de_dust2",
-			"tickrate": "1000",
+			"tickrate":    "1000",
 		},
 		map[string]string{},
 		time.Now(),
@@ -82,7 +82,7 @@ func (suite *GameServerSuite) GivenServerWithStartAndStopCommand(startCommand st
 		time.Now(),
 		map[string]string{
 			"default_map": "de_dust2",
-			"tickrate": "1000",
+			"tickrate":    "1000",
 		},
 		map[string]string{},
 		time.Now(),

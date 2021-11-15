@@ -50,7 +50,11 @@ func (c *APIClient) Request(ctx context.Context, request domain.APIRequest) (int
 	return c.request(ctx, request, 0)
 }
 
-func (c *APIClient) request(ctx context.Context, request domain.APIRequest, deep uint8) (interfaces.APIResponse, error) {
+func (c *APIClient) request(
+	ctx context.Context,
+	request domain.APIRequest,
+	deep uint8,
+) (interfaces.APIResponse, error) {
 	restyRequest := c.innerClient.R()
 
 	restyRequest.SetHeader("Content-Type", "application/json")

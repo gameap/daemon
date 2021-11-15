@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-type Commands struct {}
+type Commands struct{}
 
 func NewCommands() *Commands {
 	return &Commands{}
@@ -46,8 +46,8 @@ func (c Commands) executeCommand(ctx context.Context, msg commandExec, writer io
 	}
 
 	return response.WriteResponse(writer, Response{
-		Code: response.StatusOK,
+		Code:     response.StatusOK,
 		ExitCode: exitCode,
-		Output: string(out),
+		Output:   string(out),
 	})
 }

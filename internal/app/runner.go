@@ -5,13 +5,13 @@ import (
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/gdaemon_scheduler"
+	"github.com/gameap/daemon/internal/app/gameservercommands"
+	"github.com/gameap/daemon/internal/app/gdaemonscheduler"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/gameap/daemon/internal/app/server"
-	"github.com/gameap/daemon/internal/app/servers_loop"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
+	"github.com/gameap/daemon/internal/app/serversloop"
 	"github.com/pkg/errors"
 	"github.com/sarulabs/di"
 	log "github.com/sirupsen/logrus"
@@ -65,7 +65,7 @@ func (r *runner) runGDaemonServer(ctx context.Context, cfg *config.Config) func(
 			return err
 		}
 
-		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+		ctx = logger.WithLogger(ctx, logger.WithFields(ctx, log.Fields{
 			"service": "gameap daemon server",
 		}))
 
@@ -74,9 +74,9 @@ func (r *runner) runGDaemonServer(ctx context.Context, cfg *config.Config) func(
 	}
 }
 
-func (r *runner) runGDaemonTaskScheduler(ctx context.Context, cfg *config.Config) func() error {
+func (r *runner) runGDaemonTaskScheduler(ctx context.Context, _ *config.Config) func() error {
 	return func() error {
-		taskManager := r.container.Get(gdTaskMangerDef).(*gdaemon_scheduler.TaskManager)
+		taskManager := r.container.Get(gdTaskMangerDef).(*gdaemonscheduler.TaskManager)
 
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
 			"service": "gdtask scheduler",
@@ -89,9 +89,9 @@ func (r *runner) runGDaemonTaskScheduler(ctx context.Context, cfg *config.Config
 
 func (r *runner) runServersLoop(ctx context.Context, cfg *config.Config) func() error {
 	return func() error {
-		loop := servers_loop.NewServersLoop(
+		loop := serversloop.NewServersLoop(
 			r.container.Get(serverRepositoryDef).(domain.ServerRepository),
-			r.container.Get(serverCommandFactoryDef).(*game_server_commands.ServerCommandFactory),
+			r.container.Get(serverCommandFactoryDef).(*gameservercommands.ServerCommandFactory),
 			cfg,
 		)
 
@@ -109,7 +109,7 @@ func (r *runner) runServerScheduler(ctx context.Context, cfg *config.Config) fun
 		scheduler := serversscheduler.NewScheduler(
 			cfg,
 			r.container.Get(serverTaskRepositoryDef).(domain.ServerTaskRepository),
-			r.container.Get(serverCommandFactoryDef).(*game_server_commands.ServerCommandFactory),
+			r.container.Get(serverCommandFactoryDef).(*gameservercommands.ServerCommandFactory),
 		)
 
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{

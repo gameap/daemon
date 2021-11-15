@@ -76,6 +76,7 @@ func (repo *ServerRepository) Save(ctx context.Context, server *domain.Server) e
 	return repo.innerRepo.Save(ctx, server)
 }
 
+//nolint:maligned
 type serverStruct struct {
 	ID            int  `json:"id"`
 	Enabled       bool `json:"enabled"`
@@ -154,6 +155,7 @@ func (apiRepo *apiServerRepo) IDs(ctx context.Context) ([]int, error) {
 	return ids, nil
 }
 
+//nolint:funlen
 func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Server, error) {
 	response, err := apiRepo.client.Request(ctx, domain.APIRequest{
 		Method: http.MethodGet,
@@ -192,6 +194,9 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 	}
 
 	updatedAt, err := time.Parse(time.RFC3339, srv.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
 
 	settings := domain.Settings{}
 

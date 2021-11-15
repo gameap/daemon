@@ -9,8 +9,8 @@ type Operation uint8
 
 const (
 	Version       Operation = 1
-	StatusBase              = 2
-	StatusDetails           = 3
+	StatusBase    Operation = 2
+	StatusDetails Operation = 3
 )
 
 var errInvalidOperationMessage = errors.New("unknown binn value, cannot be presented as operation")

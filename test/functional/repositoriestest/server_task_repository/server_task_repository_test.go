@@ -32,7 +32,7 @@ func (suite *Suite) TestFind_Success() {
 	suite.Require().NotNil(tasks[0].Server)
 	suite.Assert().Equal(1, tasks[0].Server.ID())
 	suite.Assert().Equal(0, tasks[0].Repeat)
-	suite.Assert().Equal(10 * time.Minute, tasks[0].RepeatPeriod)
+	suite.Assert().Equal(10*time.Minute, tasks[0].RepeatPeriod)
 	suite.Assert().Equal(0, tasks[0].Counter)
 	suite.Assert().Equal(time.Date(2021, 11, 14, 0, 0, 0, 0, time.UTC), tasks[0].ExecuteDate)
 }
@@ -44,7 +44,7 @@ func (suite *Suite) TestSave_Success() {
 		domain.ServerTaskStart,
 		functional.GameServer,
 		2,
-		1 * time.Hour,
+		1*time.Hour,
 		10,
 		time.Date(2021, 11, 14, 0, 0, 0, 0, time.UTC),
 	)
@@ -65,7 +65,7 @@ func (suite *Suite) TestFail_Success() {
 		domain.ServerTaskStart,
 		functional.GameServer,
 		2,
-		1 * time.Hour,
+		1*time.Hour,
 		10,
 		time.Date(2021, 11, 14, 0, 0, 0, 0, time.UTC),
 	)

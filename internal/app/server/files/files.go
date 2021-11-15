@@ -254,6 +254,7 @@ func uploadFileToClient(ctx context.Context, m message, readWriter io.ReadWriter
 	return nil
 }
 
+//nolint:funlen
 func downloadFileFromClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createGetFileFromClientMessage(m)
 	if message == nil || err != nil {
@@ -269,6 +270,8 @@ func downloadFileFromClient(ctx context.Context, m message, readWriter io.ReadWr
 
 	dir := path.Dir(message.FilePath)
 	_, err = os.Stat(dir)
+
+	//nolint:nestif
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		if message.MakeDirs {
 			err := os.MkdirAll(dir, 0755)
@@ -310,7 +313,7 @@ func downloadFileFromClient(ctx context.Context, m message, readWriter io.ReadWr
 		return writeError(readWriter, "Failed to transfer file")
 	}
 
-	logger.Debug(ctx, "File successfully transfered")
+	logger.Debug(ctx, "File successfully transferred")
 
 	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,

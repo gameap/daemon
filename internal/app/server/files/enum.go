@@ -4,12 +4,12 @@ type Operation uint8
 
 const (
 	FileSend   Operation = 3
-	ReadDir              = 4
-	MakeDir              = 5
-	FileMove             = 6
-	FileRemove           = 7
-	FileInfo             = 8
-	FileChmod            = 9
+	ReadDir    Operation = 4
+	MakeDir    Operation = 5
+	FileMove   Operation = 6
+	FileRemove Operation = 7
+	FileInfo   Operation = 8
+	FileChmod  Operation = 9
 )
 
 const (

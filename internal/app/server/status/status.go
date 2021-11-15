@@ -69,7 +69,6 @@ func (s *Status) version(readWriter io.ReadWriter) error {
 func (s *Status) statusBase(readWriter io.ReadWriter) error {
 	stats := s.gdTaskStatsReader.Stats()
 
-
 	return response.WriteResponse(readWriter, &infoBaseResponse{
 		time.Since(domain.StartTime).Truncate(1 * time.Second).String(),
 		strconv.Itoa(stats.WorkingCount),

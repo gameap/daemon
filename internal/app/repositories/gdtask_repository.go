@@ -64,7 +64,7 @@ func (repository *GDTaskRepository) FindByStatus(
 		return nil, errors.WithMessage(err, "[repositories.GDTaskRepository] failed to unmarshal gameap daemon tasks")
 	}
 
-	var tasks []*domain.GDTask
+	tasks := make([]*domain.GDTask, 0, len(items))
 	for i := range items {
 		server, err := repository.serverRepository.FindByID(ctx, items[i].Server)
 		if err != nil {

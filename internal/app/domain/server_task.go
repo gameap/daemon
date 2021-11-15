@@ -69,9 +69,9 @@ func (s ServerTask) MarshalJSON() ([]byte, error) {
 		RepeatPeriodInSeconds int    `json:"repeat_period"`
 		ExecuteDate           string `json:"execute_date"`
 	}{
-		Repeat: s.Repeat,
+		Repeat:                s.Repeat,
 		RepeatPeriodInSeconds: int(s.RepeatPeriod.Seconds()),
-		ExecuteDate: s.ExecuteDate.Format("2006-01-02 15:04:05"),
+		ExecuteDate:           s.ExecuteDate.Format("2006-01-02 15:04:05"),
 	})
 }
 

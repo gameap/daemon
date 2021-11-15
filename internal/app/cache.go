@@ -8,7 +8,6 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 )
 
-
 type LocalCache struct {
 	cacheStore *ristretto.Cache
 }
@@ -36,4 +35,3 @@ func (cache *LocalCache) Get(_ context.Context, key string) {
 func (cache *LocalCache) Delete(_ context.Context, key string) {
 	cache.cacheStore.Del(key)
 }
-

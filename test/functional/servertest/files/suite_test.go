@@ -30,6 +30,10 @@ func (suite *Suite) SetupTest() {
 	suite.tempFileDestination = tempDirDestination + "/file"
 }
 
+func (suite *Suite) TearDownSuite() {
+	suite.Suite.TearDownSuite()
+}
+
 func (suite *Suite) Authenticate() {
 	suite.T().Helper()
 	suite.Auth(server.ModeFiles)

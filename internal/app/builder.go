@@ -7,8 +7,8 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/game_server_commands"
-	gdscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
+	"github.com/gameap/daemon/internal/app/gameservercommands"
+	gdscheduler "github.com/gameap/daemon/internal/app/gdaemonscheduler"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/repositories"
 	"github.com/go-resty/resty/v2"
@@ -39,13 +39,14 @@ const (
 
 	gdaemonTaskRepositoryDef = "gdaemonTasksRepository"
 	serverRepositoryDef      = "serverRepository"
-	serverTaskRepositoryDef   = "serverTaskRepository"
+	serverTaskRepositoryDef  = "serverTaskRepository"
 
 	serverCommandFactoryDef = "serverCommandFactory"
 
 	gdTaskMangerDef = "gdTaskManager"
 )
 
+//nolint:funlen
 func definitions(cfg *config.Config, logger *log.Logger) []di.Def {
 	return []di.Def{
 		{
@@ -126,7 +127,7 @@ func definitions(cfg *config.Config, logger *log.Logger) []di.Def {
 				serverRepository := ctn.Get(serverRepositoryDef).(domain.ServerRepository)
 				executor := ctn.Get(executorDef).(interfaces.Executor)
 
-				return game_server_commands.NewFactory(
+				return gameservercommands.NewFactory(
 					cfg,
 					serverRepository,
 					executor,
@@ -140,7 +141,7 @@ func definitions(cfg *config.Config, logger *log.Logger) []di.Def {
 				return gdscheduler.NewTaskManager(
 					ctn.Get(gdaemonTaskRepositoryDef).(domain.GDTaskRepository),
 					ctn.Get(cacheManagerDef).(interfaces.Cache),
-					ctn.Get(serverCommandFactoryDef).(*game_server_commands.ServerCommandFactory),
+					ctn.Get(serverCommandFactoryDef).(*gameservercommands.ServerCommandFactory),
 					cfg,
 				), nil
 			},

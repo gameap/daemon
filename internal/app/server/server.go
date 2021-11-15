@@ -59,13 +59,13 @@ func NewServer(
 	taskStatsReader domain.GDTaskStatsReader,
 ) (*Server, error) {
 	return &Server{
-		ip:          ip,
-		port:        port,
-		certFile:    certFile,
-		keyFile:     keyFile,
-		credConfig:  credConfig,
-		quit:        make(chan struct{}),
-		connTimeout: 5 * time.Second,
+		ip:              ip,
+		port:            port,
+		certFile:        certFile,
+		keyFile:         keyFile,
+		credConfig:      credConfig,
+		quit:            make(chan struct{}),
+		connTimeout:     5 * time.Second,
 		taskStatsReader: taskStatsReader,
 	}, nil
 }

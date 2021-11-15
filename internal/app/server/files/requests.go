@@ -9,39 +9,39 @@ var errInvalidMessage = errors.New("unknown binn value, cannot be presented as s
 
 type message []interface{}
 
-func convertToCode(v interface{}) (uint8, error) {
-	switch v.(type) {
+func convertToCode(val interface{}) (uint8, error) {
+	switch v := val.(type) {
 	case uint8:
-		return v.(uint8), nil
+		return v, nil
 	case int8:
-		return uint8(v.(int8)), nil
+		return uint8(v), nil
 	default:
 		return 0, errInvalidMessage
 	}
 }
 
-func convertToUint64(v interface{}) (uint64, error) {
-	switch v.(type) {
+func convertToUint64(val interface{}) (uint64, error) {
+	switch v := val.(type) {
 	case uint:
-		return uint64(v.(uint)), nil
+		return uint64(v), nil
 	case int:
-		return uint64(v.(int)), nil
+		return uint64(v), nil
 	case uint8:
-		return uint64(v.(uint8)), nil
+		return uint64(v), nil
 	case int8:
-		return uint64(v.(int8)), nil
+		return uint64(v), nil
 	case uint16:
-		return uint64(v.(uint16)), nil
+		return uint64(v), nil
 	case int16:
-		return uint64(v.(int16)), nil
+		return uint64(v), nil
 	case uint32:
-		return uint64(v.(uint32)), nil
+		return uint64(v), nil
 	case int32:
-		return uint64(v.(int32)), nil
+		return uint64(v), nil
 	case uint64:
-		return v.(uint64), nil
+		return v, nil
 	case int64:
-		return uint64(v.(int64)), nil
+		return uint64(v), nil
 	default:
 		return 0, errInvalidMessage
 	}

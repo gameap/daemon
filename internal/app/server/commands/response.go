@@ -6,9 +6,9 @@ import (
 )
 
 type Response struct {
-	Code response.Code
+	Code     response.Code
 	ExitCode int
-	Output string
+	Output   string
 }
 
 func (r Response) MarshalBINN() ([]byte, error) {

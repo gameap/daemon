@@ -2,12 +2,11 @@ package serversscheduler
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
-	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	gameservercommands "github.com/gameap/daemon/internal/app/gameservercommands"
 	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -21,9 +20,8 @@ type Scheduler struct {
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
 	// Runtime, state
-	lastUpdated        time.Time
-	commandsInProgress sync.Map // map[domain.ServerTask]interfaces.Command
-	queue              *taskQueue
+	lastUpdated time.Time
+	queue       *taskQueue
 }
 
 func NewScheduler(

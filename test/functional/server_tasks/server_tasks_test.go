@@ -7,7 +7,7 @@ import (
 
 func (suite *Suite) TestScheduler_ExpectTaskExecutedAndUpdated() {
 	executeDate := time.Now().Add(4 * time.Second)
-	suite.GivenTask(1, executeDate, 10 * time.Minute)
+	suite.GivenTask(1, executeDate, 10*time.Minute)
 
 	suite.RunServerSchedulerWithTimeout(5 * time.Second)
 
@@ -15,12 +15,12 @@ func (suite *Suite) TestScheduler_ExpectTaskExecutedAndUpdated() {
 	suite.Assert().Equal(1, task.ID)
 	suite.Assert().Equal(1, task.Counter)
 	suite.Assert().Equal(0, task.Repeat)
-	suite.Assert().Equal(executeDate.Add(10 * time.Minute), task.ExecuteDate)
+	suite.Assert().Equal(executeDate.Add(10*time.Minute), task.ExecuteDate)
 }
 
 func (suite *Suite) TestScheduler_ExpectTaskDidNotExecuteAndUpdated() {
 	executeDate := time.Now().Add(10 * time.Minute)
-	suite.GivenTask(2, executeDate, 10 * time.Minute)
+	suite.GivenTask(2, executeDate, 10*time.Minute)
 
 	suite.RunServerSchedulerWithTimeout(5 * time.Second)
 

@@ -13,9 +13,9 @@ var firstTask = domain.NewServerTask(
 	domain.ServerTaskStart,
 	nil,
 	1,
-	1 * time.Second,
+	1*time.Second,
 	1,
-	time.Now().Add(10 * time.Minute),
+	time.Now().Add(10*time.Minute),
 )
 
 var secondTask = domain.NewServerTask(
@@ -23,9 +23,9 @@ var secondTask = domain.NewServerTask(
 	domain.ServerTaskStart,
 	nil,
 	1,
-	1 * time.Second,
+	1*time.Second,
 	5,
-	time.Now().Add(20 * time.Minute),
+	time.Now().Add(20*time.Minute),
 )
 
 var thirdTask = domain.NewServerTask(
@@ -33,9 +33,9 @@ var thirdTask = domain.NewServerTask(
 	domain.ServerTaskStart,
 	nil,
 	1,
-	1 * time.Second,
+	1*time.Second,
 	1,
-	time.Now().Add(5 * time.Hour),
+	time.Now().Add(5*time.Hour),
 )
 
 var fourthTask = domain.NewServerTask(
@@ -43,9 +43,9 @@ var fourthTask = domain.NewServerTask(
 	domain.ServerTaskStart,
 	nil,
 	1,
-	2 * time.Second,
+	2*time.Second,
 	1,
-	time.Now().Add(11 * time.Hour),
+	time.Now().Add(11*time.Hour),
 )
 
 var fifthTask = domain.NewServerTask(
@@ -53,9 +53,9 @@ var fifthTask = domain.NewServerTask(
 	domain.ServerTaskStart,
 	nil,
 	1,
-	2 * time.Second,
+	2*time.Second,
 	1,
-	time.Now().Add(20 * time.Hour),
+	time.Now().Add(20*time.Hour),
 )
 
 func TestPriorityQueue(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/app/gameservercommands"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 	"github.com/gameap/daemon/test/functional"
@@ -50,7 +50,7 @@ func (suite *Suite) SetupSuite() {
 	suite.Scheduler = serversscheduler.NewScheduler(
 		suite.Cfg,
 		suite.ServerTaskRepository,
-		game_server_commands.NewFactory(
+		gameservercommands.NewFactory(
 			suite.Cfg,
 			suite.ServerRepository,
 			suite.Executor,

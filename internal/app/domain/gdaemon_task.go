@@ -6,10 +6,10 @@ type GDTaskStatus string
 
 const (
 	GDTaskStatusWaiting  GDTaskStatus = "waiting"
-	GDTaskStatusWorking               = "working"
-	GDTaskStatusError                 = "error"
-	GDTaskStatusSuccess               = "success"
-	GDTaskStatusCanceled              = "canceled"
+	GDTaskStatusWorking  GDTaskStatus = "working"
+	GDTaskStatusError    GDTaskStatus = "error"
+	GDTaskStatusSuccess  GDTaskStatus = "success"
+	GDTaskStatusCanceled GDTaskStatus = "canceled"
 )
 
 var GDTaskStatusNumMap = map[GDTaskStatus]uint8{

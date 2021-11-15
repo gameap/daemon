@@ -50,13 +50,13 @@ func (r *Response) UnmarshalBINN(bytes []byte) error {
 
 	var code Code
 
-	switch v[0].(type) {
+	switch val := v[0].(type) {
 	case uint8:
-		code = Code(int(v[0].(uint8)))
+		code = Code(val)
 	case uint16:
-		code = Code(int(v[0].(uint16)))
+		code = Code(val)
 	case uint32:
-		code = Code(int(v[0].(uint32)))
+		code = Code(val)
 	default:
 		return errUnknownBinn
 	}

@@ -8,10 +8,10 @@ import (
 
 func TestUpdatePaths(t *testing.T) {
 	cfg := &Config{
-		CACertificateFile: "./certs/ca.crt",
+		CACertificateFile:    "./certs/ca.crt",
 		CertificateChainFile: "./certs/server.crt",
-		PrivateKeyFile: "./certs/server.key",
-		DHFile: "./certs/dh2048.pem",
+		PrivateKeyFile:       "./certs/server.key",
+		DHFile:               "./certs/dh2048.pem",
 	}
 
 	updatedCfg := updatePaths("/etc/gameap-daemon/gameap-daemon.cfg", cfg)

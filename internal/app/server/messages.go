@@ -61,14 +61,14 @@ func (am *authMessage) UnmarshalBINN(bytes []byte) error {
 	return nil
 }
 
-func convertToMode(v interface{}) Mode {
-	switch v.(type) {
+func convertToMode(val interface{}) Mode {
+	switch v := val.(type) {
 	case uint8:
-		return Mode(v.(uint8))
+		return Mode(v)
 	case uint16:
-		return Mode(v.(uint16))
+		return Mode(v)
 	case uint32:
-		return Mode(v.(uint32))
+		return Mode(v)
 	default:
 		return ModeUnknown
 	}

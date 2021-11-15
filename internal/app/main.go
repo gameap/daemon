@@ -23,9 +23,9 @@ func Run(args []string) {
 		Usage: "GameAP Daemon",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "config",
-				Value: "",
-				Usage: "Path to gameap-daemon config",
+				Name:    "config",
+				Value:   "",
+				Usage:   "Path to gameap-daemon config",
 				Aliases: []string{"c"},
 			},
 		},

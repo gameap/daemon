@@ -60,7 +60,7 @@ func (suite *Suite) SetupSuite() {
 	go func() {
 		err := suite.Server.Run(context.Background())
 		if err != nil {
-			suite.T().Fatal(err)
+			panic(err)
 		}
 	}()
 
@@ -73,6 +73,10 @@ func (suite *Suite) SetupTest() {
 
 func (suite *Suite) TearDownTest() {
 	suite.closeClient()
+}
+
+func (suite *Suite) TearDownSuite() {
+	suite.Server.Stop()
 }
 
 func (suite *Suite) loadClient() {
