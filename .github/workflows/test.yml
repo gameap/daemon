@@ -61,5 +61,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      - name: Test
-        run: go test ./...
+      - name: Unit Tests
+        run: go test -race -v $(go list ./... | grep -v /test/)
+      - name: Functional Tests
+        run: go test -list -race ./test/functional/...
