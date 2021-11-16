@@ -20,6 +20,11 @@ type Scripts struct {
 	Delete      string
 }
 
+type SteamConfig struct {
+	Login    string `yaml:"login"`
+	Password string `yaml:"password"`
+}
+
 type Config struct {
 	NodeID uint `yaml:"ds_id"`
 
@@ -56,6 +61,8 @@ type Config struct {
 
 	WorkPath     string `yaml:"work_path"`
 	SteamCMDPath string `yaml:"steamcmd_path"`
+
+	SteamConfig SteamConfig `yaml:"steam_config"`
 
 	Scripts Scripts
 }

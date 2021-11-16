@@ -60,7 +60,11 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 
 	switch cmd {
 	case Start:
-		return newStartServer(factory.cfg, factory.executor)
+		return newStartServer(
+			factory.cfg,
+			factory.executor,
+			newUpdateServer(factory.cfg, factory.executor, factory.serverRepo),
+		)
 	case Stop:
 		return newStopServer(factory.cfg, factory.executor)
 	case Restart:
@@ -69,11 +73,19 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 			factory.executor,
 			newStatusServer(factory.cfg, factory.executor),
 			newStopServer(factory.cfg, factory.executor),
-			newStartServer(factory.cfg, factory.executor),
+			newStartServer(
+				factory.cfg,
+				factory.executor,
+				newUpdateServer(factory.cfg, factory.executor, factory.serverRepo),
+			),
 		)
 	case Status:
 		return newStatusServer(factory.cfg, factory.executor)
 	case Install:
+		return newInstallServer(factory.cfg, factory.executor, factory.serverRepo)
+	case Update:
+		return newUpdateServer(factory.cfg, factory.executor, factory.serverRepo)
+	case Reinstall:
 		return newInstallServer(factory.cfg, factory.executor, factory.serverRepo)
 	case Delete:
 		return newDeleteServer(factory.cfg, factory.executor)

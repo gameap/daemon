@@ -13,9 +13,11 @@ import (
 type startServer struct {
 	baseCommand
 	bufCommand
+
+	update *installServer
 }
 
-func newStartServer(cfg *config.Config, executor interfaces.Executor) *startServer {
+func newStartServer(cfg *config.Config, executor interfaces.Executor, update *installServer) *startServer {
 	return &startServer{
 		baseCommand{
 			cfg:      cfg,
@@ -24,6 +26,7 @@ func newStartServer(cfg *config.Config, executor interfaces.Executor) *startServ
 			result:   UnknownResult,
 		},
 		bufCommand{output: components.NewSafeBuffer()},
+		update,
 	}
 }
 
@@ -32,6 +35,15 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
+
+	if server.UpdateBeforeStart() {
+		err = s.update.Execute(ctx, server)
+		if err != nil {
+			s.complete = true
+			return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
+		}
+	}
+
 	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
 		WorkDir: path,
 	})

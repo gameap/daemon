@@ -14,6 +14,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/hashicorp/go-getter"
 	"github.com/otiai10/copy"
 	"github.com/pkg/errors"
@@ -30,16 +31,23 @@ const (
 	installFromSteam
 )
 
+type installatorKind uint8
+
+const (
+	installer installatorKind = iota + 1
+	updater
+)
+
 const maxSteamCMDInstallTries = 3
 
 var repeatableSteamCMDInstallResults = hashset.New(7, 8)
 
 var ErrDefinedNoGameInstallationRulesError = errors.New("could not determine the rules for installing the game")
-var ErrDefinedNoGameInstallationRulesError2 = errors.New("coasdfadfadf2")
 
 var (
 	errAllInstallationMethodsFailed = errors.New("all installation methods failed")
 	errInstallViaSteamCMDFailed     = errors.New("failed to install via steamcmd")
+	errFailedToExecuteAfterScript   = errors.New("failed to execute after installation script")
 )
 
 type installationRule struct {
@@ -53,6 +61,29 @@ type installServer struct {
 
 	installator *installator
 	serverRepo  domain.ServerRepository
+	kind        installatorKind
+}
+
+func newUpdateServer(
+	cfg *config.Config,
+	executor interfaces.Executor,
+	serverRepo domain.ServerRepository,
+) *installServer {
+	buffer := components.NewSafeBuffer()
+	inst := newInstallator(cfg, executor, buffer)
+
+	return &installServer{
+		baseCommand{
+			cfg:      cfg,
+			executor: executor,
+			complete: false,
+			result:   UnknownResult,
+		},
+		bufCommand{output: buffer},
+		inst,
+		serverRepo,
+		updater,
+	}
 }
 
 func newInstallServer(
@@ -73,6 +104,7 @@ func newInstallServer(
 		bufCommand{output: buffer},
 		inst,
 		serverRepo,
+		installer,
 	}
 }
 
@@ -140,16 +172,18 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 		return err
 	}
 
-	gameModRules := sd.DefineGameModRules(&gameMod)
+	if cmd.kind != updater {
+		gameModRules := sd.DefineGameModRules(&gameMod)
 
-	if len(gameModRules) > 0 {
-		_, _ = cmd.output.Write([]byte("\n\n"))
-		_, _ = cmd.output.Write([]byte("Installing game mod files ...\n"))
+		if len(gameModRules) > 0 {
+			_, _ = cmd.output.Write([]byte("\n\n"))
+			_, _ = cmd.output.Write([]byte("Installing game mod files ...\n"))
 
-		err = cmd.installator.Install(ctx, server, gameModRules)
-		if err != nil {
-			cmd.result = ErrorResult
-			return err
+			err = cmd.installator.Install(ctx, server, gameModRules)
+			if err != nil {
+				cmd.result = ErrorResult
+				return err
+			}
 		}
 	}
 
@@ -248,12 +282,6 @@ func (d *installationRulesDefiner) DefineGameModRules(gameMod *domain.GameMod) [
 	return rules
 }
 
-type installatorKind uint8
-
-const (
-	installer installatorKind = iota + 1
-)
-
 type installator struct {
 	cfg      *config.Config
 	executor interfaces.Executor
@@ -303,13 +331,33 @@ func (in *installator) Install(ctx context.Context, server *domain.Server, rules
 }
 
 func (in *installator) install(ctx context.Context, server *domain.Server, rule installationRule) error {
+	dst := makeFullServerPath(in.cfg, server.Dir())
+
+	var err error
 	switch rule.Action {
 	case downloadAnUnpackFromRemoteRepository, unpackFromLocalRepository:
-		return in.getAndUnpackFiles(ctx, server, rule.SourceValue)
+		err = in.getAndUnpackFiles(ctx, dst, rule.SourceValue)
 	case copyDirectoryFromLocalRepository:
-		return in.copyDirectoryFromLocalRepository(ctx, server, rule.SourceValue)
+		err = in.copyDirectoryFromLocalRepository(ctx, dst, rule.SourceValue)
 	case installFromSteam:
-		return in.installFromSteam(ctx, in.cfg, in.output, server, rule.SourceValue)
+		err = in.installFromSteam(ctx, in.cfg, in.output, server, rule.SourceValue)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	err = in.chown(ctx, dst, server.User())
+	if err != nil {
+		err = errors.WithMessage(err, "[game_server_commands.installator] failed to chown files")
+		in.writeOutput(ctx, err.Error())
+		return err
+	}
+
+	err = in.runAfterInstallScript(ctx, dst)
+	if err != nil {
+		in.writeOutput(ctx, err.Error())
+		return err
 	}
 
 	return nil
@@ -317,10 +365,9 @@ func (in *installator) install(ctx context.Context, server *domain.Server, rule 
 
 func (in *installator) getAndUnpackFiles(
 	ctx context.Context,
-	server *domain.Server,
+	dst string,
 	source string,
 ) error {
-	dst := makeFullServerPath(in.cfg, server.Dir())
 	c := getter.Client{
 		Ctx:  ctx,
 		Src:  source,
@@ -328,49 +375,33 @@ func (in *installator) getAndUnpackFiles(
 		Mode: getter.ClientModeAny,
 	}
 
-	in.writeOutput("Downloading and unpacking from " + source + " to " + dst + " ...")
+	in.writeOutput(ctx, "Downloading and unpacking from "+source+" to "+dst+" ...")
 
 	err := c.Get()
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.installator] failed to download files")
 	}
 
-	err = in.chown(dst, server.User())
-	if err != nil {
-		err = errors.WithMessage(err, "[game_server_commands.installator] failed to chown files")
-		in.writeOutput(err.Error())
-		return err
-	}
-
-	in.writeOutput("Downloading successfully completed")
+	in.writeOutput(ctx, "Downloading successfully completed")
 
 	return nil
 }
 
 func (in *installator) copyDirectoryFromLocalRepository(
-	_ context.Context,
-	server *domain.Server,
+	ctx context.Context,
+	dst string,
 	source string,
 ) error {
-	dst := makeFullServerPath(in.cfg, server.Dir())
-
-	in.writeOutput("Copying files from " + source + " to " + dst + " ...")
+	in.writeOutput(ctx, "Copying files from "+source+" to "+dst+" ...")
 
 	err := copy.Copy(source, dst)
 	if err != nil {
 		err = errors.WithMessage(err, "[game_server_commands.installator] failed to copy files")
-		in.writeOutput(err.Error())
+		in.writeOutput(ctx, err.Error())
 		return err
 	}
 
-	err = in.chown(dst, server.User())
-	if err != nil {
-		err = errors.WithMessage(err, "[game_server_commands.installator] failed to chown files")
-		in.writeOutput(err.Error())
-		return err
-	}
-
-	in.writeOutput("Copying files successfully completed")
+	in.writeOutput(ctx, "Copying files successfully completed")
 
 	return nil
 }
@@ -384,7 +415,7 @@ func (in *installator) installFromSteam(
 ) error {
 	execCmd := in.makeSteamCMDCommand(source, server)
 
-	in.writeOutput("Installing from steam ...")
+	in.writeOutput(ctx, "Installing from steam ...")
 
 	var installTries uint8 = 0
 
@@ -396,7 +427,7 @@ func (in *installator) installFromSteam(
 		systemUser, err := user.Lookup(server.User())
 		if err != nil {
 			err = errors.WithMessage(err, "[game_server_commands.installator] failed to lookup user")
-			in.writeOutput(err.Error())
+			in.writeOutput(ctx, err.Error())
 			return err
 		}
 
@@ -441,7 +472,15 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 	execCmd.WriteString(in.cfg.SteamCMDPath)
 	execCmd.WriteString("/")
 	execCmd.WriteString(config.SteamCMDExecutableFile)
-	execCmd.WriteString(" +login anonymous")
+
+	if in.cfg.SteamConfig.Login != "" && in.cfg.SteamConfig.Password != "" {
+		execCmd.WriteString(" +login ")
+		execCmd.WriteString(in.cfg.SteamConfig.Login)
+		execCmd.WriteString(" ")
+		execCmd.WriteString(in.cfg.SteamConfig.Password)
+	} else {
+		execCmd.WriteString(" +login anonymous")
+	}
 
 	execCmd.WriteString(" +force_install_dir \"")
 	execCmd.WriteString(makeFullServerPath(in.cfg, server.Dir()))
@@ -449,12 +488,22 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 
 	execCmd.WriteString(" +app_update ")
 	execCmd.WriteString(appID)
+
+	if server.Game().SteamSettings.SteamAppSetConfig != "" {
+		execCmd.WriteString(" ")
+		execCmd.WriteString(server.Game().SteamSettings.SteamAppSetConfig)
+	}
+
+	if in.kind == installer {
+		execCmd.WriteString(" validate ")
+	}
+
 	execCmd.WriteString(" +quit")
 
 	return execCmd.String()
 }
 
-func (in *installator) chown(dst string, userName string) error {
+func (in *installator) chown(ctx context.Context, dst string, userName string) error {
 	if !isRootUser() {
 		return nil
 	}
@@ -462,7 +511,7 @@ func (in *installator) chown(dst string, userName string) error {
 	systemUser, err := user.Lookup(userName)
 	if err != nil {
 		err = errors.WithMessage(err, "[game_server_commands.installator] failed to lookup user")
-		in.writeOutput(err.Error())
+		in.writeOutput(ctx, err.Error())
 		return err
 	}
 
@@ -482,9 +531,48 @@ func (in *installator) chown(dst string, userName string) error {
 	return nil
 }
 
-func (in *installator) writeOutput(line string) {
-	_, err := in.output.Write([]byte(line + "\n"))
+func (in *installator) runAfterInstallScript(
+	ctx context.Context,
+	serverPath string,
+) error {
+	scriptFullPath := serverPath + "/" + domain.AfterInstallScriptName
+	_, err := os.Stat(scriptFullPath)
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		log.Error(err)
+		return err
+	}
+
+	if in.kind == installer {
+		in.writeOutput(ctx, "Executing after install script")
+		result, err := in.executor.ExecWithWriter(ctx, scriptFullPath, in.output, components.ExecutorOptions{
+			WorkDir: serverPath,
+		})
+		if err != nil {
+			return err
+		}
+		if result != SuccessResult {
+			return errFailedToExecuteAfterScript
+		}
+	}
+
+	err = os.Remove(scriptFullPath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (in *installator) writeOutput(ctx context.Context, line string) {
+	_, err := in.output.Write([]byte(line))
+	if err != nil {
+		logger.Error(ctx, err)
+	}
+
+	_, err = in.output.Write([]byte("\n"))
+	if err != nil {
+		logger.Error(ctx, err)
 	}
 }

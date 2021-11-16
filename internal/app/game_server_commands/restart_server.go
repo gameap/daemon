@@ -13,12 +13,11 @@ import (
 
 type restartServer struct {
 	baseCommand
+	bufCommand
 
 	statusServer *statusServer
 	stopServer   *stopServer
 	startServer  *startServer
-
-	output io.ReadWriter
 }
 
 func newRestartServer(

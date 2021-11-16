@@ -20,7 +20,7 @@ func TestStartServer(t *testing.T) {
 		},
 	}
 	server := givenServerWithStartCommand(t, "./run.sh")
-	startServerCommand := newStartServer(cfg, components.NewExecutor())
+	startServerCommand := newStartServer(cfg, components.NewExecutor(), nil)
 
 	err := startServerCommand.Execute(context.Background(), server)
 
@@ -41,7 +41,7 @@ func TestStartServer_ReadOutput(t *testing.T) {
 	}
 	server := givenServerWithStartCommand(t, "./run2.sh")
 	ctx, cancel := context.WithCancel(context.Background())
-	startServerCommand := newStartServer(cfg, components.NewExecutor())
+	startServerCommand := newStartServer(cfg, components.NewExecutor(), nil)
 	go func() {
 		err := startServerCommand.Execute(ctx, server)
 		if err != nil {

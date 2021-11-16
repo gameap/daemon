@@ -221,6 +221,23 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 	assert.FileExists(t, workPath+"/test-server/directory_file.txt")
 }
 
+func TestInstallation_RunAfterInstallScript(t *testing.T) {
+	workPath, err := ioutil.TempDir("/tmp", "gameap-daemon-test")
+	defer os.RemoveAll(workPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		WorkPath: workPath,
+	}
+	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
+
+	err = install.Execute(context.Background(), givenLocalInstallationServerWithAfterInstallScript(t))
+
+	require.Nil(t, err)
+	assert.FileExists(t, workPath+"/test-server/after_install_script_executed.txt")
+}
+
 func givenRemoteInstallationServer(t *testing.T) *domain.Server {
 	t.Helper()
 
@@ -260,6 +277,29 @@ func givenLocalInstallationServer(t *testing.T) *domain.Server {
 		Name:             "test",
 		LocalRepository:  pathToDirectory,
 		RemoteRepository: "https://files.gameap.ru/mod-game.tar.gz",
+	}
+
+	return givenServer(t, game, gameMod)
+}
+
+func givenLocalInstallationServerWithAfterInstallScript(t *testing.T) *domain.Server {
+	t.Helper()
+
+	pathToFileZip, err := filepath.Abs("../../../test/files/local_repository/game_with_after_install_script.tar.xz")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	game := domain.Game{
+		StartCode:        "test",
+		LocalRepository:  pathToFileZip,
+		RemoteRepository: "https://files.gameap.ru/test/test.tar.xz",
+	}
+
+	gameMod := domain.GameMod{
+		Name:             "test",
+		LocalRepository:  "",
+		RemoteRepository: "",
 	}
 
 	return givenServer(t, game, gameMod)
