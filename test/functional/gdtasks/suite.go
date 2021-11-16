@@ -5,7 +5,10 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"reflect"
+	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/gameap/daemon/internal/app"
 	"github.com/gameap/daemon/internal/app/components"
@@ -63,15 +66,48 @@ func (suite *Suite) SetupSuite() {
 	)
 }
 
-func (suite *Suite) RunTaskManagerWithTimeout(duration time.Duration) {
+func (suite *Suite) RunTaskManager() {
 	suite.T().Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	ctx, cancel := context.WithTimeout(context.Background(), 3 * time.Minute)
 	defer cancel()
 
-	err := suite.TaskManager.Run(ctx)
+	go func() {
+		err := suite.TaskManager.Run(ctx)
+		if err != nil {
+			panic(err)
+		}
+	}()
 
-	suite.Require().NoError(err)
+	suite.waitForTaskManagerCompleteAllTasks()
+}
+
+func (suite *Suite) waitForTaskManagerCompleteAllTasks() {
+	for {
+		time.Sleep(1 * time.Second)
+
+		rv := reflect.ValueOf(suite.TaskManager)
+		val := reflect.Indirect(rv)
+
+		queue := val.FieldByName("queue")
+		tasks := queue.FieldByName("tasks")
+		ptrToTasks := unsafe.Pointer(tasks.UnsafeAddr())
+		realTasks := (*[]*domain.GDTask)(ptrToTasks)
+
+		commandsInProgressRef := val.FieldByName("commandsInProgress")
+		ptrToCommandsInProgress := unsafe.Pointer(commandsInProgressRef.UnsafeAddr())
+		realCommandsInProgress := (*sync.Map)(ptrToCommandsInProgress)
+
+		commandsCount := 0
+		realCommandsInProgress.Range(func(key, value interface{}) bool {
+			commandsCount++
+			return true
+		})
+
+		if len(*realTasks) == 0 && commandsCount == 0 {
+			break
+		}
+	}
 }
 
 func (suite *Suite) AssertGDTaskExist(task *domain.GDTask) {
@@ -109,6 +145,30 @@ func (suite *Suite) GivenSequenceGDTaskForServer(server *domain.Server) []*domai
 
 	tasks := []*domain.GDTask{
 		domain.NewGDTask(
+			2,
+			1,
+			server,
+			domain.GDTaskGameServerStop,
+			"",
+			domain.GDTaskStatusWaiting,
+		),
+		domain.NewGDTask(
+			7,
+			5,
+			server,
+			domain.GDTaskGameServerStart,
+			"",
+			domain.GDTaskStatusWaiting,
+		),
+		domain.NewGDTask(
+			3,
+			2,
+			server,
+			domain.GDTaskGameServerStop,
+			"",
+			domain.GDTaskStatusWaiting,
+		),
+		domain.NewGDTask(
 			1,
 			0,
 			server,
@@ -117,32 +177,8 @@ func (suite *Suite) GivenSequenceGDTaskForServer(server *domain.Server) []*domai
 			domain.GDTaskStatusWaiting,
 		),
 		domain.NewGDTask(
-			2,
-			1,
-			server,
-			domain.GDTaskGameServerStop,
-			"",
-			domain.GDTaskStatusWaiting,
-		),
-		domain.NewGDTask(
-			3,
-			2,
-			server,
-			domain.GDTaskGameServerStop,
-			"",
-			domain.GDTaskStatusWaiting,
-		),
-		domain.NewGDTask(
 			5,
 			3,
-			server,
-			domain.GDTaskGameServerStart,
-			"",
-			domain.GDTaskStatusWaiting,
-		),
-		domain.NewGDTask(
-			7,
-			5,
 			server,
 			domain.GDTaskGameServerStart,
 			"",

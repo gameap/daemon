@@ -61,6 +61,8 @@ type Server struct {
 	settings Settings
 
 	updatedAt time.Time
+
+	modified bool
 }
 
 func NewServer(
@@ -116,6 +118,7 @@ func NewServer(
 		vars,
 		settings,
 		updatedAt,
+		false,
 	}
 }
 
@@ -202,11 +205,13 @@ func (s *Server) Setting(key string) string {
 
 func (s *Server) SetSetting(key string, value string) {
 	s.settings[key] = value
+	s.modified = true
 }
 
 func (s *Server) SetStatus(processActive bool) {
 	s.processActive = processActive
 	s.lastProcessCheck = time.Now()
+	s.modified = true
 }
 
 func (s *Server) AutoStart() bool {
@@ -223,6 +228,25 @@ func (s *Server) AutoStart() bool {
 	return autostart == "1" || autostart == "true"
 }
 
+func (s *Server) AffectInstall() {
+	s.AffectStop()
+}
+
+func (s *Server) AffectStart() {
+	autostart := s.Setting(autostartSettingKey)
+	if autostart == "1" || autostart == "true" {
+		s.SetSetting(autostartCurrentSettingKey, "1")
+		s.modified = true
+	}
+}
+
+func (s *Server) AffectStop() {
+	if s.AutoStart() {
+		s.SetSetting(autostartCurrentSettingKey, "0")
+		s.modified = true
+	}
+}
+
 func (s *Server) UpdateBeforeStart() bool {
 	updateBeforeStart := s.Setting(updateBeforeStartSettingKey)
 
@@ -235,6 +259,7 @@ func (s *Server) InstallationStatus() InstallationStatus {
 
 func (s *Server) SetInstallationStatus(status InstallationStatus) {
 	s.installStatus = status
+	s.modified = true
 }
 
 func (s *Server) IsActive() bool {
@@ -243,4 +268,12 @@ func (s *Server) IsActive() bool {
 
 func (s *Server) LastStatusCheck() time.Time {
 	return s.lastProcessCheck
+}
+
+func (s *Server) IsModified() bool {
+	return s.modified
+}
+
+func (s *Server) UnmarkModifiedFlag() {
+	s.modified = false
 }

@@ -50,14 +50,14 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 		}
 	} else {
 		server = loadedServer.(*domain.Server)
-	}
 
-	lastUpdated, ok := repo.lastUpdated.Load(id)
+		lastUpdated, ok := repo.lastUpdated.Load(id)
 
-	if ok && time.Until(lastUpdated.(time.Time)) > updateTimeout {
-		server, err = repo.innerRepo.FindByID(ctx, id)
-		if err != nil {
-			return nil, err
+		if ok && time.Until(lastUpdated.(time.Time)) > updateTimeout && !server.IsModified() {
+			server, err = repo.innerRepo.FindByID(ctx, id)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -72,6 +72,8 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 func (repo *ServerRepository) Save(ctx context.Context, server *domain.Server) error {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
+
+	server.UnmarkModifiedFlag()
 
 	return repo.innerRepo.Save(ctx, server)
 }

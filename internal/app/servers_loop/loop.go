@@ -67,7 +67,11 @@ func (l *ServersLoop) tick(ctx context.Context) {
 
 		ctxWithServer := logger.WithLogger(ctx, logger.WithField(ctx, "gameServerID", server.ID()))
 
-		err = l.pipeline(ctxWithServer, server, []pipelineHandler{l.checkStatus, l.startIfNeeded})
+		err = l.pipeline(ctxWithServer, server, []pipelineHandler{
+			l.checkStatus,
+			l.startIfNeeded,
+			l.save,
+		})
 		if err != nil {
 			logger.Error(ctx, err)
 			continue
@@ -104,10 +108,6 @@ func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) er
 	}
 
 	server.SetStatus(statusCmd.Result() == commands.SuccessResult)
-	err = l.serverRepo.Save(ctx, server)
-	if err != nil {
-		return err
-	}
 
 	return nil
 }
@@ -121,15 +121,19 @@ func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) 
 		return nil
 	}
 
-	statusCmd := l.serverCommandFactory.LoadServerCommandFunc(commands.Start)
+	startCMD := l.serverCommandFactory.LoadServerCommandFunc(commands.Start)
 
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	err := statusCmd.Execute(ctxWithTimeout, server)
+	err := startCMD.Execute(ctxWithTimeout, server)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	return l.checkStatus(ctx, server)
+}
+
+func (l *ServersLoop) save(ctx context.Context, server *domain.Server) error {
+	return l.serverRepo.Save(ctx, server)
 }

@@ -1,6 +1,7 @@
 package gameservercommands
 
 import (
+	"context"
 	"io"
 	"path"
 	"strconv"
@@ -86,7 +87,10 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 	case Update:
 		return newUpdateServer(factory.cfg, factory.executor, factory.serverRepo)
 	case Reinstall:
-		return newInstallServer(factory.cfg, factory.executor, factory.serverRepo)
+		return newCommandList(factory.cfg, factory.executor, []interfaces.Command{
+			newDeleteServer(factory.cfg, factory.executor),
+			newInstallServer(factory.cfg, factory.executor, factory.serverRepo),
+		})
 	case Delete:
 		return newDeleteServer(factory.cfg, factory.executor)
 	}
@@ -161,4 +165,51 @@ func (c *bufCommand) ReadOutput() []byte {
 		return nil
 	}
 	return out
+}
+
+type commandList struct {
+	baseCommand
+
+	commands []interfaces.Command
+}
+
+func newCommandList(cfg *config.Config, executor interfaces.Executor, commands []interfaces.Command) *commandList {
+	return &commandList{
+		baseCommand: baseCommand{
+			cfg:      cfg,
+			executor: executor,
+			complete: false,
+			result:   UnknownResult,
+		},
+		commands: commands,
+	}
+}
+
+func (c *commandList) ReadOutput() []byte {
+	var output []byte
+	for i := range c.commands {
+		output = append(output, c.commands[i].ReadOutput()...)
+	}
+
+	return output
+}
+
+func (c *commandList) Execute(ctx context.Context, server *domain.Server) error {
+	for i := range c.commands {
+		err := c.commands[i].Execute(ctx, server)
+		if err != nil {
+			return err
+		}
+
+		if c.commands[i].Result() != SuccessResult {
+			c.result = c.commands[i].Result()
+			c.complete = true
+			return nil
+		}
+	}
+
+	c.complete = true
+	c.result = 1
+
+	return nil
 }

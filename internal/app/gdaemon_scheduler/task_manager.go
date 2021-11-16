@@ -70,12 +70,14 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 		default:
 			manager.runNext(ctx)
 
+			if manager.queue.Len() == 0 {
+				time.Sleep(1 * time.Second)
+			}
+
 			err = manager.updateTasksIfNeeded(ctx)
 			if err != nil {
 				logger.Logger(ctx).Error(err)
 			}
-
-			time.Sleep(5 * time.Second)
 		}
 	}
 }

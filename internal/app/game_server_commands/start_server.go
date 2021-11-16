@@ -42,6 +42,8 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 			s.complete = true
 			return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
 		}
+
+		_, _ = s.output.Write(s.update.ReadOutput())
 	}
 
 	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
@@ -51,6 +53,8 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.startServer] failed to execute start command")
 	}
+
+	server.AffectStart()
 
 	return nil
 }

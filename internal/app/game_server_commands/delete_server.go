@@ -32,18 +32,16 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 		cmd.complete = true
 	}()
 
-	path := makeFullServerPath(cmd.cfg, server.Dir())
 
-	if cmd.cfg.Scripts.Delete == "" {
-		err := os.RemoveAll(path)
-		if err != nil {
-			cmd.result = ErrorResult
-			_, _ = cmd.output.Write([]byte(err.Error()))
-			return err
-		}
-
-		return nil
+	if cmd.cfg.Scripts.Delete != "" {
+		return cmd.removeByScript(ctx, server)
+	} else {
+		return cmd.removeByFilesystem(ctx, server)
 	}
+}
+
+func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
+	path := makeFullServerPath(cmd.cfg, server.Dir())
 
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Status, "")
 
@@ -51,7 +49,23 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
 		WorkDir: path,
 	})
+
 	if err != nil {
+		cmd.result = ErrorResult
+		_, _ = cmd.output.Write([]byte(err.Error()))
+		return err
+	}
+
+	return err
+}
+
+func (cmd *deleteServer) removeByFilesystem(ctx context.Context, server *domain.Server) error {
+	path := makeFullServerPath(cmd.cfg, server.Dir())
+
+	err := os.RemoveAll(path)
+	if err != nil {
+		cmd.result = ErrorResult
+		_, _ = cmd.output.Write([]byte(err.Error()))
 		return err
 	}
 

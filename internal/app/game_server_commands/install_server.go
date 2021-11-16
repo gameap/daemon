@@ -113,6 +113,8 @@ func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) er
 		cmd.complete = true
 	}()
 
+	server.AffectInstall()
+
 	var err error
 
 	if cmd.cfg.Scripts.Install != "" {
