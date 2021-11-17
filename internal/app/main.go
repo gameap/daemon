@@ -9,12 +9,12 @@ import (
 
 	"github.com/gameap/daemon/internal/app/build"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/di"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/logger"
-	"golang.org/x/sync/errgroup"
-
+	appLogger "github.com/gameap/daemon/internal/app/logger"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 )
 
 func Run(args []string) {
@@ -49,7 +49,7 @@ func initialize(c *cli.Context) error {
 		return err
 	}
 
-	err = logger.Load(*cfg)
+	err = appLogger.Load(*cfg)
 	if err != nil {
 		return err
 	}
@@ -57,24 +57,30 @@ func initialize(c *cli.Context) error {
 	log.Info("Starting...")
 
 	ctx := shutdownContext(context.Background())
-	lo := logger.NewLogger(*cfg)
-	ctx = logger.WithLogger(ctx, lo)
+	logger := appLogger.NewLogger(*cfg)
+	ctx = appLogger.WithLogger(ctx, logger)
+
+	container, err := di.NewContainer(cfg, logger)
+	if err != nil {
+		return err
+	}
+
+	processRunner, err := container.ProcessRunner(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = processRunner.Init(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
 	group, ctx := errgroup.WithContext(ctx)
 
-	processManager, err := newProcessManager(cfg, lo)
-	if err != nil {
-		return err
-	}
-
-	err = processManager.init(ctx, cfg)
-	if err != nil {
-		return err
-	}
-
-	group.Go(processManager.runGDaemonServer(ctx, cfg))
-	group.Go(processManager.runGDaemonTaskScheduler(ctx, cfg))
-	group.Go(processManager.runServersLoop(ctx, cfg))
-	group.Go(processManager.runServerScheduler(ctx, cfg))
+	group.Go(processRunner.RunGDaemonServer(ctx, cfg))
+	group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))
+	group.Go(processRunner.RunServersLoop(ctx, cfg))
+	group.Go(processRunner.RunServerScheduler(ctx, cfg))
 
 	err = group.Wait()
 	if err != nil {

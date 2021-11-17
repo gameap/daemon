@@ -10,12 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gameap/daemon/internal/app"
 	"github.com/gameap/daemon/internal/app/config"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/internal/app/di"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
-	"github.com/sarulabs/di"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -32,7 +31,7 @@ type Suite struct {
 	suite.Suite
 
 	Cfg       *config.Config
-	Container di.Container
+	Container *di.Container
 
 	apiResponses map[string]apiResponses
 	apiServer    *http.Server
@@ -81,12 +80,16 @@ func (suite *Suite) SetupSuite() {
 	suite.setupAPIServer()
 	suite.GivenAPIResponse("/gdaemon_api/get_token", http.StatusOK, getTokenJSON)
 
-	builder, err := app.NewBuilder(suite.Cfg, logger.NewLogger(*suite.Cfg))
+	log, _ := test.NewNullLogger()
+	container, err := di.NewContainer(
+		suite.Cfg,
+		log,
+	)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
 
-	suite.Container = builder.Build()
+	suite.Container = container
 }
 
 func (suite *Suite) TearDownSuite() {

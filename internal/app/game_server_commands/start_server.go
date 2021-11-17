@@ -2,6 +2,7 @@ package gameservercommands
 
 import (
 	"context"
+	"io"
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
@@ -12,21 +13,22 @@ import (
 
 type startServer struct {
 	baseCommand
-	bufCommand
+
+	startOutput io.ReadWriter
 
 	update *installServer
 }
 
 func newStartServer(cfg *config.Config, executor interfaces.Executor, update *installServer) *startServer {
 	return &startServer{
-		baseCommand{
+		baseCommand: baseCommand{
 			cfg:      cfg,
 			executor: executor,
 			complete: false,
 			result:   UnknownResult,
 		},
-		bufCommand{output: components.NewSafeBuffer()},
-		update,
+		startOutput: components.NewSafeBuffer(),
+		update:      update,
 	}
 }
 
@@ -42,11 +44,9 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 			s.complete = true
 			return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
 		}
-
-		_, _ = s.output.Write(s.update.ReadOutput())
 	}
 
-	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
+	s.result, err = s.executor.ExecWithWriter(ctx, command, s.startOutput, components.ExecutorOptions{
 		WorkDir: path,
 	})
 	s.complete = true
@@ -57,4 +57,17 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 	server.AffectStart()
 
 	return nil
+}
+
+func (s *startServer) ReadOutput() []byte {
+	var out []byte
+	var err error
+
+	out = append(out, s.update.ReadOutput()...)
+
+	out, err = io.ReadAll(s.startOutput)
+	if err != nil {
+		return nil
+	}
+	return out
 }

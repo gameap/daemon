@@ -1,0 +1,3 @@
+di:
+  config_file: internal/app/di/internal/_config.go
+  dir: internal/app/di

@@ -13,7 +13,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const updateTimeout = 5 * time.Minute
+const serverCacheTTL = 1 * time.Minute
 
 type ServerRepository struct {
 	innerRepo apiServerRepo
@@ -48,21 +48,25 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 		if err != nil {
 			return nil, err
 		}
+		if server != nil {
+			repo.lastUpdated.Store(id, time.Now())
+		}
 	} else {
 		server = loadedServer.(*domain.Server)
 
 		lastUpdated, ok := repo.lastUpdated.Load(id)
-
-		if ok && time.Until(lastUpdated.(time.Time)) > updateTimeout && !server.IsModified() {
+		if ok && time.Until(lastUpdated.(time.Time))+serverCacheTTL < 0 && !server.IsModified() {
 			server, err = repo.innerRepo.FindByID(ctx, id)
 			if err != nil {
 				return nil, err
+			}
+			if server != nil {
+				repo.lastUpdated.Store(id, time.Now())
 			}
 		}
 	}
 
 	if server != nil {
-		repo.lastUpdated.Store(id, time.Now())
 		repo.servers.Store(id, server)
 	}
 

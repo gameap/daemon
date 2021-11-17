@@ -13,7 +13,6 @@ require (
 	github.com/hashicorp/go-getter v1.5.7
 	github.com/otiai10/copy v1.6.0
 	github.com/pkg/errors v0.9.1
-	github.com/sarulabs/di v2.0.0+incompatible
 	github.com/sirupsen/logrus v1.8.0
 	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/stretchr/testify v1.7.0

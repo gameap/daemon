@@ -1,4 +1,4 @@
-package app
+package services
 
 import (
 	"context"
@@ -13,26 +13,38 @@ import (
 	serversloop "github.com/gameap/daemon/internal/app/servers_loop"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 	"github.com/pkg/errors"
-	"github.com/sarulabs/di"
 	log "github.com/sirupsen/logrus"
 )
 
-type runner struct {
-	container di.Container
+type Runner struct {
+	cfg *config.Config
+
+	commandFactory       *gameservercommands.ServerCommandFactory
+	apiClient            interfaces.APIRequestMaker
+	gdTaskManager        *gdaemonscheduler.TaskManager
+	serverRepository     domain.ServerRepository
+	serverTaskRepository domain.ServerTaskRepository
 }
 
-func newProcessManager(cfg *config.Config, logger *log.Logger) (*runner, error) {
-	builder, err := NewBuilder(cfg, logger)
-	if err != nil {
-		return nil, err
-	}
-
-	container := builder.Build()
-
-	return &runner{container}, nil
+func NewProcessRunner(
+	cfg *config.Config,
+	commandFactory *gameservercommands.ServerCommandFactory,
+	apiClient interfaces.APIRequestMaker,
+	gdTaskManager *gdaemonscheduler.TaskManager,
+	serverRepository domain.ServerRepository,
+	serverTaskRepository domain.ServerTaskRepository,
+) (*Runner, error) {
+	return &Runner{
+		cfg:                  cfg,
+		commandFactory:       commandFactory,
+		apiClient:            apiClient,
+		gdTaskManager:        gdTaskManager,
+		serverRepository:     serverRepository,
+		serverTaskRepository: serverTaskRepository,
+	}, nil
 }
 
-func (r *runner) init(ctx context.Context, cfg *config.Config) error {
+func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
 	err := r.initNodeConfigFromAPI(ctx, cfg)
 	if err != nil {
 		return err
@@ -41,13 +53,12 @@ func (r *runner) init(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-func (r *runner) initNodeConfigFromAPI(ctx context.Context, cfg *config.Config) error {
-	cfgInitializer := config.NewNodeConfigInitializer(r.container.Get(apiCallerDef).(interfaces.APIRequestMaker))
-
+func (r *Runner) initNodeConfigFromAPI(ctx context.Context, cfg *config.Config) error {
+	cfgInitializer := config.NewNodeConfigInitializer(r.apiClient)
 	return cfgInitializer.Initialize(ctx, cfg)
 }
 
-func (r *runner) runGDaemonServer(ctx context.Context, cfg *config.Config) func() error {
+func (r *Runner) RunGDaemonServer(ctx context.Context, cfg *config.Config) func() error {
 	return func() error {
 		srv, err := server.NewServer(
 			cfg.ListenIP,
@@ -59,7 +70,7 @@ func (r *runner) runGDaemonServer(ctx context.Context, cfg *config.Config) func(
 				Login:                  cfg.DaemonLogin,
 				Password:               cfg.DaemonPassword,
 			},
-			r.container.Get(gdTaskMangerDef).(domain.GDTaskStatsReader),
+			r.gdTaskManager,
 		)
 		if err != nil {
 			return err
@@ -74,26 +85,20 @@ func (r *runner) runGDaemonServer(ctx context.Context, cfg *config.Config) func(
 	}
 }
 
-func (r *runner) runGDaemonTaskScheduler(ctx context.Context, _ *config.Config) func() error {
+func (r *Runner) RunGDaemonTaskScheduler(ctx context.Context, _ *config.Config) func() error {
 	return func() error {
-		taskManager := r.container.Get(gdTaskMangerDef).(*gdaemonscheduler.TaskManager)
-
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
 			"service": "gdtask scheduler",
 		}))
 
 		log.Trace("Running gdtask scheduler...")
-		return runService(ctx, taskManager.Run)
+		return runService(ctx, r.gdTaskManager.Run)
 	}
 }
 
-func (r *runner) runServersLoop(ctx context.Context, cfg *config.Config) func() error {
+func (r *Runner) RunServersLoop(ctx context.Context, cfg *config.Config) func() error {
 	return func() error {
-		loop := serversloop.NewServersLoop(
-			r.container.Get(serverRepositoryDef).(domain.ServerRepository),
-			r.container.Get(serverCommandFactoryDef).(*gameservercommands.ServerCommandFactory),
-			cfg,
-		)
+		loop := serversloop.NewServersLoop(r.serverRepository, r.commandFactory, cfg)
 
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
 			"service": "servers loop",
@@ -104,12 +109,12 @@ func (r *runner) runServersLoop(ctx context.Context, cfg *config.Config) func() 
 	}
 }
 
-func (r *runner) runServerScheduler(ctx context.Context, cfg *config.Config) func() error {
+func (r *Runner) RunServerScheduler(ctx context.Context, cfg *config.Config) func() error {
 	return func() error {
 		scheduler := serversscheduler.NewScheduler(
 			cfg,
-			r.container.Get(serverTaskRepositoryDef).(domain.ServerTaskRepository),
-			r.container.Get(serverCommandFactoryDef).(*gameservercommands.ServerCommandFactory),
+			r.serverTaskRepository,
+			r.commandFactory,
 		)
 
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{

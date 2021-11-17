@@ -31,6 +31,7 @@ func (suite *Suite) TestFindByStatus_Success() {
 
 func (suite *Suite) TestSave_Success() {
 	suite.GivenAPIResponse("/gdaemon_api/tasks/2", http.StatusOK, nil)
+	suite.GivenAPIResponse("/gdaemon_api/servers/1337", http.StatusOK, nil)
 	gdTask := domain.NewGDTask(
 		2,
 		0,

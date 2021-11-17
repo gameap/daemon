@@ -10,13 +10,13 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/gameap/daemon/internal/app"
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/services"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
 )
@@ -49,7 +49,7 @@ func (suite *Suite) SetupSuite() {
 		},
 	}
 
-	suite.Cache, err = app.NewLocalCache(suite.Cfg)
+	suite.Cache, err = services.NewLocalCache(suite.Cfg)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
