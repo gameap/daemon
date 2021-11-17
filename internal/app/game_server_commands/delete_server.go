@@ -32,12 +32,11 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 		cmd.complete = true
 	}()
 
-
 	if cmd.cfg.Scripts.Delete != "" {
 		return cmd.removeByScript(ctx, server)
-	} else {
-		return cmd.removeByFilesystem(ctx, server)
 	}
+
+	return cmd.removeByFilesystem(ctx, server)
 }
 
 func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
@@ -59,7 +58,7 @@ func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Serv
 	return err
 }
 
-func (cmd *deleteServer) removeByFilesystem(ctx context.Context, server *domain.Server) error {
+func (cmd *deleteServer) removeByFilesystem(_ context.Context, server *domain.Server) error {
 	path := makeFullServerPath(cmd.cfg, server.Dir())
 
 	err := os.RemoveAll(path)

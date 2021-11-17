@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -225,7 +226,7 @@ func (s *Server) AutoStart() bool {
 		return false
 	}
 
-	return autostart == "1" || autostart == "true"
+	return s.readBoolSetting(autostart)
 }
 
 func (s *Server) AffectInstall() {
@@ -233,8 +234,8 @@ func (s *Server) AffectInstall() {
 }
 
 func (s *Server) AffectStart() {
-	autostart := s.Setting(autostartSettingKey)
-	if autostart == "1" || autostart == "true" {
+	autostart := s.readBoolSetting(s.Setting(autostartSettingKey))
+	if autostart {
 		s.SetSetting(autostartCurrentSettingKey, "1")
 		s.modified = true
 	}
@@ -248,9 +249,7 @@ func (s *Server) AffectStop() {
 }
 
 func (s *Server) UpdateBeforeStart() bool {
-	updateBeforeStart := s.Setting(updateBeforeStartSettingKey)
-
-	return updateBeforeStart == "1" || updateBeforeStart == "true"
+	return s.readBoolSetting(s.Setting(updateBeforeStartSettingKey))
 }
 
 func (s *Server) InstallationStatus() InstallationStatus {
@@ -276,4 +275,9 @@ func (s *Server) IsModified() bool {
 
 func (s *Server) UnmarkModifiedFlag() {
 	s.modified = false
+}
+
+func (s *Server) readBoolSetting(value string) bool {
+	value = strings.ToLower(value)
+	return value == "1" || value == "true" || value == "yes"
 }

@@ -43,6 +43,7 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 	var server *domain.Server
 
 	loadedServer, ok := repo.servers.Load(id)
+	//nolint:nestif
 	if !ok {
 		server, err = repo.innerRepo.FindByID(ctx, id)
 		if err != nil {

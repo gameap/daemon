@@ -56,3 +56,11 @@ issues:
         - dupl
         - gosec
         - scopelint
+    - path: internal/app/di
+      linters:
+        - maligned
+    - path: internal/app/di/internal/definitions
+      linters:
+        - stylecheck
+        - funlen
+        - golint

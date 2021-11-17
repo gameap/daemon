@@ -60,14 +60,13 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 }
 
 func (s *startServer) ReadOutput() []byte {
-	var out []byte
-	var err error
+	out := s.update.ReadOutput()
 
-	out = append(out, s.update.ReadOutput()...)
-
-	out, err = io.ReadAll(s.startOutput)
+	startOut, err := io.ReadAll(s.startOutput)
 	if err != nil {
 		return nil
 	}
+	out = append(out, startOut...)
+
 	return out
 }

@@ -5,10 +5,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
-	"reflect"
-	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
@@ -66,47 +63,15 @@ func (suite *Suite) SetupSuite() {
 	)
 }
 
-func (suite *Suite) RunTaskManager() {
+func (suite *Suite) RunTaskManager(timeout time.Duration) {
 	suite.T().Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3 * time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	go func() {
-		err := suite.TaskManager.Run(ctx)
-		if err != nil {
-			panic(err)
-		}
-	}()
-
-	suite.waitForTaskManagerCompleteAllTasks()
-}
-
-func (suite *Suite) waitForTaskManagerCompleteAllTasks() {
-	for {
-		time.Sleep(1 * time.Second)
-
-		rv := reflect.ValueOf(suite.TaskManager)
-		val := reflect.Indirect(rv)
-
-		queue := val.FieldByName("queue")
-		tasks := queue.FieldByName("tasks")
-		ptrToTasks := unsafe.Pointer(tasks.UnsafeAddr())
-		realTasks := (*[]*domain.GDTask)(ptrToTasks)
-
-		commandsInProgressRef := val.FieldByName("commandsInProgress")
-		ptrToCommandsInProgress := unsafe.Pointer(commandsInProgressRef.UnsafeAddr())
-		realCommandsInProgress := (*sync.Map)(ptrToCommandsInProgress)
-
-		commandsCount := 0
-		realCommandsInProgress.Range(func(key, value interface{}) bool {
-			commandsCount++
-			return true
-		})
-
-		if len(*realTasks) == 0 && commandsCount == 0 {
-			break
-		}
+	err := suite.TaskManager.Run(ctx)
+	if err != nil {
+		suite.T().Fatal(err)
 	}
 }
 
