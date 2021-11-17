@@ -5,7 +5,7 @@ go 1.16
 require (
 	github.com/dgraph-io/ristretto v0.1.0
 	github.com/emirpasic/gods v1.12.0
-	github.com/et-nik/binngo v0.2.3
+	github.com/et-nik/binngo v0.2.4
 	github.com/gabriel-vasile/mimetype v1.3.0
 	github.com/go-resty/resty/v2 v2.6.0
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485

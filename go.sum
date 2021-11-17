@@ -32,8 +32,8 @@ github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/emirpasic/gods v1.12.0 h1:QAUIPSaCu4G+POclxeqb3F+WPpdKqFGlw36+yOzGlrg=
 github.com/emirpasic/gods v1.12.0/go.mod h1:YfzfFFoVP/catgzJb4IKIqXjX78Ha8FMSDh3ymbK86o=
-github.com/et-nik/binngo v0.2.3 h1:wraB2yty+1Xjsy6yw1kZbuqv4A0UTOzwEbUXQ2njLbE=
-github.com/et-nik/binngo v0.2.3/go.mod h1:HOH2odEMYV+YMstNUnW5CvUbI29WYH8rD/bQjp/Ly5o=
+github.com/et-nik/binngo v0.2.4 h1:haPqdhBJkL9Q8V7y7meDe8OxkPJyrQ6O3KH2Aj1SAt8=
+github.com/et-nik/binngo v0.2.4/go.mod h1:HOH2odEMYV+YMstNUnW5CvUbI29WYH8rD/bQjp/Ly5o=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
 github.com/gabriel-vasile/mimetype v1.3.0 h1:4YOHITFLyYwF+iqG0ybSLGArRItynpfwdlWRmJnd75E=
 github.com/gabriel-vasile/mimetype v1.3.0/go.mod h1:fA8fi6KUiG7MgQQ+mEWotXoEOvmxRtOJlERCzSmRvr8=
@@ -106,8 +106,6 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/russross/blackfriday/v2 v2.0.1 h1:lPqVAte+HuHNfhJ/0LC98ESWRz8afy9tM/0RK8m9o+Q=
 github.com/russross/blackfriday/v2 v2.0.1/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
-github.com/sarulabs/di v2.0.0+incompatible h1:gsiKbengnJvdA+XkdV7SqlH3kFQMaIqKD+rgefIRwS0=
-github.com/sarulabs/di v2.0.0+incompatible/go.mod h1:w5YAFs2sBoVzwDsWaBqJ2NzOmUHo/EZKdB3DOJ+BmHI=
 github.com/shurcooL/sanitized_anchor_name v1.0.0 h1:PdmoCO6wvbs+7yrJyMORt4/BmY5IYyJwS/kOiWx8mHo=
 github.com/shurcooL/sanitized_anchor_name v1.0.0/go.mod h1:1NzhyTcUVG4SuEtjjoZeVRXNmyL/1OwPU0+IJeTBvfc=
 github.com/sirupsen/logrus v1.8.0 h1:nfhvjKcUMhBMVqbKHJlk5RPrrfYr/NMo3692g0dwfWU=
