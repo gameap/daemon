@@ -38,7 +38,7 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 
 	var err error
 
-	if server.UpdateBeforeStart() {
+	if server.UpdateBeforeStart() && s.update != nil {
 		err = s.update.Execute(ctx, server)
 		if err != nil {
 			s.complete = true
@@ -60,7 +60,11 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 }
 
 func (s *startServer) ReadOutput() []byte {
-	out := s.update.ReadOutput()
+	var out []byte
+
+	if s.update != nil {
+		out = s.update.ReadOutput()
+	}
 
 	startOut, err := io.ReadAll(s.startOutput)
 	if err != nil {
