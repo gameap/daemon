@@ -5,6 +5,6 @@ package components
 
 import "os/exec"
 
-func setCMDSysProcCredential(cmd *exec.Cmd, _ ExecutorOptions) *exec.Cmd {
-	return cmd
+func setCMDSysProcCredential(cmd *exec.Cmd, _ ExecutorOptions) (*exec.Cmd, error) {
+	return cmd, nil
 }

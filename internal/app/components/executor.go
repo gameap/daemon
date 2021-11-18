@@ -104,7 +104,10 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 	cmd.Stderr = out
 
 	if options.UID != "" && options.GID != "" {
-		cmd = setCMDSysProcCredential(cmd, options)
+		cmd, err = setCMDSysProcCredential(cmd, options)
+		if err != nil {
+			return -1, err
+		}
 	}
 
 	err = cmd.Run()

@@ -12,7 +12,7 @@ func fileTimeFromFileInfo(fileInfo os.FileInfo) fileTime {
 	sys := fileInfo.Sys().(*syscall.Stat_t)
 
 	return fileTime{
-		AccessTime:   sys.Atim.Sec,
-		CreatingTime: sys.Ctim.Sec,
+		AccessTime:   uint64(sys.Atim.Sec),
+		CreatingTime: uint64(sys.Ctim.Sec),
 	}
 }
