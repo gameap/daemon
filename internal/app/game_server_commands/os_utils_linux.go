@@ -29,3 +29,5 @@ func isRootUser() bool {
 	}
 	return currentUser.Username == "root"
 }
+
+func readFileTime()

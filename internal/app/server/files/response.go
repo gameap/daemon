@@ -3,7 +3,6 @@ package files
 import (
 	"io/fs"
 	"os"
-	"syscall"
 
 	"github.com/et-nik/binngo"
 	"github.com/gabriel-vasile/mimetype"
@@ -89,10 +88,10 @@ func createfileDetailsResponse(path string) (*fileDetailsResponse, error) {
 	}
 	fType := fileTypeByMode(fi.Mode())
 
-	stat := fi.Sys().(*syscall.Stat_t)
+	fileTime := fileTimeFromFileInfo(fi)
 
 	var mime string
-	if fType == typeFile && stat.Size > 0 {
+	if fType == typeFile && fi.Size() > 0 {
 		mm, err := mimetype.DetectFile(path)
 
 		if err != nil {
@@ -107,8 +106,8 @@ func createfileDetailsResponse(path string) (*fileDetailsResponse, error) {
 		Size:             uint64(fi.Size()),
 		Type:             uint8(fType),
 		ModificationTime: uint64(fi.ModTime().Unix()),
-		AccessTime:       uint64(stat.Atim.Sec),
-		CreateTime:       uint64(stat.Ctim.Sec),
+		AccessTime:       fileTime.AccessTime,
+		CreateTime:       fileTime.CreatingTime,
 		Perm:             uint32(fi.Mode().Perm()),
 		Mime:             mime,
 	}, nil

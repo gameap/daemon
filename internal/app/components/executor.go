@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path"
 	"strconv"
-	"syscall"
 
 	"github.com/gopherclass/go-shellquote"
 	"github.com/pkg/errors"
@@ -105,17 +104,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 	cmd.Stderr = out
 
 	if options.UID != "" && options.GID != "" {
-		uid, err := strconv.Atoi(options.UID)
-		if err != nil {
-			return -1, errors.WithMessage(err, "[game_server_commands.installator] invalid user uid")
-		}
-
-		gid, err := strconv.Atoi(options.UID)
-		if err != nil {
-			return -1, errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
-		}
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+		cmd = setCMDSysProcCredential(cmd, options)
 	}
 
 	err = cmd.Run()
