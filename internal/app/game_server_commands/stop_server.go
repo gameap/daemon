@@ -28,13 +28,13 @@ func newStopServer(cfg *config.Config, executor interfaces.Executor) *stopServer
 
 func (s *stopServer) Execute(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Stop, server.StopCommand())
-	path := makeFullServerPath(s.cfg, server.Dir())
 
 	server.AffectStop()
 
 	var err error
 	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
-		WorkDir: path,
+		WorkDir:         server.WorkDir(s.cfg),
+		FallbackWorkDir: s.cfg.WorkDir(),
 	})
 	s.complete = true
 	if err != nil {

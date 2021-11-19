@@ -49,7 +49,7 @@ func (repo *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTas
 
 	if resp.StatusCode() != http.StatusOK {
 		return nil, errors.WithMessage(
-			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			domain.NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
 			"[repositories.ServerTaskRepository] failed to find game servers tasks",
 		)
 	}
@@ -111,7 +111,7 @@ func (repo *ServerTaskRepository) Save(ctx context.Context, task *domain.ServerT
 
 	if resp.StatusCode() != http.StatusOK {
 		return errors.WithMessage(
-			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			domain.NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
 			"[repositories.ServerTaskRepository] failed to save server task",
 		)
 	}
@@ -143,7 +143,7 @@ func (repo *ServerTaskRepository) Fail(ctx context.Context, task *domain.ServerT
 
 	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusCreated {
 		return errors.WithMessage(
-			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			domain.NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
 			"[repositories.ServerTaskRepository] failed to save server task fail info",
 		)
 	}

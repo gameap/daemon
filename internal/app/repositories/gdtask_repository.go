@@ -53,7 +53,7 @@ func (repository *GDTaskRepository) FindByStatus(
 
 	if resp.StatusCode() != http.StatusOK {
 		return nil, errors.WithMessage(
-			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			domain.NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
 			"[repositories.GDTaskRepository] failed to find gameap daemon tasks",
 		)
 	}
@@ -147,7 +147,7 @@ func (repository *GDTaskRepository) Save(ctx context.Context, gdtask *domain.GDT
 
 	if resp.StatusCode() != http.StatusOK {
 		return errors.WithMessage(
-			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			domain.NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
 			"[repositories.GDTaskRepository] failed to save gameap daemon task",
 		)
 	}
@@ -182,7 +182,7 @@ func (repository *GDTaskRepository) AppendOutput(ctx context.Context, gdtask *do
 
 	if resp.StatusCode() != http.StatusOK {
 		return errors.WithMessage(
-			NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			domain.NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
 			"[repositories.GDTaskRepository] failed to save gameap daemon task",
 		)
 	}

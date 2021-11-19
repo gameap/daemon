@@ -333,7 +333,7 @@ func (in *installator) Install(ctx context.Context, server *domain.Server, rules
 }
 
 func (in *installator) install(ctx context.Context, server *domain.Server, rule installationRule) error {
-	dst := makeFullServerPath(in.cfg, server.Dir())
+	dst := server.WorkDir(in.cfg)
 
 	var err error
 	switch rule.Action {
@@ -485,7 +485,7 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 	}
 
 	execCmd.WriteString(" +force_install_dir \"")
-	execCmd.WriteString(makeFullServerPath(in.cfg, server.Dir()))
+	execCmd.WriteString(server.WorkDir(in.cfg))
 	execCmd.WriteString("\"")
 
 	execCmd.WriteString(" +app_update ")

@@ -10,9 +10,9 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	lock "github.com/viney-shih/go-lock"
 )
 
@@ -20,7 +20,6 @@ const maxActualizeCount = 1
 
 var (
 	errInvalidRequestMethod         = errors.New("invalid request method")
-	errInvalidAPIResponse           = errors.New("failed to get gdaemon API token")
 	errActualizeTokenActionIsLocked = errors.New("actualize token action is already locked")
 )
 
@@ -101,7 +100,7 @@ func (c *APIClient) request(
 	}
 
 	if response.StatusCode() == http.StatusUnauthorized && deep < maxActualizeCount {
-		log.Warning("invalid token, actualizing token")
+		logger.Warn(ctx, "invalid token, actualizing token")
 		err = c.actualizeToken(ctx)
 		if err != nil {
 			return nil, err
@@ -132,7 +131,7 @@ func (c *APIClient) actualizeToken(ctx context.Context) error {
 	}
 
 	if response.IsError() {
-		return errInvalidAPIResponse
+		return domain.NewErrInvalidResponseFromAPI(response.StatusCode(), response.Body())
 	}
 
 	message := struct {

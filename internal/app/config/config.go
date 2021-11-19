@@ -59,8 +59,9 @@ type Config struct {
 	Path7zip    string `yaml:"path_7zip"`
 	PathStarter string `yaml:"path_starter"`
 
-	WorkPath     string `yaml:"work_path"`
-	SteamCMDPath string `yaml:"steamcmd_path"`
+	WorkPath        string `yaml:"work_path"`
+	ScriptsWorkPath string `yaml:"scripts_work_path"`
+	SteamCMDPath    string `yaml:"steamcmd_path"`
 
 	SteamConfig SteamConfig `yaml:"steam_config"`
 
@@ -106,4 +107,12 @@ func (cfg *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func (cfg *Config) ScriptsWorkDir() string {
+	return cfg.ScriptsWorkPath
+}
+
+func (cfg *Config) WorkDir() string {
+	return cfg.WorkPath
 }

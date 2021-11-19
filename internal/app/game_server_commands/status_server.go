@@ -28,11 +28,11 @@ func newStatusServer(cfg *config.Config, executor interfaces.Executor) *statusSe
 
 func (s *statusServer) Execute(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Status, "")
-	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
 	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
-		WorkDir: path,
+		WorkDir:         server.WorkDir(s.cfg),
+		FallbackWorkDir: s.cfg.WorkPath,
 	})
 	s.complete = true
 	if err != nil {

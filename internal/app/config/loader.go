@@ -99,6 +99,10 @@ func loadIni(path string) (*Config, error) {
 
 	cfg.LogLevel = c.Section("").Key("log_level").MustString("debug")
 
+	cfg.ScriptsWorkPath = c.Section("").
+		Key("scripts_work_path").
+		MustString("")
+
 	cfg.Path7zip = c.Section("").
 		Key("7zip_path").
 		MustString("C:\\gameap\\tools\\7zip\\7za.exe")
