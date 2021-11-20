@@ -24,4 +24,5 @@ drives_list:
 stats_update_period: 60
 stats_db_update_period: 300
 
-log_level: trace
+#output_log: /var/log/gameap-daemon/output.log
+log_level: debug
