@@ -98,6 +98,7 @@ func loadIni(path string) (*Config, error) {
 	cfg.DHFile = c.Section("").Key("dh_file").String()
 
 	cfg.LogLevel = c.Section("").Key("log_level").MustString("debug")
+	cfg.OutputLog = c.Section("").Key("output_log").MustString("")
 
 	cfg.ScriptsWorkPath = c.Section("").
 		Key("scripts_work_path").
