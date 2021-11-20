@@ -475,6 +475,10 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 	execCmd.WriteString("/")
 	execCmd.WriteString(config.SteamCMDExecutableFile)
 
+	execCmd.WriteString(" +force_install_dir \"")
+	execCmd.WriteString(server.WorkDir(in.cfg))
+	execCmd.WriteString("\"")
+
 	if in.cfg.SteamConfig.Login != "" && in.cfg.SteamConfig.Password != "" {
 		execCmd.WriteString(" +login ")
 		execCmd.WriteString(in.cfg.SteamConfig.Login)
@@ -483,10 +487,6 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 	} else {
 		execCmd.WriteString(" +login anonymous")
 	}
-
-	execCmd.WriteString(" +force_install_dir \"")
-	execCmd.WriteString(server.WorkDir(in.cfg))
-	execCmd.WriteString("\"")
 
 	execCmd.WriteString(" +app_update ")
 	execCmd.WriteString(appID)
