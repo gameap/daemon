@@ -8,6 +8,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	commands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -59,13 +60,13 @@ func (l *ServersLoop) tick(ctx context.Context) {
 	}
 
 	for i := range ids {
-		server, err := l.serverRepo.FindByID(ctx, ids[i])
+		ctxWithServer := logger.WithLogger(ctx, logger.WithField(ctx, "gameServerID", ids[i]))
+
+		server, err := l.serverRepo.FindByID(ctxWithServer, ids[i])
 		if err != nil {
-			logger.Error(ctx, err)
+			logger.Error(ctxWithServer, err)
 			continue
 		}
-
-		ctxWithServer := logger.WithLogger(ctx, logger.WithField(ctx, "gameServerID", server.ID()))
 
 		err = l.pipeline(ctxWithServer, server, []pipelineHandler{
 			l.checkStatus,
@@ -73,7 +74,7 @@ func (l *ServersLoop) tick(ctx context.Context) {
 			l.save,
 		})
 		if err != nil {
-			logger.Error(ctx, err)
+			logger.Error(ctxWithServer, err)
 			continue
 		}
 	}
@@ -104,7 +105,7 @@ func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) er
 
 	err := statusCmd.Execute(ctxWithTimeout, server)
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "failed to execute status command")
 	}
 
 	server.SetStatus(statusCmd.Result() == commands.SuccessResult)
@@ -128,7 +129,7 @@ func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) 
 
 	err := startCMD.Execute(ctxWithTimeout, server)
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "failed to execute start command")
 	}
 
 	return l.checkStatus(ctx, server)

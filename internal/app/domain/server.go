@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"path"
 	"strings"
 	"time"
 )
@@ -17,6 +18,10 @@ const (
 const autostartSettingKey = "autostart"
 const autostartCurrentSettingKey = "autostart_current"
 const updateBeforeStartSettingKey = "update_before_start"
+
+type workDirReader interface {
+	WorkDir() string
+}
 
 type ServerRepository interface {
 	IDs(ctx context.Context) ([]int, error)
@@ -182,6 +187,10 @@ func (s *Server) GameMod() GameMod {
 
 func (s *Server) Dir() string {
 	return s.dir
+}
+
+func (s *Server) WorkDir(cfg workDirReader) string {
+	return path.Clean(cfg.WorkDir() + "/" + s.dir)
 }
 
 func (s *Server) StartCommand() string {

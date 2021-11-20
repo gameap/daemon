@@ -3,7 +3,6 @@ package gameservercommands
 import (
 	"context"
 	"io"
-	"path"
 	"strconv"
 	"strings"
 
@@ -98,10 +97,6 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 	return nil
 }
 
-func makeFullServerPath(cfg *config.Config, serverDir string) string {
-	return path.Clean(cfg.WorkPath + "/" + serverDir)
-}
-
 func makeFullCommand(
 	cfg *config.Config,
 	server *domain.Server,
@@ -116,7 +111,7 @@ func makeFullCommand(
 func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domain.Server) string {
 	command := commandTemplate
 
-	command = strings.ReplaceAll(command, "{dir}", makeFullServerPath(cfg, server.Dir()))
+	command = strings.ReplaceAll(command, "{dir}", server.WorkDir(cfg))
 	command = strings.ReplaceAll(command, "{uuid}", server.UUID())
 	command = strings.ReplaceAll(command, "{uuid_short}", server.UUIDShort())
 	command = strings.ReplaceAll(command, "{id}", strconv.Itoa(server.ID()))

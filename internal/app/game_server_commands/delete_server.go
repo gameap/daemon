@@ -8,7 +8,10 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/pkg/errors"
 )
+
+var errForbiddenWorkDirectoryPath = errors.New("forbidden game server work directory path")
 
 type deleteServer struct {
 	baseCommand
@@ -40,13 +43,12 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 }
 
 func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
-	path := makeFullServerPath(cmd.cfg, server.Dir())
-
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Status, "")
 
 	var err error
 	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
-		WorkDir: path,
+		WorkDir:         server.WorkDir(cmd.cfg),
+		FallbackWorkDir: cmd.cfg.WorkDir(),
 	})
 
 	if err != nil {
@@ -59,7 +61,11 @@ func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Serv
 }
 
 func (cmd *deleteServer) removeByFilesystem(_ context.Context, server *domain.Server) error {
-	path := makeFullServerPath(cmd.cfg, server.Dir())
+	path := server.WorkDir(cmd.cfg)
+
+	if cmd.isWorkDirForbiddenToRemove(path) {
+		return errForbiddenWorkDirectoryPath
+	}
 
 	err := os.RemoveAll(path)
 	if err != nil {
@@ -69,4 +75,12 @@ func (cmd *deleteServer) removeByFilesystem(_ context.Context, server *domain.Se
 	}
 
 	return nil
+}
+
+func (cmd *deleteServer) isWorkDirForbiddenToRemove(path string) bool {
+	if path == cmd.cfg.WorkPath || path == cmd.cfg.SteamCMDPath || path == "/" {
+		return true
+	}
+
+	return false
 }

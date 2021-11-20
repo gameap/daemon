@@ -17,10 +17,11 @@ import (
 var ErrEmptyCommand = errors.New("empty command")
 
 type ExecutorOptions struct {
-	WorkDir string
-	UID     string
-	GID     string
-	Env     map[string]string
+	WorkDir         string
+	FallbackWorkDir string
+	UID             string
+	GID             string
+	Env             map[string]string
 }
 
 type Executor struct {
@@ -83,12 +84,20 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 		return -1, err
 	}
 
-	_, err = os.Stat(options.WorkDir)
-	if err != nil {
-		return -1, errors.Wrap(err, "invalid work directory")
+	workDir := options.WorkDir
+	_, err = os.Stat(workDir)
+	if err != nil && options.FallbackWorkDir == "" {
+		return -1, errors.Wrapf(err, "invalid work directory %s", workDir)
+	} else if err != nil && options.FallbackWorkDir != "" {
+		_, err = os.Stat(options.FallbackWorkDir)
+		if err != nil {
+			return -1, errors.Wrapf(err, "invalid fallback work directory %s", options.FallbackWorkDir)
+		}
+
+		workDir = options.FallbackWorkDir
 	}
 
-	_, err = os.Stat(path.Clean(options.WorkDir + "/" + args[0]))
+	_, err = os.Stat(path.Clean(workDir + "/" + args[0]))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		_, err = exec.LookPath(args[0])
 		if err != nil {
@@ -99,7 +108,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 	}
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec
-	cmd.Dir = options.WorkDir
+	cmd.Dir = workDir
 	cmd.Stdout = out
 	cmd.Stderr = out
 

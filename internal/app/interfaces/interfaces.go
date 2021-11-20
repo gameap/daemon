@@ -58,3 +58,7 @@ type GameProcessController interface {
 	GetOutput(ctx context.Context, server *domain.Server) (int, error)
 	SendInput(ctx context.Context, server *domain.Server) (int, error)
 }
+
+type DomainPrimitiveValidator interface {
+	Validate() error
+}

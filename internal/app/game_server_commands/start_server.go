@@ -34,7 +34,6 @@ func newStartServer(cfg *config.Config, executor interfaces.Executor, update *in
 
 func (s *startServer) Execute(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Start, server.StartCommand())
-	path := makeFullServerPath(s.cfg, server.Dir())
 
 	var err error
 
@@ -47,7 +46,8 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 	}
 
 	s.result, err = s.executor.ExecWithWriter(ctx, command, s.startOutput, components.ExecutorOptions{
-		WorkDir: path,
+		WorkDir:         server.WorkDir(s.cfg),
+		FallbackWorkDir: s.cfg.WorkPath,
 	})
 	s.complete = true
 	if err != nil {
