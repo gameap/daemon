@@ -58,7 +58,6 @@ func NewLogger(cfg config.Config) *log.Logger {
 		logger.SetOutput(outputLog)
 	}
 
-
 	return logger
 }
 
