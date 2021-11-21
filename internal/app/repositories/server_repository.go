@@ -124,7 +124,7 @@ type serverStruct struct {
 type serverSaveStruct struct {
 	Installed        uint8  `json:"installed"`
 	ProcessActive    uint8  `json:"process_active"`
-	LastProcessCheck string `json:"last_process_check"`
+	LastProcessCheck string `json:"last_process_check,omitempty"`
 }
 
 type apiServerRepo struct {
@@ -263,15 +263,17 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 }
 
 func (apiRepo *apiServerRepo) Save(ctx context.Context, server *domain.Server) error {
-	status := uint8(0)
-	if server.IsActive() {
-		status = 1
+	srv := serverSaveStruct{
+		Installed:     uint8(server.InstallationStatus()),
+		ProcessActive: 0,
 	}
 
-	srv := serverSaveStruct{
-		Installed:        uint8(server.InstallationStatus()),
-		ProcessActive:    status,
-		LastProcessCheck: server.LastStatusCheck().Format("2006-01-02 15:04:05"),
+	if server.IsActive() {
+		srv.ProcessActive = 1
+	}
+
+	if !server.LastStatusCheck().IsZero() {
+		srv.LastProcessCheck = server.LastStatusCheck().Format("2006-01-02 15:04:05")
 	}
 
 	marshalled, err := json.Marshal(srv)
