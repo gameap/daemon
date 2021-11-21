@@ -2,6 +2,7 @@ package definitions
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
@@ -18,6 +19,13 @@ func CreateServicesResty(ctx context.Context, c Container) *resty.Client {
 	restyClient.RetryCount = 30
 	restyClient.RetryMaxWaitTime = 10 * time.Minute
 	restyClient.SetLogger(c.Logger(ctx))
+
+	restyClient.AddRetryCondition(
+		func(r *resty.Response, err error) bool {
+			return r.StatusCode() == http.StatusTooManyRequests ||
+				r.StatusCode() == http.StatusBadGateway
+		},
+	)
 
 	return restyClient
 }

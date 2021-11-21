@@ -8,7 +8,9 @@ import (
 
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 type GDTaskRepository struct {
@@ -72,7 +74,11 @@ func (repository *GDTaskRepository) FindByStatus(
 		}
 
 		if server == nil {
-			return nil, errInvalidServerID
+			logger.WithFields(ctx, log.Fields{
+				"gameServerID": items[i].Server,
+				"gdTaskID":     items[i].ID,
+			}).Warn(ctx, "invalid task, game server not found")
+			continue
 		}
 
 		gdTask := domain.NewGDTask(
