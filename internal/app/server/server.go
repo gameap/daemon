@@ -89,12 +89,6 @@ func (srv *Server) Run(ctx context.Context) error {
 		},
 	}
 
-	go func() {
-		<-ctx.Done()
-		log.Info("Server shutting down...")
-		srv.Stop()
-	}()
-
 	listener, err := tls.Listen("tcp", fmt.Sprintf("%s:%d", srv.ip, srv.port), config)
 	if err != nil {
 		return err
@@ -103,6 +97,12 @@ func (srv *Server) Run(ctx context.Context) error {
 	srv.listener = listener
 	srv.wg.Add(1)
 	log.Infof("GameAP Daemon server listening at: %s:%d", srv.ip, srv.port)
+
+	go func() {
+		<-ctx.Done()
+		log.Info("Server shutting down...")
+		srv.Stop()
+	}()
 
 	return srv.serve(ctx)
 }

@@ -32,7 +32,7 @@ func NewExecutor() *Executor {
 	return &Executor{appendCommandAndExitCode: true}
 }
 
-func NewClearExecutor() *Executor {
+func NewCleanExecutor() *Executor {
 	return &Executor{appendCommandAndExitCode: false}
 }
 

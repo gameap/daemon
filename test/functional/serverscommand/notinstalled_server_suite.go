@@ -32,7 +32,7 @@ func (suite *NotInstalledServerSuite) SetupSuite() {
 	}
 
 	suite.ServerRepository = mocks.NewServerRepository()
-	suite.Executor = components.NewClearExecutor()
+	suite.Executor = components.NewCleanExecutor()
 
 	suite.CommandFactory = gameservercommands.NewFactory(suite.Cfg, suite.ServerRepository, suite.Executor)
 }

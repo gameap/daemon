@@ -136,5 +136,9 @@ func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) 
 }
 
 func (l *ServersLoop) save(ctx context.Context, server *domain.Server) error {
+	if server.InstallationStatus() != domain.ServerInstalled {
+		return nil
+	}
+
 	return l.serverRepo.Save(ctx, server)
 }

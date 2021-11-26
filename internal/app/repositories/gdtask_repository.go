@@ -158,9 +158,11 @@ func (repository *GDTaskRepository) Save(ctx context.Context, gdtask *domain.GDT
 		)
 	}
 
-	err = repository.serverRepository.Save(ctx, gdtask.Server())
-	if err != nil {
-		return errors.WithMessage(err, "failed to save game server")
+	if gdtask.Server() != nil {
+		err = repository.serverRepository.Save(ctx, gdtask.Server())
+		if err != nil {
+			return errors.WithMessage(err, "failed to save game server")
+		}
 	}
 
 	return nil

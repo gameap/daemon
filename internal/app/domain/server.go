@@ -5,6 +5,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/emirpasic/gods/sets/hashset"
 )
 
 type InstallationStatus int
@@ -68,7 +70,7 @@ type Server struct {
 
 	updatedAt time.Time
 
-	modified bool
+	changeset *hashset.Set
 }
 
 func NewServer(
@@ -124,7 +126,7 @@ func NewServer(
 		vars,
 		settings,
 		updatedAt,
-		false,
+		hashset.New(),
 	}
 }
 
@@ -215,13 +217,13 @@ func (s *Server) Setting(key string) string {
 
 func (s *Server) SetSetting(key string, value string) {
 	s.settings[key] = value
-	s.modified = true
+	s.setValueIsChanged("settings")
 }
 
 func (s *Server) SetStatus(processActive bool) {
 	s.processActive = processActive
 	s.lastProcessCheck = time.Now()
-	s.modified = true
+	s.setValueIsChanged("status")
 }
 
 func (s *Server) AutoStart() bool {
@@ -246,14 +248,12 @@ func (s *Server) AffectStart() {
 	autostart := s.readBoolSetting(s.Setting(autostartSettingKey))
 	if autostart {
 		s.SetSetting(autostartCurrentSettingKey, "1")
-		s.modified = true
 	}
 }
 
 func (s *Server) AffectStop() {
 	if s.AutoStart() {
 		s.SetSetting(autostartCurrentSettingKey, "0")
-		s.modified = true
 	}
 }
 
@@ -267,7 +267,7 @@ func (s *Server) InstallationStatus() InstallationStatus {
 
 func (s *Server) SetInstallationStatus(status InstallationStatus) {
 	s.installStatus = status
-	s.modified = true
+	s.setValueIsChanged("installationStatus")
 }
 
 func (s *Server) IsActive() bool {
@@ -279,11 +279,19 @@ func (s *Server) LastStatusCheck() time.Time {
 }
 
 func (s *Server) IsModified() bool {
-	return s.modified
+	return !s.changeset.Empty()
+}
+
+func (s *Server) IsValueModified(key string) bool {
+	return s.changeset.Contains(strings.ToLower(key))
+}
+
+func (s *Server) setValueIsChanged(key string) {
+	s.changeset.Add(strings.ToLower(key))
 }
 
 func (s *Server) UnmarkModifiedFlag() {
-	s.modified = false
+	s.changeset.Clear()
 }
 
 func (s *Server) readBoolSetting(value string) bool {

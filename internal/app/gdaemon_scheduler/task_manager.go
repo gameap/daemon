@@ -88,7 +88,7 @@ func (manager *TaskManager) Stats() domain.GDTaskStats {
 		return true
 	})
 
-	stats.WaitingCount = manager.queue.Len()
+	stats.WaitingCount = manager.queue.Len()-stats.WorkingCount
 
 	return stats
 }
@@ -120,14 +120,14 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		return
 	}
 
-	if manager.shouldTaskWaitForAnotherToComplete(task) {
-		return
-	}
-
 	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
 		"gdTaskID":     task.ID(),
 		"gameServerID": task.Server().ID(),
 	}))
+
+	if manager.shouldTaskWaitForAnotherToComplete(task) {
+		return
+	}
 
 	var err error
 	if task.IsWaiting() {
@@ -306,6 +306,8 @@ func (q *taskQueue) Next() *domain.GDTask {
 	if len(q.tasks) == 0 {
 		return nil
 	}
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
 
 	task := q.Dequeue()
 	q.Insert([]*domain.GDTask{task})
@@ -314,6 +316,10 @@ func (q *taskQueue) Next() *domain.GDTask {
 }
 
 func (q *taskQueue) Remove(task *domain.GDTask) {
+	if len(q.tasks) == 0 {
+		return
+	}
+
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
