@@ -59,6 +59,7 @@ func (suite *Suite) SetupSuite() {
 			suite.ServerRepository,
 			suite.Executor,
 		),
+		components.NewCleanExecutor(),
 		suite.Cfg,
 	)
 }
@@ -87,7 +88,28 @@ func (suite *Suite) AssertGDTaskExist(task *domain.GDTask) {
 	suite.Assert().Equal(task.Status(), actualTask.Status())
 	suite.Assert().Equal(task.RunAfterID(), actualTask.RunAfterID())
 	suite.Assert().Equal(task.Task(), actualTask.Task())
-	suite.Assert().Equal(task.Server().ID(), actualTask.Server().ID())
+	if task.Server() != nil {
+		suite.Assert().Equal(task.Server().ID(), actualTask.Server().ID())
+	} else {
+		suite.Assert().Nil(actualTask.Server())
+	}
+}
+
+func (suite *Suite) GivenGDTaskWithCommand(cmd string) *domain.GDTask {
+	minID := 100
+	maxID := 1000000000
+	task := domain.NewGDTask(
+		rand.Intn(maxID-minID)+minID,
+		0,
+		nil,
+		domain.GDTaskCommandExecute,
+		cmd,
+		domain.GDTaskStatusWaiting,
+	)
+
+	suite.GDTaskRepository.Set([]*domain.GDTask{task})
+
+	return task
 }
 
 func (suite *Suite) GivenGDTaskWithIDForServer(id int, server *domain.Server) *domain.GDTask {

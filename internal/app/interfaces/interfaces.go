@@ -25,12 +25,16 @@ type OutputReader interface {
 	ReadOutput() []byte
 }
 
-type Command interface {
+type CommandResultReader interface {
 	OutputReader
-
-	Execute(ctx context.Context, server *domain.Server) error
 	Result() int
 	IsComplete() bool
+}
+
+type GameServerCommand interface {
+	CommandResultReader
+
+	Execute(ctx context.Context, server *domain.Server) error
 }
 
 type APIRequestMaker interface {

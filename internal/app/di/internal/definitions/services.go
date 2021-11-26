@@ -54,6 +54,7 @@ func CreateServicesGdTaskManager(ctx context.Context, c Container) *gdaemonsched
 		c.Repositories().GdTaskRepository(ctx),
 		c.CacheManager(ctx),
 		c.ServerCommandFactory(ctx),
+		c.Services().Executor(ctx),
 		c.Cfg(ctx),
 	)
 }

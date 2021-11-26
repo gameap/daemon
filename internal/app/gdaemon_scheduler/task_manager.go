@@ -2,16 +2,17 @@ package gdaemonscheduler
 
 import (
 	"context"
+	"io"
 	"sync"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 var updateTimeout = 5 * time.Second
@@ -31,11 +32,12 @@ var taskServerCommandMap = map[domain.GDTaskCommand]gameservercommands.ServerCom
 type TaskManager struct {
 	config               *config.Config
 	repository           domain.GDTaskRepository
+	executor             interfaces.Executor
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
 	// Runtime
 	lastUpdated        time.Time
-	commandsInProgress sync.Map // map[domain.GDTask]interfaces.Command
+	commandsInProgress sync.Map // map[domain.GDTask]interfaces.CommandResultReader
 	queue              taskQueue
 	cache              interfaces.Cache
 }
@@ -44,6 +46,7 @@ func NewTaskManager(
 	repository domain.GDTaskRepository,
 	cache interfaces.Cache,
 	serverCommandFactory *gameservercommands.ServerCommandFactory,
+	executor interfaces.Executor,
 	config *config.Config,
 ) *TaskManager {
 	return &TaskManager{
@@ -52,6 +55,7 @@ func NewTaskManager(
 		cache:                cache,
 		queue:                taskQueue{},
 		serverCommandFactory: serverCommandFactory,
+		executor:             executor,
 	}
 }
 
@@ -88,7 +92,7 @@ func (manager *TaskManager) Stats() domain.GDTaskStats {
 		return true
 	})
 
-	stats.WaitingCount = manager.queue.Len()-stats.WorkingCount
+	stats.WaitingCount = manager.queue.Len() - stats.WorkingCount
 
 	return stats
 }
@@ -120,10 +124,11 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		return
 	}
 
-	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
-		"gdTaskID":     task.ID(),
-		"gameServerID": task.Server().ID(),
-	}))
+	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithField("gdTaskID", task.ID()))
+
+	if task.Server() != nil {
+		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithField("gameServerID", task.Server().ID()))
+	}
 
 	if manager.shouldTaskWaitForAnotherToComplete(task) {
 		return
@@ -184,6 +189,36 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 		logger.Error(ctx, err)
 	}
 
+	if task.Task() == domain.GDTaskCommandExecute {
+		return manager.executeCommand(ctx, task)
+	}
+
+	return manager.executeGameCommand(ctx, task)
+}
+
+func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDTask) error {
+	cmd := newExecuteCommand(manager.executor)
+
+	manager.commandsInProgress.Store(*task, cmd)
+
+	logger.Debug(ctx, "Running task command")
+
+	go func() {
+		err := cmd.Execute(ctx, task.Command(), components.ExecutorOptions{
+			WorkDir: manager.config.WorkDir(),
+		})
+
+		if err != nil {
+			logger.Warn(ctx, err)
+			manager.appendTaskOutput(ctx, task, []byte(err.Error()))
+			manager.failTask(ctx, task)
+		}
+	}()
+
+	return nil
+}
+
+func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain.GDTask) error {
 	cmd, gameServerCmdExist := taskServerCommandMap[task.Task()]
 
 	if !gameServerCmdExist {
@@ -197,7 +232,7 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 	logger.Debug(ctx, "Running task command")
 
 	go func() {
-		err = cmdFunc.Execute(ctx, task.Server())
+		err := cmdFunc.Execute(ctx, task.Server())
 		if err != nil {
 			logger.Warn(ctx, err)
 			manager.appendTaskOutput(ctx, task, []byte(err.Error()))
@@ -214,7 +249,7 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 		return errors.New("[gdaemon_scheduler.TaskManager] task not exist in working tasks")
 	}
 
-	cmd := c.(interfaces.Command)
+	cmd := c.(interfaces.CommandResultReader)
 
 	if cmd.IsComplete() {
 		if cmd.Result() == gameservercommands.SuccessResult {
@@ -306,8 +341,6 @@ func (q *taskQueue) Next() *domain.GDTask {
 	if len(q.tasks) == 0 {
 		return nil
 	}
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
 
 	task := q.Dequeue()
 	q.Insert([]*domain.GDTask{task})
@@ -357,4 +390,48 @@ func (q *taskQueue) WorkingTasks() ([]int, []*domain.GDTask) {
 
 func (q *taskQueue) Len() int {
 	return len(q.tasks)
+}
+
+type executeCommand struct {
+	output   io.ReadWriter
+	complete bool
+	result   int
+
+	executor interfaces.Executor
+}
+
+func newExecuteCommand(executor interfaces.Executor) *executeCommand {
+	return &executeCommand{
+		executor: executor,
+		output:   components.NewSafeBuffer(),
+	}
+}
+
+func (e *executeCommand) Execute(
+	ctx context.Context,
+	command string,
+	options components.ExecutorOptions,
+) error {
+	var err error
+	e.result, err = e.executor.ExecWithWriter(ctx, command, e.output, options)
+	e.complete = true
+
+	return err
+}
+
+func (e *executeCommand) ReadOutput() []byte {
+	out, err := io.ReadAll(e.output)
+	if err != nil {
+		return nil
+	}
+
+	return out
+}
+
+func (e *executeCommand) Result() int {
+	return e.result
+}
+
+func (e *executeCommand) IsComplete() bool {
+	return e.complete
 }

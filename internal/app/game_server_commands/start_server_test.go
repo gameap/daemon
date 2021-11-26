@@ -25,7 +25,7 @@ func TestStartServer(t *testing.T) {
 	err := startServerCommand.Execute(context.Background(), server)
 
 	require.Nil(t, err)
-	assert.Equal(t, 0, startServerCommand.Result())
+	assert.Equal(t, SuccessResult, startServerCommand.Result())
 	assert.True(t, startServerCommand.IsComplete())
 	assert.Contains(t, string(startServerCommand.ReadOutput()), "Server started")
 }

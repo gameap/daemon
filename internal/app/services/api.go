@@ -50,6 +50,7 @@ func (c *APIClient) Request(ctx context.Context, request domain.APIRequest) (int
 	return c.request(ctx, request, 0)
 }
 
+//nolint:funlen
 func (c *APIClient) request(
 	ctx context.Context,
 	request domain.APIRequest,
@@ -109,7 +110,7 @@ func (c *APIClient) request(
 	}
 
 	l.WithFields(logrus.Fields{
-		"requestURL": restyRequest.URL,
+		"requestURL":     restyRequest.URL,
 		"responseStatus": response.StatusCode(),
 	}).Debug("api request")
 
