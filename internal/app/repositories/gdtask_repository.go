@@ -8,7 +8,7 @@ import (
 
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )

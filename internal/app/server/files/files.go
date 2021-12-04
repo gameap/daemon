@@ -8,9 +8,9 @@ import (
 	"path"
 
 	"github.com/et-nik/binngo/decode"
-	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/gameap/daemon/internal/app/server/response"
 	servercommon "github.com/gameap/daemon/internal/app/server/server_common"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/otiai10/copy"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"

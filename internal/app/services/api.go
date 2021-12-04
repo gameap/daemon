@@ -10,7 +10,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

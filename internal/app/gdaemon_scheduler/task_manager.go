@@ -11,7 +11,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/interfaces"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 )
 

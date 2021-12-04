@@ -7,7 +7,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	commands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
