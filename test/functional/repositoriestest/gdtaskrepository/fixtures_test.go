@@ -17,3 +17,21 @@ var jsonWaitingTasksResponseBody = []byte(`
     }
 ]
 `)
+
+var jsonWaitingTasksWithEmptyServerResponseBody = []byte(`
+[
+    {
+        "id": 3,
+        "run_aft_id": 1,
+        "created_at": "2021-11-05T21:57:36.000000Z",
+        "updated_at": "2021-11-05T21:57:36.000000Z",
+        "dedicated_server_id": 1,
+        "server_id": 0,
+        "task": "cmdexec",
+        "data": null,
+        "cmd": "./task_command.sh",
+        "status": "waiting",
+        "status_num": 1
+    }
+]
+`)

@@ -43,12 +43,11 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 }
 
 func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Status, "")
+	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
 
 	var err error
 	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
-		WorkDir:         server.WorkDir(cmd.cfg),
-		FallbackWorkDir: cmd.cfg.WorkDir(),
+		WorkDir: cmd.cfg.WorkDir(),
 	})
 
 	if err != nil {
@@ -73,6 +72,8 @@ func (cmd *deleteServer) removeByFilesystem(_ context.Context, server *domain.Se
 		_, _ = cmd.output.Write([]byte(err.Error()))
 		return err
 	}
+
+	cmd.result = SuccessResult
 
 	return nil
 }

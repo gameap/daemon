@@ -14,7 +14,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/hashicorp/go-getter"
 	"github.com/otiai10/copy"
 	"github.com/pkg/errors"
@@ -70,7 +70,7 @@ func newUpdateServer(
 	serverRepo domain.ServerRepository,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
-	inst := newInstallator(cfg, executor, buffer)
+	inst := newUpdater(cfg, executor, buffer)
 
 	return &installServer{
 		baseCommand{
@@ -297,6 +297,15 @@ func newInstallator(cfg *config.Config, executor interfaces.Executor, output io.
 		executor: executor,
 		output:   output,
 		kind:     installer,
+	}
+}
+
+func newUpdater(cfg *config.Config, executor interfaces.Executor, output io.ReadWriter) *installator {
+	return &installator{
+		cfg:      cfg,
+		executor: executor,
+		output:   output,
+		kind:     updater,
 	}
 }
 

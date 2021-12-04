@@ -10,9 +10,10 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	lock "github.com/viney-shih/go-lock"
 )
 
@@ -49,6 +50,7 @@ func (c *APIClient) Request(ctx context.Context, request domain.APIRequest) (int
 	return c.request(ctx, request, 0)
 }
 
+//nolint:funlen
 func (c *APIClient) request(
 	ctx context.Context,
 	request domain.APIRequest,
@@ -84,16 +86,33 @@ func (c *APIClient) request(
 	var err error
 	var response *resty.Response
 
+	l := logger.Logger(ctx)
+
 	switch request.Method {
 	case http.MethodGet:
 		response, err = restyRequest.Get(request.URL)
 	case http.MethodPost:
+		body, isBytes := restyRequest.Body.([]byte)
+		if isBytes {
+			l = l.WithField("body", string(body))
+		}
+
 		response, err = restyRequest.Post(request.URL)
 	case http.MethodPut:
+		body, isBytes := restyRequest.Body.([]byte)
+		if isBytes {
+			l = l.WithField("body", string(body))
+		}
+
 		response, err = restyRequest.Put(request.URL)
 	default:
 		return nil, errInvalidRequestMethod
 	}
+
+	l.WithFields(logrus.Fields{
+		"requestURL":     restyRequest.URL,
+		"responseStatus": response.StatusCode(),
+	}).Debug("api request")
 
 	if err != nil {
 		return nil, err

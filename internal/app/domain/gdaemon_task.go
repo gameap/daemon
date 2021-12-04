@@ -82,6 +82,10 @@ func (task *GDTask) Task() GDTaskCommand {
 	return task.task
 }
 
+func (task *GDTask) Command() string {
+	return task.cmd
+}
+
 func (task *GDTask) Status() GDTaskStatus {
 	return task.status
 }

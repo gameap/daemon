@@ -29,7 +29,27 @@ func (suite *Suite) TestFindByStatus_Success() {
 	suite.Equal(1, gdtasks[0].Server().ID())
 }
 
+func (suite *Suite) TestFindByStatus_EmptyServer_Success() {
+	suite.GivenAPIResponse(
+		"/gdaemon_api/tasks?append=status_num&filter%5Bstatus%5D=waiting",
+		http.StatusOK,
+		jsonWaitingTasksWithEmptyServerResponseBody,
+	)
+
+	gdtasks, err := suite.GDTaskRepository.FindByStatus(context.Background(), domain.GDTaskStatusWaiting)
+
+	suite.Require().Nil(err)
+	suite.Require().NotNil(gdtasks)
+	suite.Require().Len(gdtasks, 1)
+	suite.Equal(3, gdtasks[0].ID())
+	suite.Equal(domain.GDTaskCommandExecute, gdtasks[0].Task())
+	suite.Equal(domain.GDTaskStatusWaiting, gdtasks[0].Status())
+	suite.Equal("./task_command.sh", gdtasks[0].Command())
+	suite.Require().Nil(gdtasks[0].Server())
+}
+
 func (suite *Suite) TestSave_Success() {
+	suite.GivenAPIResponse("/gdaemon_api/servers/1337", http.StatusOK, repositoriestest.JSONApiGetServerResponseBody)
 	suite.GivenAPIResponse("/gdaemon_api/tasks/2", http.StatusOK, nil)
 	suite.GivenAPIResponse("/gdaemon_api/servers/1337", http.StatusOK, nil)
 	gdTask := domain.NewGDTask(

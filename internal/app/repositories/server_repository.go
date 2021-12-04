@@ -78,9 +78,30 @@ func (repo *ServerRepository) Save(ctx context.Context, server *domain.Server) e
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 
+	dbServer, err := repo.innerRepo.FindByID(ctx, server.ID())
+	if err != nil {
+		return errors.WithMessage(err, "failed to find server before save")
+	}
+
+	err = repo.innerRepo.Save(ctx, repo.resolveConflicts(server, dbServer))
+	if err != nil {
+		return err
+	}
+
 	server.UnmarkModifiedFlag()
 
-	return repo.innerRepo.Save(ctx, server)
+	return nil
+}
+
+func (repo *ServerRepository) resolveConflicts(cacheServer, dbServer *domain.Server) *domain.Server {
+	server := cacheServer
+
+	if !cacheServer.IsValueModified("installationStatus") &&
+		cacheServer.InstallationStatus() != dbServer.InstallationStatus() {
+		server.SetInstallationStatus(dbServer.InstallationStatus())
+	}
+
+	return server
 }
 
 //nolint:maligned
@@ -119,12 +140,6 @@ type serverStruct struct {
 	Settings []map[string]interface{} `json:"settings"`
 
 	UpdatedAt string `json:"updated_at"`
-}
-
-type serverSaveStruct struct {
-	Installed        uint8  `json:"installed"`
-	ProcessActive    uint8  `json:"process_active"`
-	LastProcessCheck string `json:"last_process_check,omitempty"`
 }
 
 type apiServerRepo struct {
@@ -263,20 +278,23 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 }
 
 func (apiRepo *apiServerRepo) Save(ctx context.Context, server *domain.Server) error {
-	srv := serverSaveStruct{
-		Installed:     uint8(server.InstallationStatus()),
-		ProcessActive: 0,
+	serverSaveValues := map[string]interface{}{
+		"process_active": 0,
 	}
 
-	if server.IsActive() {
-		srv.ProcessActive = 1
+	if server.IsValueModified("installationStatus") {
+		serverSaveValues["installed"] = uint8(server.InstallationStatus())
 	}
 
-	if !server.LastStatusCheck().IsZero() {
-		srv.LastProcessCheck = server.LastStatusCheck().Format("2006-01-02 15:04:05")
+	if server.IsActive() && server.IsValueModified("status") {
+		serverSaveValues["process_active"] = 1
 	}
 
-	marshalled, err := json.Marshal(srv)
+	if !server.LastStatusCheck().IsZero() && server.IsValueModified("status") {
+		serverSaveValues["last_process_check"] = server.LastStatusCheck().UTC().Format("2006-01-02 15:04:05")
+	}
+
+	marshalled, err := json.Marshal(serverSaveValues)
 	if err != nil {
 		return errors.WithMessage(err, "[repositories.apiServerRepo] failed to marshal server")
 	}

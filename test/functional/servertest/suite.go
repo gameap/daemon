@@ -76,7 +76,7 @@ func (suite *Suite) TearDownTest() {
 }
 
 func (suite *Suite) TearDownSuite() {
-	suite.Server.Stop()
+	suite.Server.Stop(context.Background())
 }
 
 func (suite *Suite) loadClient() {

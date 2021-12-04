@@ -8,10 +8,10 @@ import (
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	"github.com/gameap/daemon/internal/app/interfaces"
-	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/gameap/daemon/internal/app/server"
 	serversloop "github.com/gameap/daemon/internal/app/servers_loop"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )

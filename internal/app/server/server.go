@@ -11,12 +11,12 @@ import (
 
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/logger"
 	"github.com/gameap/daemon/internal/app/server/commands"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
 	servercommon "github.com/gameap/daemon/internal/app/server/server_common"
 	"github.com/gameap/daemon/internal/app/server/status"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -89,12 +89,6 @@ func (srv *Server) Run(ctx context.Context) error {
 		},
 	}
 
-	go func() {
-		<-ctx.Done()
-		log.Info("Server shutting down...")
-		srv.Stop()
-	}()
-
 	listener, err := tls.Listen("tcp", fmt.Sprintf("%s:%d", srv.ip, srv.port), config)
 	if err != nil {
 		return err
@@ -102,7 +96,13 @@ func (srv *Server) Run(ctx context.Context) error {
 
 	srv.listener = listener
 	srv.wg.Add(1)
-	log.Infof("GameAP Daemon server listening at: %s:%d", srv.ip, srv.port)
+	logger.Infof(ctx, "GameAP Daemon server listening at: %s:%d", srv.ip, srv.port)
+
+	go func() {
+		<-ctx.Done()
+		logger.Info(ctx, "Server shutting down...")
+		srv.Stop(ctx)
+	}()
 
 	return srv.serve(ctx)
 }
@@ -117,7 +117,7 @@ func (srv *Server) serve(ctx context.Context) error {
 			case <-srv.quit:
 				return nil
 			default:
-				log.Error("accept error", err)
+				logger.Info(ctx, "Accept error")
 				return err
 			}
 		}
@@ -126,13 +126,13 @@ func (srv *Server) serve(ctx context.Context) error {
 		go func() {
 			err = srv.handleConnection(ctx, conn)
 			if err != nil && !errors.Is(err, io.EOF) {
-				log.Warn(errors.WithMessage(err, "handle connection"))
+				logger.WithError(ctx, err).Warn("Handle connection")
 			}
 
-			log.Tracef("Closing connection from %s", conn.RemoteAddr())
+			logger.Tracef(ctx, "Closing connection from %s", conn.RemoteAddr())
 			err = conn.Close()
 			if err != nil {
-				log.Error(err)
+				logger.WithError(ctx, err).Warn("Failed to close connection")
 			}
 
 			srv.wg.Done()
@@ -157,13 +157,13 @@ func (srv *Server) handleConnection(ctx context.Context, conn net.Conn) error {
 		return nil
 	}
 	if err != nil {
-		logger.Logger(ctx).WithError(err).Warn("failed to decode message")
+		logger.WithError(ctx, err).Warn("failed to decode message")
 		return errors.WithMessage(err, "failed to decode message")
 	}
 
 	authMsg, err := createAuthMessageFromSliceInterface(msg)
 	if err != nil {
-		logger.Logger(ctx).WithError(err).Warn("failed to create auth message")
+		logger.WithError(ctx, err).Warn("failed to create auth message")
 
 		return response.WriteResponse(conn, response.Response{
 			Code: response.StatusError,
@@ -219,7 +219,7 @@ func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) er
 			Info: "Invalid mode",
 		})
 		if err != nil {
-			log.Error(err)
+			logger.WithError(ctx, err).Warn("Failed to write response")
 			return err
 		}
 
@@ -249,11 +249,11 @@ func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) er
 	}
 }
 
-func (srv *Server) Stop() {
+func (srv *Server) Stop(ctx context.Context) {
 	close(srv.quit)
 	err := srv.listener.Close()
 	if err != nil {
-		log.Error(err)
+		logger.WithError(ctx, err).Error("Failed to stop server")
 	}
 	srv.wg.Wait()
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	commands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -136,5 +136,9 @@ func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) 
 }
 
 func (l *ServersLoop) save(ctx context.Context, server *domain.Server) error {
+	if server.InstallationStatus() != domain.ServerInstalled {
+		return nil
+	}
+
 	return l.serverRepo.Save(ctx, server)
 }

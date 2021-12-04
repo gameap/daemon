@@ -53,7 +53,7 @@ func NewFactory(
 	}
 }
 
-func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) interfaces.Command {
+func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) interfaces.GameServerCommand {
 	if cmd <= invalid || cmd >= end {
 		return nil
 	}
@@ -65,7 +65,7 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 			factory.executor,
 			newUpdateServer(factory.cfg, factory.executor, factory.serverRepo),
 		)
-	case Stop:
+	case Stop, Kill:
 		return newStopServer(factory.cfg, factory.executor)
 	case Restart:
 		return newRestartServer(
@@ -86,12 +86,15 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 	case Update:
 		return newUpdateServer(factory.cfg, factory.executor, factory.serverRepo)
 	case Reinstall:
-		return newCommandList(factory.cfg, factory.executor, []interfaces.Command{
+		return newCommandList(factory.cfg, factory.executor, []interfaces.GameServerCommand{
 			newDeleteServer(factory.cfg, factory.executor),
 			newInstallServer(factory.cfg, factory.executor, factory.serverRepo),
 		})
 	case Delete:
 		return newDeleteServer(factory.cfg, factory.executor)
+	case Pause:
+	case Unpause:
+		return newNotImplementedCommand()
 	}
 
 	return nil
@@ -165,10 +168,14 @@ func (c *bufCommand) ReadOutput() []byte {
 type commandList struct {
 	baseCommand
 
-	commands []interfaces.Command
+	commands []interfaces.GameServerCommand
 }
 
-func newCommandList(cfg *config.Config, executor interfaces.Executor, commands []interfaces.Command) *commandList {
+func newCommandList(
+	cfg *config.Config,
+	executor interfaces.Executor,
+	commands []interfaces.GameServerCommand,
+) *commandList {
 	return &commandList{
 		baseCommand: baseCommand{
 			cfg:      cfg,
@@ -207,4 +214,31 @@ func (c *commandList) Execute(ctx context.Context, server *domain.Server) error 
 	c.result = 1
 
 	return nil
+}
+
+type nilCommand struct {
+	baseCommand
+	bufCommand
+
+	message    string
+	resultCode int
+}
+
+func (n *nilCommand) Execute(ctx context.Context, _ *domain.Server) error {
+	n.complete = true
+	n.result = n.resultCode
+	_, _ = n.output.Write([]byte(n.message))
+
+	return nil
+}
+
+func newNotImplementedCommand() *nilCommand {
+	return &nilCommand{
+		baseCommand: baseCommand{
+			complete: false,
+			result:   UnknownResult,
+		},
+		message:    "not implemented command",
+		resultCode: ErrorResult,
+	}
 }

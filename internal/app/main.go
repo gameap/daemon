@@ -11,7 +11,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/di"
 	"github.com/gameap/daemon/internal/app/domain"
-	appLogger "github.com/gameap/daemon/internal/app/logger"
+	logger2 "github.com/gameap/daemon/pkg/logger"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
@@ -49,7 +49,7 @@ func initialize(c *cli.Context) error {
 		return err
 	}
 
-	err = appLogger.Load(*cfg)
+	err = logger2.Load(*cfg)
 	if err != nil {
 		return err
 	}
@@ -57,8 +57,8 @@ func initialize(c *cli.Context) error {
 	log.Info("Starting...")
 
 	ctx := shutdownContext(context.Background())
-	logger := appLogger.NewLogger(*cfg)
-	ctx = appLogger.WithLogger(ctx, logger)
+	logger := logger2.NewLogger(*cfg)
+	ctx = logger2.WithLogger(ctx, logger)
 
 	container, err := di.NewContainer(cfg, logger)
 	if err != nil {

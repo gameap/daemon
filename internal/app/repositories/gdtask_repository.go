@@ -8,7 +8,7 @@ import (
 
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/interfaces"
-	"github.com/gameap/daemon/internal/app/logger"
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -68,17 +68,21 @@ func (repository *GDTaskRepository) FindByStatus(
 
 	tasks := make([]*domain.GDTask, 0, len(items))
 	for i := range items {
-		server, err := repository.serverRepository.FindByID(ctx, items[i].Server)
-		if err != nil {
-			return nil, errors.WithMessage(err, "[repositories.GDTaskRepository] failed to join server to gameap daemon task")
-		}
+		var server *domain.Server
 
-		if server == nil {
-			logger.WithFields(ctx, log.Fields{
-				"gameServerID": items[i].Server,
-				"gdTaskID":     items[i].ID,
-			}).Warn(ctx, "invalid task, game server not found")
-			continue
+		if items[i].Server > 0 {
+			server, err = repository.serverRepository.FindByID(ctx, items[i].Server)
+			if err != nil {
+				return nil, errors.WithMessage(err, "[repositories.GDTaskRepository] failed to join server to gameap daemon task")
+			}
+
+			if server == nil {
+				logger.WithFields(ctx, log.Fields{
+					"gameServerID": items[i].Server,
+					"gdTaskID":     items[i].ID,
+				}).Warn("invalid task, game server not found")
+				continue
+			}
 		}
 
 		gdTask := domain.NewGDTask(
@@ -116,9 +120,12 @@ func (repository *GDTaskRepository) FindByID(ctx context.Context, id int) (*doma
 		return nil, err
 	}
 
-	server, err := repository.serverRepository.FindByID(ctx, tsk.Server)
-	if err != nil {
-		return nil, err
+	var server *domain.Server
+	if tsk.Server > 0 {
+		server, err = repository.serverRepository.FindByID(ctx, tsk.Server)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return domain.NewGDTask(
@@ -158,9 +165,11 @@ func (repository *GDTaskRepository) Save(ctx context.Context, gdtask *domain.GDT
 		)
 	}
 
-	err = repository.serverRepository.Save(ctx, gdtask.Server())
-	if err != nil {
-		return errors.WithMessage(err, "failed to save game server")
+	if gdtask.Server() != nil {
+		err = repository.serverRepository.Save(ctx, gdtask.Server())
+		if err != nil {
+			return errors.WithMessage(err, "failed to save game server")
+		}
 	}
 
 	return nil
