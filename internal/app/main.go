@@ -56,7 +56,7 @@ func initialize(c *cli.Context) error {
 
 	log.Info("Starting...")
 
-	ctx := shutdownContext(context.Background())
+	ctx := shutdownContext(c.Context)
 	logger := logger2.NewLogger(*cfg)
 	ctx = logger2.WithLogger(ctx, logger)
 
