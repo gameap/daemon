@@ -506,7 +506,7 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 	}
 
 	if in.kind == installer {
-		execCmd.WriteString(" validate ")
+		execCmd.WriteString(" validate")
 	}
 
 	execCmd.WriteString(" +quit")

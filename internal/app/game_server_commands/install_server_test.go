@@ -1,7 +1,9 @@
 package gameservercommands
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -238,6 +240,36 @@ func TestInstallation_RunAfterInstallScript(t *testing.T) {
 	assert.FileExists(t, workPath+"/test-server/after_install_script_executed.txt")
 }
 
+func TestUpdateBySteam_SteamCommandWithoutValidate(t *testing.T) {
+	cfg := &config.Config{}
+	executor := &testExecutor{}
+	updater := newUpdater(cfg, executor, &bytes.Buffer{})
+	server := givenLocalInstallationServer(t)
+	rules := []*installationRule{
+		{SourceValue: "90", Action: installFromSteam},
+	}
+
+	err := updater.Install(context.Background(), server, rules)
+
+	require.Nil(t, err)
+	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
+}
+
+func TestInstallBySteam_SteamCommandWitValidate(t *testing.T) {
+	cfg := &config.Config{}
+	executor := &testExecutor{}
+	updater := newInstallator(cfg, executor, &bytes.Buffer{})
+	server := givenLocalInstallationServer(t)
+	rules := []*installationRule{
+		{SourceValue: "90", Action: installFromSteam},
+	}
+
+	err := updater.Install(context.Background(), server, rules)
+
+	require.Nil(t, err)
+	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 validate +quit")
+}
+
 func givenRemoteInstallationServer(t *testing.T) *domain.Server {
 	t.Helper()
 
@@ -335,4 +367,26 @@ func givenServer(t *testing.T, game domain.Game, gameMod domain.GameMod) *domain
 		map[string]string{},
 		time.Now(),
 	)
+}
+
+type testExecutor struct {
+	command string
+}
+
+func (ex *testExecutor) Exec(ctx context.Context, command string, options components.ExecutorOptions) ([]byte, int, error) {
+	ex.command = command
+
+	return []byte(""), 0, nil
+}
+
+func (ex *testExecutor) ExecWithWriter(ctx context.Context, command string, out io.Writer, options components.ExecutorOptions) (int, error) {
+	ex.command = command
+
+	return 0, nil
+}
+
+func (ex *testExecutor) AssertCommand(t *testing.T, expected string) {
+	t.Helper()
+
+	assert.Equal(t, expected, ex.command)
 }

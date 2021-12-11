@@ -24,7 +24,7 @@ const (
 	ClientKey  = "../../../../config/certs/client.key"
 )
 
-const timeout = 5000 * time.Second
+const timeout = 20 * time.Second
 
 type Suite struct {
 	suite.Suite
