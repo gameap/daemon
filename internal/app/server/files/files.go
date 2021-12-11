@@ -76,6 +76,15 @@ func (f *Files) Handle(ctx context.Context, readWriter io.ReadWriter) error {
 		})
 	}
 
+	if Operation(op) == FileSend {
+		err = handler(ctx, msg, readWriter)
+		if err != nil {
+			return err
+		}
+
+		return f.Handle(ctx, readWriter)
+	}
+
 	return handler(ctx, msg, readWriter)
 }
 
@@ -189,15 +198,15 @@ func fileSend(ctx context.Context, m message, readWriter io.ReadWriter) error {
 
 	switch op {
 	case SendFileToClient:
-		return uploadFileToClient(ctx, m, readWriter)
+		return sendFileToClient(ctx, m, readWriter)
 	case GetFileFromClient:
-		return downloadFileFromClient(ctx, m, readWriter)
+		return getFileFromClient(ctx, m, readWriter)
 	default:
 		return writeError(readWriter, "Invalid file send operation")
 	}
 }
 
-func uploadFileToClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
+func sendFileToClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createSendFileToClientMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -255,7 +264,7 @@ func uploadFileToClient(ctx context.Context, m message, readWriter io.ReadWriter
 }
 
 //nolint:funlen
-func downloadFileFromClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
+func getFileFromClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	message, err := createGetFileFromClientMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")

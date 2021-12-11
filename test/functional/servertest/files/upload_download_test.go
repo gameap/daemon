@@ -12,19 +12,43 @@ import (
 func (suite *Suite) TestDownloadSuccess() {
 	suite.Auth(server.ModeFiles)
 	msg := []interface{}{files.FileSend, files.SendFileToClient, "../../../../test/files/file.txt"}
-
 	r := suite.ClientWriteReadAndDecodeList(msg)
-
 	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
 	suite.Equal("File is ready to transfer", r[1].(string))
 	suite.Equal(uint8(9), r[2].(uint8))
 
 	// Transfer the file
 	buf := make([]byte, 9)
-
 	suite.ClientRead(buf)
 
 	suite.Equal("file.txt\n", string(buf))
+}
+
+func (suite *Suite) TestDownloadMultipleSuccess() {
+	// First File
+	suite.Auth(server.ModeFiles)
+	msg := []interface{}{files.FileSend, files.SendFileToClient, "../../../../test/files/file.txt"}
+	r := suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
+	suite.Equal("File is ready to transfer", r[1].(string))
+	suite.Equal(uint8(9), r[2].(uint8))
+
+	buf := make([]byte, 9)
+	suite.ClientRead(buf)
+
+	suite.Equal("file.txt\n", string(buf))
+
+	// Second File
+	msg = []interface{}{files.FileSend, files.SendFileToClient, "../../../../test/files/file2.txt"}
+	r = suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
+	suite.Equal("File is ready to transfer", r[1].(string))
+	suite.Equal(uint8(10), r[2].(uint8))
+
+	buf2 := make([]byte, 10)
+	suite.ClientRead(buf2)
+
+	suite.Equal("file2.txt\n", string(buf2))
 }
 
 func (suite *Suite) TestDownload_EmptyFile_Success() {
