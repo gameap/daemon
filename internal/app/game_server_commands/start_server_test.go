@@ -1,4 +1,4 @@
-package gameservercommands
+package gameservercommands_test
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/test/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,12 +22,12 @@ func TestStartServer(t *testing.T) {
 		},
 	}
 	server := givenServerWithStartCommand(t, "./run.sh")
-	startServerCommand := newStartServer(cfg, components.NewExecutor(), nil)
+	startServerCommand := givenCommandFactory(t, cfg).LoadServerCommand(domain.Start)
 
 	err := startServerCommand.Execute(context.Background(), server)
 
 	require.Nil(t, err)
-	assert.Equal(t, SuccessResult, startServerCommand.Result())
+	assert.Equal(t, gameservercommands.SuccessResult, startServerCommand.Result())
 	assert.True(t, startServerCommand.IsComplete())
 	assert.Contains(t, string(startServerCommand.ReadOutput()), "Server started")
 }
@@ -41,7 +43,7 @@ func TestStartServer_ReadOutput(t *testing.T) {
 	}
 	server := givenServerWithStartCommand(t, "./run2.sh")
 	ctx, cancel := context.WithCancel(context.Background())
-	startServerCommand := newStartServer(cfg, components.NewExecutor(), nil)
+	startServerCommand := givenCommandFactory(t, cfg).LoadServerCommand(domain.Start)
 	go func() {
 		err := startServerCommand.Execute(ctx, server)
 		if err != nil {
@@ -69,6 +71,16 @@ func TestStartServer_ReadOutput(t *testing.T) {
 	assert.NotContains(t, string(out), "Loading configuration...")
 
 	cancel()
+}
+
+func givenCommandFactory(t *testing.T, cfg *config.Config) *gameservercommands.ServerCommandFactory {
+	t.Helper()
+
+	return gameservercommands.NewFactory(
+		cfg,
+		mocks.NewServerRepository(),
+		components.NewExecutor(),
+	)
 }
 
 func givenServerWithStartCommand(t *testing.T, startCommand string) *domain.Server {

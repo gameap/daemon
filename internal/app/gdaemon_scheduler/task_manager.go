@@ -17,16 +17,16 @@ import (
 
 var updateTimeout = 5 * time.Second
 
-var taskServerCommandMap = map[domain.GDTaskCommand]gameservercommands.ServerCommand{
-	domain.GDTaskGameServerStart:     gameservercommands.Start,
-	domain.GDTaskGameServerPause:     gameservercommands.Pause,
-	domain.GDTaskGameServerStop:      gameservercommands.Stop,
-	domain.GDTaskGameServerKill:      gameservercommands.Kill,
-	domain.GDTaskGameServerRestart:   gameservercommands.Restart,
-	domain.GDTaskGameServerInstall:   gameservercommands.Install,
-	domain.GDTaskGameServerReinstall: gameservercommands.Reinstall,
-	domain.GDTaskGameServerUpdate:    gameservercommands.Update,
-	domain.GDTaskGameServerDelete:    gameservercommands.Delete,
+var taskServerCommandMap = map[domain.GDTaskCommand]domain.ServerCommand{
+	domain.GDTaskGameServerStart:     domain.Start,
+	domain.GDTaskGameServerPause:     domain.Pause,
+	domain.GDTaskGameServerStop:      domain.Stop,
+	domain.GDTaskGameServerKill:      domain.Kill,
+	domain.GDTaskGameServerRestart:   domain.Restart,
+	domain.GDTaskGameServerInstall:   domain.Install,
+	domain.GDTaskGameServerReinstall: domain.Reinstall,
+	domain.GDTaskGameServerUpdate:    domain.Update,
+	domain.GDTaskGameServerDelete:    domain.Delete,
 }
 
 type TaskManager struct {
@@ -225,7 +225,7 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 		return ErrInvalidTaskError
 	}
 
-	cmdFunc := manager.serverCommandFactory.LoadServerCommandFunc(cmd)
+	cmdFunc := manager.serverCommandFactory.LoadServerCommand(cmd)
 
 	manager.commandsInProgress.Store(*task, cmdFunc)
 

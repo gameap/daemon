@@ -55,34 +55,46 @@ type installationRule struct {
 	Action      installAction
 }
 
+//nolint: maligned
 type installServer struct {
 	baseCommand
 	bufCommand
 
-	installator *installator
-	serverRepo  domain.ServerRepository
-	kind        installatorKind
+	installator       *installator
+	serverRepo        domain.ServerRepository
+	loadServerCommand LoadServerCommandFunc
+	kind              installatorKind
+
+	// runtime
+	installOutput                     io.ReadWriter
+	statusCommand                     interfaces.GameServerCommand
+	serverWasActiveBeforeInstallation bool
+	stopCommand                       interfaces.GameServerCommand
+	startCommand                      interfaces.GameServerCommand
 }
 
 func newUpdateServer(
 	cfg *config.Config,
 	executor interfaces.Executor,
 	serverRepo domain.ServerRepository,
+	loadServerCommand LoadServerCommandFunc,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newUpdater(cfg, executor, buffer)
 
 	return &installServer{
-		baseCommand{
+		baseCommand: baseCommand{
 			cfg:      cfg,
 			executor: executor,
 			complete: false,
 			result:   UnknownResult,
 		},
-		bufCommand{output: buffer},
-		inst,
-		serverRepo,
-		updater,
+		bufCommand:        bufCommand{output: buffer},
+		installator:       inst,
+		serverRepo:        serverRepo,
+		loadServerCommand: loadServerCommand,
+		kind:              updater,
+		installOutput:     components.NewSafeBuffer(),
 	}
 }
 
@@ -90,21 +102,24 @@ func newInstallServer(
 	cfg *config.Config,
 	executor interfaces.Executor,
 	serverRepo domain.ServerRepository,
+	loadServerCommand LoadServerCommandFunc,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newInstallator(cfg, executor, buffer)
 
 	return &installServer{
-		baseCommand{
+		baseCommand: baseCommand{
 			cfg:      cfg,
 			executor: executor,
 			complete: false,
 			result:   UnknownResult,
 		},
-		bufCommand{output: buffer},
-		inst,
-		serverRepo,
-		installer,
+		bufCommand:        bufCommand{output: buffer},
+		installator:       inst,
+		serverRepo:        serverRepo,
+		loadServerCommand: loadServerCommand,
+		kind:              installer,
+		installOutput:     components.NewSafeBuffer(),
 	}
 }
 
@@ -117,6 +132,11 @@ func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) er
 
 	var err error
 
+	err = cmd.stopServerIfNeeded(ctx, server)
+	if err != nil {
+		return err
+	}
+
 	if cmd.cfg.Scripts.Install != "" {
 		err = cmd.installByScript(ctx, server)
 	} else {
@@ -128,16 +148,94 @@ func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) er
 		return errors.WithMessage(err, "[game_server_commands.installServer] failed to install game server")
 	}
 
+	err = cmd.startServerIfNeeded(ctx, server)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cmd *installServer) ReadOutput() []byte {
+	var out []byte
+
+	if cmd.statusCommand != nil {
+		out = append(out, cmd.statusCommand.ReadOutput()...)
+	}
+
+	if cmd.stopCommand != nil {
+		out = append(out, cmd.stopCommand.ReadOutput()...)
+	}
+
+	installOutput, err := io.ReadAll(cmd.installOutput)
+	if err != nil {
+		return nil
+	}
+	out = append(out, installOutput...)
+
+	if cmd.startCommand != nil {
+		out = append(out, cmd.startCommand.ReadOutput()...)
+	}
+
+	return out
+}
+
+func (cmd *installServer) stopServerIfNeeded(ctx context.Context, server *domain.Server) error {
+	statusCmd := cmd.loadServerCommand(domain.Status)
+	cmd.statusCommand = statusCmd
+	err := statusCmd.Execute(ctx, server)
+	if err != nil {
+		return errors.WithMessage(
+			err,
+			"[game_server_commands.installServer] failed to check server status before installation/updating",
+		)
+	}
+
+	if statusCmd.Result() != SuccessResult {
+		cmd.serverWasActiveBeforeInstallation = false
+		return nil
+	}
+
+	cmd.serverWasActiveBeforeInstallation = true
+
+	stopCmd := cmd.loadServerCommand(domain.Stop)
+	cmd.stopCommand = stopCmd
+	err = stopCmd.Execute(ctx, server)
+	if err != nil {
+		return errors.WithMessage(
+			err,
+			"[game_server_commands.installServer] failed to stop server before installation/updating",
+		)
+	}
+
+	return nil
+}
+
+func (cmd *installServer) startServerIfNeeded(ctx context.Context, server *domain.Server) error {
+	if !cmd.serverWasActiveBeforeInstallation {
+		return nil
+	}
+
+	startCmd := cmd.loadServerCommand(domain.Start)
+	cmd.startCommand = startCmd
+	err := startCmd.Execute(ctx, server)
+	if err != nil {
+		return errors.WithMessage(
+			err,
+			"[game_server_commands.installServer] failed to start server after installation/updating",
+		)
+	}
+
 	return nil
 }
 
 func (cmd *installServer) installByScript(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Install, "")
 
-	_, _ = cmd.output.Write([]byte("Executing install script ...\n"))
+	_, _ = cmd.installOutput.Write([]byte("Executing install script ...\n"))
 
 	var err error
-	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
+	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.installOutput, components.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkPath,
 	})
 
@@ -147,9 +245,9 @@ func (cmd *installServer) installByScript(ctx context.Context, server *domain.Se
 	}
 
 	if cmd.result == SuccessResult {
-		_, _ = cmd.output.Write([]byte("\nExecuting install script successfully completed\n"))
+		_, _ = cmd.installOutput.Write([]byte("\nExecuting install script successfully completed\n"))
 	} else {
-		_, _ = cmd.output.Write([]byte("\nExecuting script ended with an error\n"))
+		_, _ = cmd.installOutput.Write([]byte("\nExecuting script ended with an error\n"))
 	}
 
 	return nil
@@ -166,7 +264,7 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 		return ErrDefinedNoGameInstallationRulesError
 	}
 
-	_, _ = cmd.output.Write([]byte("Installing game files ...\n"))
+	_, _ = cmd.installOutput.Write([]byte("Installing game files ...\n"))
 
 	err := cmd.installator.Install(ctx, server, gameRules)
 	if err != nil {
@@ -178,8 +276,8 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 		gameModRules := sd.DefineGameModRules(&gameMod)
 
 		if len(gameModRules) > 0 {
-			_, _ = cmd.output.Write([]byte("\n\n"))
-			_, _ = cmd.output.Write([]byte("Installing game mod files ...\n"))
+			_, _ = cmd.installOutput.Write([]byte("\n\n"))
+			_, _ = cmd.installOutput.Write([]byte("Installing game mod files ...\n"))
 
 			err = cmd.installator.Install(ctx, server, gameModRules)
 			if err != nil {

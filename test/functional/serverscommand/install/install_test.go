@@ -12,7 +12,7 @@ func (suite *Suite) TestInstall_NoRules() {
 		"./command.sh start",
 		"./command.sh stop",
 	)
-	cmd := suite.CommandFactory.LoadServerCommandFunc(gameservercommands.Install)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Install)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -29,7 +29,7 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameInstalled() {
 			Name: "public",
 		},
 	)
-	cmd := suite.CommandFactory.LoadServerCommandFunc(gameservercommands.Install)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Install)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -49,7 +49,7 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameAndModInstalled(
 			RemoteRepository: "https://files.gameap.ru/mod-game.tar.gz",
 		},
 	)
-	cmd := suite.CommandFactory.LoadServerCommandFunc(gameservercommands.Install)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Install)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -71,7 +71,7 @@ func (suite *Suite) TestInstall_InstallFromLocalRepository_GameAndModInstalledFr
 			LocalRepository:  suite.WorkPath + "/repository/game_mod.tar.gz",
 		},
 	)
-	cmd := suite.CommandFactory.LoadServerCommandFunc(gameservercommands.Install)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Install)
 
 	err := cmd.Execute(context.Background(), server)
 

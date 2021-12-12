@@ -4,6 +4,7 @@ import (
 	"context"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emirpasic/gods/sets/hashset"
@@ -15,6 +16,22 @@ const (
 	ServerNotInstalled = iota
 	ServerInstalled
 	ServerInstallInProcess
+)
+
+type ServerCommand int
+
+const (
+	Start ServerCommand = iota + 1
+	Pause
+	Unpause
+	Status
+	Stop
+	Kill
+	Restart
+	Update
+	Install
+	Reinstall
+	Delete
 )
 
 const autostartSettingKey = "autostart"
@@ -71,6 +88,8 @@ type Server struct {
 	updatedAt time.Time
 
 	changeset *hashset.Set
+
+	mu *sync.Mutex
 }
 
 func NewServer(
@@ -127,6 +146,7 @@ func NewServer(
 		settings,
 		updatedAt,
 		hashset.New(),
+		&sync.Mutex{},
 	}
 }
 
@@ -216,11 +236,17 @@ func (s *Server) Setting(key string) string {
 }
 
 func (s *Server) SetSetting(key string, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.settings[key] = value
 	s.setValueIsChanged("settings")
 }
 
 func (s *Server) SetStatus(processActive bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.processActive = processActive
 	s.lastProcessCheck = time.Now()
 	s.setValueIsChanged("status")
@@ -266,6 +292,9 @@ func (s *Server) InstallationStatus() InstallationStatus {
 }
 
 func (s *Server) SetInstallationStatus(status InstallationStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.installStatus = status
 	s.setValueIsChanged("installationStatus")
 }

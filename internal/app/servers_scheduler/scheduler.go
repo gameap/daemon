@@ -82,7 +82,7 @@ func (s *Scheduler) runNext(ctx context.Context) {
 }
 
 func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) {
-	cmd := s.serverCommandFactory.LoadServerCommandFunc(taskCommandToServerCommand(task.Command))
+	cmd := s.serverCommandFactory.LoadServerCommand(taskCommandToServerCommand(task.Command))
 
 	err := cmd.Execute(ctx, task.Server)
 	if err != nil {
@@ -143,14 +143,14 @@ func (s *Scheduler) updateTasksIfNeeded(ctx context.Context) error {
 	return nil
 }
 
-var commandMap = map[domain.ServerTaskCommand]gameservercommands.ServerCommand{
-	domain.ServerTaskStart:     gameservercommands.Start,
-	domain.ServerTaskStop:      gameservercommands.Stop,
-	domain.ServerTaskRestart:   gameservercommands.Restart,
-	domain.ServerTaskUpdate:    gameservercommands.Update,
-	domain.ServerTaskReinstall: gameservercommands.Reinstall,
+var commandMap = map[domain.ServerTaskCommand]domain.ServerCommand{
+	domain.ServerTaskStart:     domain.Start,
+	domain.ServerTaskStop:      domain.Stop,
+	domain.ServerTaskRestart:   domain.Restart,
+	domain.ServerTaskUpdate:    domain.Update,
+	domain.ServerTaskReinstall: domain.Reinstall,
 }
 
-func taskCommandToServerCommand(cmd domain.ServerTaskCommand) gameservercommands.ServerCommand {
+func taskCommandToServerCommand(cmd domain.ServerTaskCommand) domain.ServerCommand {
 	return commandMap[cmd]
 }

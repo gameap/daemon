@@ -3,11 +3,11 @@ package start
 import (
 	"context"
 
-	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/app/domain"
 )
 
 func (suite *Suite) TestStartSuccess() {
-	cmd := suite.CommandFactory.LoadServerCommandFunc(gameservercommands.Start)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Start)
 	server := suite.GivenServerWithStartAndStopCommand(
 		"./command.sh start",
 		"./command.sh stop",
@@ -22,7 +22,7 @@ func (suite *Suite) TestStartSuccess() {
 }
 
 func (suite *Suite) TestStartInvalidCommand() {
-	cmd := suite.CommandFactory.LoadServerCommandFunc(gameservercommands.Start)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Start)
 	server := suite.GivenServerWithStartAndStopCommand(
 		"./invalid_command.sh",
 		"./command.sh stop",
@@ -40,7 +40,7 @@ func (suite *Suite) TestStartInvalidCommand() {
 }
 
 func (suite *Suite) TestStartFailedCommand() {
-	cmd := suite.CommandFactory.LoadServerCommandFunc(gameservercommands.Start)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Start)
 	server := suite.GivenServerWithStartAndStopCommand(
 		"./fail.sh",
 		"./command.sh stop",

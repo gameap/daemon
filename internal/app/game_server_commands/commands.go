@@ -17,23 +17,7 @@ const (
 	ErrorResult   = 1
 )
 
-type ServerCommand int
-
-const (
-	invalid ServerCommand = iota
-	Start
-	Pause
-	Unpause
-	Status
-	Stop
-	Kill
-	Restart
-	Update
-	Install
-	Reinstall
-	Delete
-	end
-)
+type LoadServerCommandFunc func(cmd domain.ServerCommand) interfaces.GameServerCommand
 
 type ServerCommandFactory struct {
 	cfg        *config.Config
@@ -53,21 +37,18 @@ func NewFactory(
 	}
 }
 
-func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) interfaces.GameServerCommand {
-	if cmd <= invalid || cmd >= end {
-		return nil
-	}
-
+func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand) interfaces.GameServerCommand {
 	switch cmd {
-	case Start:
+	case domain.Start:
 		return newStartServer(
 			factory.cfg,
 			factory.executor,
-			newUpdateServer(factory.cfg, factory.executor, factory.serverRepo),
+			factory.LoadServerCommand,
+			true,
 		)
-	case Stop, Kill:
+	case domain.Stop, domain.Kill:
 		return newStopServer(factory.cfg, factory.executor)
-	case Restart:
+	case domain.Restart:
 		return newRestartServer(
 			factory.cfg,
 			factory.executor,
@@ -76,24 +57,35 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 			newStartServer(
 				factory.cfg,
 				factory.executor,
-				newUpdateServer(factory.cfg, factory.executor, factory.serverRepo),
+				factory.LoadServerCommand,
+				true,
 			),
 		)
-	case Status:
+	case domain.Status:
 		return newStatusServer(factory.cfg, factory.executor)
-	case Install:
-		return newInstallServer(factory.cfg, factory.executor, factory.serverRepo)
-	case Update:
-		return newUpdateServer(factory.cfg, factory.executor, factory.serverRepo)
-	case Reinstall:
+	case domain.Install:
+		return newInstallServer(
+			factory.cfg,
+			factory.executor,
+			factory.serverRepo,
+			factory.LoadServerCommand,
+		)
+	case domain.Update:
+		return newUpdateServer(
+			factory.cfg,
+			factory.executor,
+			factory.serverRepo,
+			factory.LoadServerCommand,
+		)
+	case domain.Reinstall:
 		return newCommandList(factory.cfg, factory.executor, []interfaces.GameServerCommand{
 			newDeleteServer(factory.cfg, factory.executor),
-			newInstallServer(factory.cfg, factory.executor, factory.serverRepo),
+			newInstallServer(factory.cfg, factory.executor, factory.serverRepo, factory.LoadServerCommand),
 		})
-	case Delete:
+	case domain.Delete:
 		return newDeleteServer(factory.cfg, factory.executor)
-	case Pause:
-	case Unpause:
+	case domain.Pause:
+	case domain.Unpause:
 		return newNotImplementedCommand()
 	}
 

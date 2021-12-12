@@ -14,6 +14,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/test/mocks"
+	"github.com/gameap/daemon/test/mocks/commandmocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -196,7 +197,12 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
+	install := newInstallServer(
+		cfg,
+		components.NewExecutor(),
+		mocks.NewServerRepository(),
+		commandmocks.LoadServerCommand,
+	)
 
 	err = install.Execute(context.Background(), givenRemoteInstallationServer(t))
 
@@ -214,7 +220,12 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
+	install := newInstallServer(
+		cfg,
+		components.NewExecutor(),
+		mocks.NewServerRepository(),
+		commandmocks.LoadServerCommand,
+	)
 
 	err = install.Execute(context.Background(), givenLocalInstallationServer(t))
 
@@ -232,7 +243,12 @@ func TestInstallation_RunAfterInstallScript(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
+	install := newInstallServer(
+		cfg,
+		components.NewExecutor(),
+		mocks.NewServerRepository(),
+		commandmocks.LoadServerCommand,
+	)
 
 	err = install.Execute(context.Background(), givenLocalInstallationServerWithAfterInstallScript(t))
 

@@ -16,10 +16,18 @@ type startServer struct {
 
 	startOutput io.ReadWriter
 
-	update *installServer
+	loadServerCommand LoadServerCommandFunc
+
+	updateCommand        interfaces.GameServerCommand
+	enableUpdatingBefore bool
 }
 
-func newStartServer(cfg *config.Config, executor interfaces.Executor, update *installServer) *startServer {
+func newStartServer(
+	cfg *config.Config,
+	executor interfaces.Executor,
+	loadServerCommand LoadServerCommandFunc,
+	enableUpdatingBefore bool,
+) *startServer {
 	return &startServer{
 		baseCommand: baseCommand{
 			cfg:      cfg,
@@ -27,8 +35,9 @@ func newStartServer(cfg *config.Config, executor interfaces.Executor, update *in
 			complete: false,
 			result:   UnknownResult,
 		},
-		startOutput: components.NewSafeBuffer(),
-		update:      update,
+		startOutput:          components.NewSafeBuffer(),
+		loadServerCommand:    loadServerCommand,
+		enableUpdatingBefore: enableUpdatingBefore,
 	}
 }
 
@@ -37,8 +46,10 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 
 	var err error
 
-	if server.UpdateBeforeStart() && s.update != nil {
-		err = s.update.Execute(ctx, server)
+	if s.enableUpdatingBefore && server.UpdateBeforeStart() {
+		updateCmd := s.loadServerCommand(domain.Update)
+		s.updateCommand = updateCmd
+		err = updateCmd.Execute(ctx, server)
 		if err != nil {
 			s.complete = true
 			return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
@@ -62,8 +73,8 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 func (s *startServer) ReadOutput() []byte {
 	var out []byte
 
-	if s.update != nil {
-		out = s.update.ReadOutput()
+	if s.updateCommand != nil {
+		out = s.updateCommand.ReadOutput()
 	}
 
 	startOut, err := io.ReadAll(s.startOutput)
