@@ -201,7 +201,9 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 		cfg,
 		components.NewExecutor(),
 		mocks.NewServerRepository(),
-		commandmocks.LoadServerCommand,
+		commandmocks.LoadServerCommand(domain.Status),
+		commandmocks.LoadServerCommand(domain.Stop),
+		commandmocks.LoadServerCommand(domain.Start),
 	)
 
 	err = install.Execute(context.Background(), givenRemoteInstallationServer(t))
@@ -224,7 +226,9 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 		cfg,
 		components.NewExecutor(),
 		mocks.NewServerRepository(),
-		commandmocks.LoadServerCommand,
+		commandmocks.LoadServerCommand(domain.Status),
+		commandmocks.LoadServerCommand(domain.Stop),
+		commandmocks.LoadServerCommand(domain.Start),
 	)
 
 	err = install.Execute(context.Background(), givenLocalInstallationServer(t))
@@ -247,7 +251,9 @@ func TestInstallation_RunAfterInstallScript(t *testing.T) {
 		cfg,
 		components.NewExecutor(),
 		mocks.NewServerRepository(),
-		commandmocks.LoadServerCommand,
+		commandmocks.LoadServerCommand(domain.Status),
+		commandmocks.LoadServerCommand(domain.Stop),
+		commandmocks.LoadServerCommand(domain.Start),
 	)
 
 	err = install.Execute(context.Background(), givenLocalInstallationServerWithAfterInstallScript(t))

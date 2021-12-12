@@ -26,7 +26,6 @@ func newStartServer(
 	cfg *config.Config,
 	executor interfaces.Executor,
 	loadServerCommand LoadServerCommandFunc,
-	enableUpdatingBefore bool,
 ) *startServer {
 	return &startServer{
 		baseCommand: baseCommand{
@@ -35,9 +34,8 @@ func newStartServer(
 			complete: false,
 			result:   UnknownResult,
 		},
-		startOutput:          components.NewSafeBuffer(),
-		loadServerCommand:    loadServerCommand,
-		enableUpdatingBefore: enableUpdatingBefore,
+		startOutput:       components.NewSafeBuffer(),
+		loadServerCommand: loadServerCommand,
 	}
 }
 
@@ -48,11 +46,14 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 
 	if s.enableUpdatingBefore && server.UpdateBeforeStart() {
 		updateCmd := s.loadServerCommand(domain.Update)
-		s.updateCommand = updateCmd
-		err = updateCmd.Execute(ctx, server)
-		if err != nil {
-			s.complete = true
-			return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
+
+		if updateCmd != nil {
+			s.updateCommand = updateCmd
+			err = updateCmd.Execute(ctx, server)
+			if err != nil {
+				s.complete = true
+				return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
+			}
 		}
 	}
 

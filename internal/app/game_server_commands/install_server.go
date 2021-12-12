@@ -58,17 +58,14 @@ type installationRule struct {
 //nolint: maligned
 type installServer struct {
 	baseCommand
-	bufCommand
 
-	installator       *installator
-	serverRepo        domain.ServerRepository
-	loadServerCommand LoadServerCommandFunc
-	kind              installatorKind
+	installator *installator
+	serverRepo  domain.ServerRepository
+	kind        installatorKind
 
-	// runtime
 	installOutput                     io.ReadWriter
-	statusCommand                     interfaces.GameServerCommand
 	serverWasActiveBeforeInstallation bool
+	statusCommand                     interfaces.GameServerCommand
 	stopCommand                       interfaces.GameServerCommand
 	startCommand                      interfaces.GameServerCommand
 }
@@ -77,7 +74,9 @@ func newUpdateServer(
 	cfg *config.Config,
 	executor interfaces.Executor,
 	serverRepo domain.ServerRepository,
-	loadServerCommand LoadServerCommandFunc,
+	statusCommand interfaces.GameServerCommand,
+	stopCommand interfaces.GameServerCommand,
+	startCommand interfaces.GameServerCommand,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newUpdater(cfg, executor, buffer)
@@ -89,12 +88,13 @@ func newUpdateServer(
 			complete: false,
 			result:   UnknownResult,
 		},
-		bufCommand:        bufCommand{output: buffer},
-		installator:       inst,
-		serverRepo:        serverRepo,
-		loadServerCommand: loadServerCommand,
-		kind:              updater,
-		installOutput:     components.NewSafeBuffer(),
+		installator:   inst,
+		serverRepo:    serverRepo,
+		kind:          updater,
+		installOutput: buffer,
+		statusCommand: statusCommand,
+		stopCommand:   stopCommand,
+		startCommand:  startCommand,
 	}
 }
 
@@ -102,7 +102,9 @@ func newInstallServer(
 	cfg *config.Config,
 	executor interfaces.Executor,
 	serverRepo domain.ServerRepository,
-	loadServerCommand LoadServerCommandFunc,
+	statusCommand interfaces.GameServerCommand,
+	stopCommand interfaces.GameServerCommand,
+	startCommand interfaces.GameServerCommand,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newInstallator(cfg, executor, buffer)
@@ -114,12 +116,13 @@ func newInstallServer(
 			complete: false,
 			result:   UnknownResult,
 		},
-		bufCommand:        bufCommand{output: buffer},
-		installator:       inst,
-		serverRepo:        serverRepo,
-		loadServerCommand: loadServerCommand,
-		kind:              installer,
-		installOutput:     components.NewSafeBuffer(),
+		installator:   inst,
+		serverRepo:    serverRepo,
+		kind:          installer,
+		installOutput: buffer,
+		statusCommand: statusCommand,
+		stopCommand:   stopCommand,
+		startCommand:  startCommand,
 	}
 }
 
@@ -181,9 +184,7 @@ func (cmd *installServer) ReadOutput() []byte {
 }
 
 func (cmd *installServer) stopServerIfNeeded(ctx context.Context, server *domain.Server) error {
-	statusCmd := cmd.loadServerCommand(domain.Status)
-	cmd.statusCommand = statusCmd
-	err := statusCmd.Execute(ctx, server)
+	err := cmd.statusCommand.Execute(ctx, server)
 	if err != nil {
 		return errors.WithMessage(
 			err,
@@ -191,16 +192,14 @@ func (cmd *installServer) stopServerIfNeeded(ctx context.Context, server *domain
 		)
 	}
 
-	if statusCmd.Result() != SuccessResult {
+	if cmd.statusCommand.Result() != SuccessResult {
 		cmd.serverWasActiveBeforeInstallation = false
 		return nil
 	}
 
 	cmd.serverWasActiveBeforeInstallation = true
 
-	stopCmd := cmd.loadServerCommand(domain.Stop)
-	cmd.stopCommand = stopCmd
-	err = stopCmd.Execute(ctx, server)
+	err = cmd.stopCommand.Execute(ctx, server)
 	if err != nil {
 		return errors.WithMessage(
 			err,
@@ -216,9 +215,7 @@ func (cmd *installServer) startServerIfNeeded(ctx context.Context, server *domai
 		return nil
 	}
 
-	startCmd := cmd.loadServerCommand(domain.Start)
-	cmd.startCommand = startCmd
-	err := startCmd.Execute(ctx, server)
+	err := cmd.startCommand.Execute(ctx, server)
 	if err != nil {
 		return errors.WithMessage(
 			err,

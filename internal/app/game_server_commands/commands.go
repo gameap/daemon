@@ -19,6 +19,10 @@ const (
 
 type LoadServerCommandFunc func(cmd domain.ServerCommand) interfaces.GameServerCommand
 
+var nilLoadServerCommandFunc = func(cmd domain.ServerCommand) interfaces.GameServerCommand {
+	return nil
+}
+
 type ServerCommandFactory struct {
 	cfg        *config.Config
 	serverRepo domain.ServerRepository
@@ -37,6 +41,7 @@ func NewFactory(
 	}
 }
 
+//nolint:funlen
 func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand) interfaces.GameServerCommand {
 	switch cmd {
 	case domain.Start:
@@ -44,7 +49,6 @@ func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand)
 			factory.cfg,
 			factory.executor,
 			factory.LoadServerCommand,
-			true,
 		)
 	case domain.Stop, domain.Kill:
 		return newStopServer(factory.cfg, factory.executor)
@@ -58,7 +62,6 @@ func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand)
 				factory.cfg,
 				factory.executor,
 				factory.LoadServerCommand,
-				true,
 			),
 		)
 	case domain.Status:
@@ -68,19 +71,30 @@ func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand)
 			factory.cfg,
 			factory.executor,
 			factory.serverRepo,
-			factory.LoadServerCommand,
+			newStatusServer(factory.cfg, factory.executor),
+			newStopServer(factory.cfg, factory.executor),
+			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
 		)
 	case domain.Update:
 		return newUpdateServer(
 			factory.cfg,
 			factory.executor,
 			factory.serverRepo,
-			factory.LoadServerCommand,
+			newStatusServer(factory.cfg, factory.executor),
+			newStopServer(factory.cfg, factory.executor),
+			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
 		)
 	case domain.Reinstall:
 		return newCommandList(factory.cfg, factory.executor, []interfaces.GameServerCommand{
 			newDeleteServer(factory.cfg, factory.executor),
-			newInstallServer(factory.cfg, factory.executor, factory.serverRepo, factory.LoadServerCommand),
+			newInstallServer(
+				factory.cfg,
+				factory.executor,
+				factory.serverRepo,
+				newStatusServer(factory.cfg, factory.executor),
+				newStopServer(factory.cfg, factory.executor),
+				newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+			),
 		})
 	case domain.Delete:
 		return newDeleteServer(factory.cfg, factory.executor)
