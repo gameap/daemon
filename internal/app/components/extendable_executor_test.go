@@ -17,7 +17,7 @@ import (
 func TestExtendableExecutor_ExecGetTool_ExpectToolDownloaded(t *testing.T) {
 	tmpDir := givenTmp(t)
 	defer func(path string) {
-		err := syscall.Rmdir(path)
+		err := os.RemoveAll(path)
 		if err != nil {
 			t.Log(err)
 		}
