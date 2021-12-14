@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
@@ -84,12 +85,14 @@ func (suite *Suite) RunTaskManagerUntilTasksCompleted(tasks []*domain.GDTask) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go func() {
+	go func(t *testing.T) {
+		t.Helper()
+
 		err := suite.TaskManager.Run(ctx)
 		if err != nil {
-			suite.T().Fatal(err)
+			t.Log(err)
 		}
-	}()
+	}(suite.T())
 
 	for {
 		if time.Since(startedAt) >= taskManagerTimeout {
