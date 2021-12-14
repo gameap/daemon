@@ -39,7 +39,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	err = cfg.Validate()
+	err = cfg.Init()
 	if err != nil {
 		return nil, err
 	}
@@ -100,8 +100,8 @@ func loadIni(path string) (*Config, error) {
 	cfg.LogLevel = c.Section("").Key("log_level").MustString("debug")
 	cfg.OutputLog = c.Section("").Key("output_log").MustString("")
 
-	cfg.ScriptsWorkPath = c.Section("").
-		Key("scripts_work_path").
+	cfg.ToolsPath = c.Section("").
+		Key("tools_path").
 		MustString("")
 
 	cfg.Path7zip = c.Section("").

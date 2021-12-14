@@ -6,15 +6,15 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
 type GDTaskRepository struct {
-	client           interfaces.APIRequestMaker
+	client           contracts.APIRequestMaker
 	serverRepository domain.ServerRepository
 }
 
@@ -28,7 +28,7 @@ type task struct {
 }
 
 func NewGDTaskRepository(
-	client interfaces.APIRequestMaker,
+	client contracts.APIRequestMaker,
 	serverRepository domain.ServerRepository,
 ) *GDTaskRepository {
 	return &GDTaskRepository{

@@ -12,8 +12,8 @@ import (
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/hashicorp/go-getter"
 	"github.com/otiai10/copy"
@@ -65,18 +65,18 @@ type installServer struct {
 
 	installOutput                     io.ReadWriter
 	serverWasActiveBeforeInstallation bool
-	statusCommand                     interfaces.GameServerCommand
-	stopCommand                       interfaces.GameServerCommand
-	startCommand                      interfaces.GameServerCommand
+	statusCommand                     contracts.GameServerCommand
+	stopCommand                       contracts.GameServerCommand
+	startCommand                      contracts.GameServerCommand
 }
 
 func newUpdateServer(
 	cfg *config.Config,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 	serverRepo domain.ServerRepository,
-	statusCommand interfaces.GameServerCommand,
-	stopCommand interfaces.GameServerCommand,
-	startCommand interfaces.GameServerCommand,
+	statusCommand contracts.GameServerCommand,
+	stopCommand contracts.GameServerCommand,
+	startCommand contracts.GameServerCommand,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newUpdater(cfg, executor, buffer)
@@ -100,11 +100,11 @@ func newUpdateServer(
 
 func newInstallServer(
 	cfg *config.Config,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 	serverRepo domain.ServerRepository,
-	statusCommand interfaces.GameServerCommand,
-	stopCommand interfaces.GameServerCommand,
-	startCommand interfaces.GameServerCommand,
+	statusCommand contracts.GameServerCommand,
+	stopCommand contracts.GameServerCommand,
+	startCommand contracts.GameServerCommand,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newInstallator(cfg, executor, buffer)
@@ -232,7 +232,7 @@ func (cmd *installServer) installByScript(ctx context.Context, server *domain.Se
 	_, _ = cmd.installOutput.Write([]byte("Executing install script ...\n"))
 
 	var err error
-	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.installOutput, components.ExecutorOptions{
+	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.installOutput, contracts.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkPath,
 	})
 
@@ -381,12 +381,12 @@ func (d *installationRulesDefiner) DefineGameModRules(gameMod *domain.GameMod) [
 
 type installator struct {
 	cfg      *config.Config
-	executor interfaces.Executor
+	executor contracts.Executor
 	output   io.ReadWriter
 	kind     installatorKind
 }
 
-func newInstallator(cfg *config.Config, executor interfaces.Executor, output io.ReadWriter) *installator {
+func newInstallator(cfg *config.Config, executor contracts.Executor, output io.ReadWriter) *installator {
 	return &installator{
 		cfg:      cfg,
 		executor: executor,
@@ -395,7 +395,7 @@ func newInstallator(cfg *config.Config, executor interfaces.Executor, output io.
 	}
 }
 
-func newUpdater(cfg *config.Config, executor interfaces.Executor, output io.ReadWriter) *installator {
+func newUpdater(cfg *config.Config, executor contracts.Executor, output io.ReadWriter) *installator {
 	return &installator{
 		cfg:      cfg,
 		executor: executor,
@@ -525,7 +525,7 @@ func (in *installator) installFromSteam(
 
 	var installTries uint8 = 0
 
-	executorOptions := components.ExecutorOptions{
+	executorOptions := contracts.ExecutorOptions{
 		WorkDir: cfg.WorkPath,
 	}
 
@@ -652,7 +652,7 @@ func (in *installator) runAfterInstallScript(
 
 	if in.kind == installer {
 		in.writeOutput(ctx, "Executing after install script")
-		result, err := in.executor.ExecWithWriter(ctx, scriptFullPath, in.output, components.ExecutorOptions{
+		result, err := in.executor.ExecWithWriter(ctx, scriptFullPath, in.output, contracts.ExecutorOptions{
 			WorkDir: serverPath,
 		})
 		if err != nil {

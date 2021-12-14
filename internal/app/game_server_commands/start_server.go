@@ -6,8 +6,8 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
@@ -18,13 +18,13 @@ type startServer struct {
 
 	loadServerCommand LoadServerCommandFunc
 
-	updateCommand        interfaces.GameServerCommand
+	updateCommand        contracts.GameServerCommand
 	enableUpdatingBefore bool
 }
 
 func newStartServer(
 	cfg *config.Config,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 	loadServerCommand LoadServerCommandFunc,
 ) *startServer {
 	return &startServer{
@@ -57,7 +57,7 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 		}
 	}
 
-	s.result, err = s.executor.ExecWithWriter(ctx, command, s.startOutput, components.ExecutorOptions{
+	s.result, err = s.executor.ExecWithWriter(ctx, command, s.startOutput, contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkPath,
 	})

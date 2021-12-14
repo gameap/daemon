@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 )
 
 const (
@@ -17,22 +17,22 @@ const (
 	ErrorResult   = 1
 )
 
-type LoadServerCommandFunc func(cmd domain.ServerCommand) interfaces.GameServerCommand
+type LoadServerCommandFunc func(cmd domain.ServerCommand) contracts.GameServerCommand
 
-var nilLoadServerCommandFunc = func(cmd domain.ServerCommand) interfaces.GameServerCommand {
+var nilLoadServerCommandFunc = func(cmd domain.ServerCommand) contracts.GameServerCommand {
 	return nil
 }
 
 type ServerCommandFactory struct {
 	cfg        *config.Config
 	serverRepo domain.ServerRepository
-	executor   interfaces.Executor
+	executor   contracts.Executor
 }
 
 func NewFactory(
 	cfg *config.Config,
 	serverRepo domain.ServerRepository,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 ) *ServerCommandFactory {
 	return &ServerCommandFactory{
 		cfg,
@@ -42,7 +42,7 @@ func NewFactory(
 }
 
 //nolint:funlen
-func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand) interfaces.GameServerCommand {
+func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand) contracts.GameServerCommand {
 	switch cmd {
 	case domain.Start:
 		return newStartServer(
@@ -85,7 +85,7 @@ func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand)
 			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
 		)
 	case domain.Reinstall:
-		return newCommandList(factory.cfg, factory.executor, []interfaces.GameServerCommand{
+		return newCommandList(factory.cfg, factory.executor, []contracts.GameServerCommand{
 			newDeleteServer(factory.cfg, factory.executor),
 			newInstallServer(
 				factory.cfg,
@@ -136,6 +136,7 @@ func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domai
 	command = strings.ReplaceAll(command, "{user}", server.User())
 
 	command = strings.ReplaceAll(command, "{node_work_path}", cfg.WorkPath)
+	command = strings.ReplaceAll(command, "{node_tools_path}", cfg.WorkPath+"/tools")
 
 	for k, v := range server.Vars() {
 		command = strings.ReplaceAll(command, "{"+k+"}", v)
@@ -145,7 +146,7 @@ func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domai
 }
 
 type baseCommand struct {
-	executor interfaces.Executor
+	executor contracts.Executor
 	cfg      *config.Config
 	complete bool
 	result   int
@@ -174,13 +175,13 @@ func (c *bufCommand) ReadOutput() []byte {
 type commandList struct {
 	baseCommand
 
-	commands []interfaces.GameServerCommand
+	commands []contracts.GameServerCommand
 }
 
 func newCommandList(
 	cfg *config.Config,
-	executor interfaces.Executor,
-	commands []interfaces.GameServerCommand,
+	executor contracts.Executor,
+	commands []contracts.GameServerCommand,
 ) *commandList {
 	return &commandList{
 		baseCommand: baseCommand{

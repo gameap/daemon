@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/server"
 	serversloop "github.com/gameap/daemon/internal/app/servers_loop"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
@@ -20,7 +20,7 @@ type Runner struct {
 	cfg *config.Config
 
 	commandFactory       *gameservercommands.ServerCommandFactory
-	apiClient            interfaces.APIRequestMaker
+	apiClient            contracts.APIRequestMaker
 	gdTaskManager        *gdaemonscheduler.TaskManager
 	serverRepository     domain.ServerRepository
 	serverTaskRepository domain.ServerTaskRepository
@@ -29,7 +29,7 @@ type Runner struct {
 func NewProcessRunner(
 	cfg *config.Config,
 	commandFactory *gameservercommands.ServerCommandFactory,
-	apiClient interfaces.APIRequestMaker,
+	apiClient contracts.APIRequestMaker,
 	gdTaskManager *gdaemonscheduler.TaskManager,
 	serverRepository domain.ServerRepository,
 	serverTaskRepository domain.ServerTaskRepository,

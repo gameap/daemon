@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
+	"github.com/gameap/daemon/internal/app/contracts"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 )
@@ -30,7 +30,7 @@ func CreateServicesResty(ctx context.Context, c Container) *resty.Client {
 	return restyClient
 }
 
-func CreateServicesApiCaller(ctx context.Context, c Container) interfaces.APIRequestMaker {
+func CreateServicesApiCaller(ctx context.Context, c Container) contracts.APIRequestMaker {
 	client, err := services.NewAPICaller(
 		ctx,
 		c.Cfg(ctx),
@@ -45,7 +45,7 @@ func CreateServicesApiCaller(ctx context.Context, c Container) interfaces.APIReq
 	return client
 }
 
-func CreateServicesExecutor(_ context.Context, _ Container) interfaces.Executor {
+func CreateServicesExecutor(_ context.Context, _ Container) contracts.Executor {
 	return components.NewExecutor()
 }
 

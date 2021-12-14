@@ -7,18 +7,18 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
 type ServerTaskRepository struct {
-	client           interfaces.APIRequestMaker
+	client           contracts.APIRequestMaker
 	serverRepository domain.ServerRepository
 }
 
 func NewServerTaskRepository(
-	client interfaces.APIRequestMaker,
+	client contracts.APIRequestMaker,
 	serverRepository domain.ServerRepository,
 ) *ServerTaskRepository {
 	return &ServerTaskRepository{

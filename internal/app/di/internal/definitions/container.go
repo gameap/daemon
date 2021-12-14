@@ -3,8 +3,8 @@ package definitions
 import (
 	"context"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/services"
 )
 
@@ -25,7 +25,7 @@ func CreateProcessRunner(ctx context.Context, c Container) *services.Runner {
 	return processRunner
 }
 
-func CreateCacheManager(ctx context.Context, c Container) interfaces.Cache {
+func CreateCacheManager(ctx context.Context, c Container) contracts.Cache {
 	cache, err := services.NewLocalCache(c.Cfg(ctx))
 	if err != nil {
 		c.SetError(err)

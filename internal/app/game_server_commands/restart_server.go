@@ -6,8 +6,8 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
@@ -22,7 +22,7 @@ type restartServer struct {
 
 func newRestartServer(
 	cfg *config.Config,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 	statusServer *statusServer,
 	stopServer *stopServer,
 	startServer *startServer,
@@ -52,7 +52,7 @@ func (s *restartServer) Execute(ctx context.Context, server *domain.Server) erro
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Restart, server.StartCommand())
 
 	var err error
-	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, components.ExecutorOptions{
+	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkDir(),
 	})

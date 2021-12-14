@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
@@ -23,7 +23,7 @@ type ServerRepository struct {
 	lastUpdated sync.Map // [int]time.Time		 (serverID => time)
 }
 
-func NewServerRepository(client interfaces.APIRequestMaker) *ServerRepository {
+func NewServerRepository(client contracts.APIRequestMaker) *ServerRepository {
 	return &ServerRepository{
 		innerRepo: apiServerRepo{
 			client: client,
@@ -143,7 +143,7 @@ type serverStruct struct {
 }
 
 type apiServerRepo struct {
-	client interfaces.APIRequestMaker
+	client contracts.APIRequestMaker
 }
 
 func (apiRepo *apiServerRepo) IDs(ctx context.Context) ([]int, error) {

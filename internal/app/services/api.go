@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
@@ -46,7 +46,7 @@ func NewAPICaller(ctx context.Context, cfg *config.Config, client *resty.Client)
 	return api, err
 }
 
-func (c *APIClient) Request(ctx context.Context, request domain.APIRequest) (interfaces.APIResponse, error) {
+func (c *APIClient) Request(ctx context.Context, request domain.APIRequest) (contracts.APIResponse, error) {
 	return c.request(ctx, request, 0)
 }
 
@@ -55,7 +55,7 @@ func (c *APIClient) request(
 	ctx context.Context,
 	request domain.APIRequest,
 	deep uint8,
-) (interfaces.APIResponse, error) {
+) (contracts.APIResponse, error) {
 	restyRequest := c.innerClient.R()
 
 	restyRequest.SetHeader("Content-Type", "application/json")

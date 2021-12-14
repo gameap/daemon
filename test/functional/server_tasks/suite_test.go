@@ -9,9 +9,9 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
@@ -25,7 +25,7 @@ type Suite struct {
 	Scheduler            *serversscheduler.Scheduler
 	ServerTaskRepository *mocks.ServerTaskRepository
 	ServerRepository     *mocks.ServerRepository
-	Executor             interfaces.Executor
+	Executor             contracts.Executor
 	Cfg                  *config.Config
 
 	WorkPath string

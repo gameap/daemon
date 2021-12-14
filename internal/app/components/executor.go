@@ -9,20 +9,18 @@ import (
 	"path"
 	"strconv"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gopherclass/go-shellquote"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
 var ErrEmptyCommand = errors.New("empty command")
+var ErrInvalidCommand = errors.New("invalid command")
 
-type ExecutorOptions struct {
-	WorkDir         string
-	FallbackWorkDir string
-	UID             string
-	GID             string
-	Env             map[string]string
-}
+var invalidResult = -1
+var successResult = 0
+var errorResult = 1
 
 type Executor struct {
 	appendCommandAndExitCode bool
@@ -36,7 +34,7 @@ func NewCleanExecutor() *Executor {
 	return &Executor{appendCommandAndExitCode: false}
 }
 
-func (e *Executor) Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte, int, error) {
+func (e *Executor) Exec(ctx context.Context, command string, options contracts.ExecutorOptions) ([]byte, int, error) {
 	return Exec(ctx, command, options)
 }
 
@@ -44,7 +42,7 @@ func (e *Executor) ExecWithWriter(
 	ctx context.Context,
 	command string,
 	out io.Writer,
-	options ExecutorOptions,
+	options contracts.ExecutorOptions,
 ) (int, error) {
 	if e.appendCommandAndExitCode {
 		_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, command)))
@@ -59,39 +57,39 @@ func (e *Executor) ExecWithWriter(
 	return result, err
 }
 
-func Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte, int, error) {
+func Exec(ctx context.Context, command string, options contracts.ExecutorOptions) ([]byte, int, error) {
 	buf := NewSafeBuffer()
 	exitCode, err := ExecWithWriter(ctx, command, buf, options)
 	if err != nil {
-		return nil, -1, err
+		return nil, invalidResult, err
 	}
 
 	out, err := io.ReadAll(buf)
 	if err != nil {
-		return nil, -1, err
+		return nil, invalidResult, err
 	}
 
 	return out, exitCode, nil
 }
 
-func ExecWithWriter(ctx context.Context, command string, out io.Writer, options ExecutorOptions) (int, error) {
+func ExecWithWriter(ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions) (int, error) {
 	if command == "" {
-		return -1, ErrEmptyCommand
+		return invalidResult, ErrEmptyCommand
 	}
 
 	args, err := shellquote.Split(command)
 	if err != nil {
-		return -1, err
+		return invalidResult, err
 	}
 
 	workDir := options.WorkDir
 	_, err = os.Stat(workDir)
 	if err != nil && options.FallbackWorkDir == "" {
-		return -1, errors.Wrapf(err, "invalid work directory %s", workDir)
+		return invalidResult, errors.Wrapf(err, "invalid work directory %s", workDir)
 	} else if err != nil && options.FallbackWorkDir != "" {
 		_, err = os.Stat(options.FallbackWorkDir)
 		if err != nil {
-			return -1, errors.Wrapf(err, "invalid fallback work directory %s", options.FallbackWorkDir)
+			return invalidResult, errors.Wrapf(err, "invalid fallback work directory %s", options.FallbackWorkDir)
 		}
 
 		workDir = options.FallbackWorkDir
@@ -101,10 +99,10 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		_, err = exec.LookPath(args[0])
 		if err != nil {
-			return -1, errors.Wrap(err, "executable file not found")
+			return invalidResult, errors.Wrap(err, "executable file not found")
 		}
 	} else if err != nil {
-		return -1, errors.Wrap(err, "executable file not found")
+		return invalidResult, errors.Wrap(err, "executable file not found")
 	}
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec
@@ -115,7 +113,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 	if options.UID != "" && options.GID != "" {
 		cmd, err = setCMDSysProcCredential(cmd, options)
 		if err != nil {
-			return -1, err
+			return invalidResult, err
 		}
 	}
 
@@ -125,7 +123,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 		if !ok {
 			log.Warning(err)
 
-			return -1, err
+			return invalidResult, err
 		}
 	}
 

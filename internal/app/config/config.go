@@ -59,9 +59,9 @@ type Config struct {
 	Path7zip    string `yaml:"path_7zip"`
 	PathStarter string `yaml:"path_starter"`
 
-	WorkPath        string `yaml:"work_path"`
-	ScriptsWorkPath string `yaml:"scripts_work_path"`
-	SteamCMDPath    string `yaml:"steamcmd_path"`
+	WorkPath     string `yaml:"work_path"`
+	ToolsPath    string `yaml:"tools_path"`
+	SteamCMDPath string `yaml:"steamcmd_path"`
 
 	SteamConfig SteamConfig `yaml:"steam_config"`
 
@@ -77,7 +77,15 @@ func NewConfig() *Config {
 	}
 }
 
-func (cfg *Config) Validate() error {
+func (cfg *Config) Init() error {
+	if cfg.ToolsPath == "" {
+		cfg.ToolsPath = cfg.WorkPath + "/tools"
+	}
+
+	return cfg.validate()
+}
+
+func (cfg *Config) validate() error {
 	if cfg.NodeID == 0 {
 		return ErrEmptyNodeID
 	}
@@ -107,10 +115,6 @@ func (cfg *Config) Validate() error {
 	}
 
 	return nil
-}
-
-func (cfg *Config) ScriptsWorkDir() string {
-	return cfg.ScriptsWorkPath
 }
 
 func (cfg *Config) WorkDir() string {

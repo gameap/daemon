@@ -1,11 +1,10 @@
-package interfaces
+package contracts
 
 import (
 	"context"
 	"io"
 	"time"
 
-	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/domain"
 )
 
@@ -50,8 +49,8 @@ type APIResponse interface {
 }
 
 type Executor interface {
-	Exec(ctx context.Context, command string, options components.ExecutorOptions) ([]byte, int, error)
-	ExecWithWriter(ctx context.Context, command string, out io.Writer, options components.ExecutorOptions) (int, error)
+	Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte, int, error)
+	ExecWithWriter(ctx context.Context, command string, out io.Writer, options ExecutorOptions) (int, error)
 }
 
 type GameProcessController interface {
@@ -65,4 +64,12 @@ type GameProcessController interface {
 
 type DomainPrimitiveValidator interface {
 	Validate() error
+}
+
+type ExecutorOptions struct {
+	WorkDir         string
+	FallbackWorkDir string
+	UID             string
+	GID             string
+	Env             map[string]string
 }

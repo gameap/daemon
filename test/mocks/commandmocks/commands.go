@@ -3,8 +3,8 @@ package commandmocks
 import (
 	"context"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 )
 
 const (
@@ -12,7 +12,7 @@ const (
 	successResult = 0
 )
 
-func LoadServerCommand(cmd domain.ServerCommand) interfaces.GameServerCommand {
+func LoadServerCommand(cmd domain.ServerCommand) contracts.GameServerCommand {
 	switch cmd {
 	case domain.Start:
 		return newMockCommand(startServer)

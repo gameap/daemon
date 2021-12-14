@@ -9,10 +9,10 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
@@ -24,8 +24,8 @@ type Suite struct {
 	TaskManager      *gdaemonscheduler.TaskManager
 	GDTaskRepository *mocks.GDTaskRepository
 	ServerRepository *mocks.ServerRepository
-	Executor         interfaces.Executor
-	Cache            interfaces.Cache
+	Executor         contracts.Executor
+	Cache            contracts.Cache
 	Cfg              *config.Config
 
 	WorkPath string

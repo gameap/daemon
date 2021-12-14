@@ -6,8 +6,8 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
@@ -18,7 +18,7 @@ type deleteServer struct {
 	bufCommand
 }
 
-func newDeleteServer(cfg *config.Config, executor interfaces.Executor) *deleteServer {
+func newDeleteServer(cfg *config.Config, executor contracts.Executor) *deleteServer {
 	return &deleteServer{
 		baseCommand{
 			cfg:      cfg,
@@ -46,7 +46,7 @@ func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Serv
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
 
 	var err error
-	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
+	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkDir(),
 	})
 

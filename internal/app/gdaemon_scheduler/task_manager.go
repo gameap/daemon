@@ -8,9 +8,9 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 )
@@ -32,21 +32,21 @@ var taskServerCommandMap = map[domain.GDTaskCommand]domain.ServerCommand{
 type TaskManager struct {
 	config               *config.Config
 	repository           domain.GDTaskRepository
-	executor             interfaces.Executor
+	executor             contracts.Executor
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
 	// Runtime
 	lastUpdated        time.Time
-	commandsInProgress sync.Map // map[domain.GDTask]interfaces.CommandResultReader
+	commandsInProgress sync.Map // map[domain.GDTask]contracts.CommandResultReader
 	queue              taskQueue
-	cache              interfaces.Cache
+	cache              contracts.Cache
 }
 
 func NewTaskManager(
 	repository domain.GDTaskRepository,
-	cache interfaces.Cache,
+	cache contracts.Cache,
 	serverCommandFactory *gameservercommands.ServerCommandFactory,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 	config *config.Config,
 ) *TaskManager {
 	return &TaskManager{
@@ -204,7 +204,7 @@ func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDT
 	logger.Debug(ctx, "Running task command")
 
 	go func() {
-		err := cmd.Execute(ctx, task.Command(), components.ExecutorOptions{
+		err := cmd.Execute(ctx, task.Command(), contracts.ExecutorOptions{
 			WorkDir: manager.config.WorkDir(),
 		})
 
@@ -249,7 +249,7 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 		return errors.New("[gdaemon_scheduler.TaskManager] task not exist in working tasks")
 	}
 
-	cmd := c.(interfaces.CommandResultReader)
+	cmd := c.(contracts.CommandResultReader)
 
 	if cmd.IsComplete() {
 		if cmd.Result() == gameservercommands.SuccessResult {
@@ -397,10 +397,10 @@ type executeCommand struct {
 	complete bool
 	result   int
 
-	executor interfaces.Executor
+	executor contracts.Executor
 }
 
-func newExecuteCommand(executor interfaces.Executor) *executeCommand {
+func newExecuteCommand(executor contracts.Executor) *executeCommand {
 	return &executeCommand{
 		executor: executor,
 		output:   components.NewSafeBuffer(),
@@ -410,7 +410,7 @@ func newExecuteCommand(executor interfaces.Executor) *executeCommand {
 func (e *executeCommand) Execute(
 	ctx context.Context,
 	command string,
-	options components.ExecutorOptions,
+	options contracts.ExecutorOptions,
 ) error {
 	var err error
 	e.result, err = e.executor.ExecWithWriter(ctx, command, e.output, options)
