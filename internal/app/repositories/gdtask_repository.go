@@ -192,7 +192,7 @@ func (repository *GDTaskRepository) AppendOutput(ctx context.Context, gdtask *do
 		},
 	})
 	if err != nil {
-		return errors.WithMessage(err, "[repositories.GDTaskRepository] failed to save gameap daemon task")
+		return errors.WithMessage(err, "[repositories.GDTaskRepository] failed to append output of gameap daemon task")
 	}
 
 	if resp.StatusCode() != http.StatusOK {
