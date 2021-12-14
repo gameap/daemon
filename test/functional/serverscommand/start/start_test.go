@@ -32,7 +32,9 @@ func (suite *Suite) TestStartInvalidCommand() {
 
 	suite.Require().NotNil(err)
 	suite.Assert().Equal(
-		"Executable file not found: exec: \"./invalid_command.sh\": stat ./invalid_command.sh: no such file or directory",
+		"[game_server_commands.startServer] failed to execute start command: "+
+			"executable file not found: exec: \"./invalid_command.sh\": "+
+			"stat ./invalid_command.sh: no such file or directory",
 		err.Error(),
 	)
 	suite.Assert().True(cmd.IsComplete())

@@ -28,12 +28,7 @@ func newStartServer(
 	loadServerCommand LoadServerCommandFunc,
 ) *startServer {
 	return &startServer{
-		baseCommand: baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
+		baseCommand:       newBaseCommand(cfg, executor),
 		startOutput:       components.NewSafeBuffer(),
 		loadServerCommand: loadServerCommand,
 	}
@@ -42,26 +37,27 @@ func newStartServer(
 func (s *startServer) Execute(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Start, server.StartCommand())
 
-	var err error
-
 	if s.enableUpdatingBefore && server.UpdateBeforeStart() {
 		updateCmd := s.loadServerCommand(domain.Update)
 
 		if updateCmd != nil {
 			s.updateCommand = updateCmd
-			err = updateCmd.Execute(ctx, server)
+			err := updateCmd.Execute(ctx, server)
 			if err != nil {
-				s.complete = true
+				s.SetComplete()
 				return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
 			}
 		}
 	}
 
-	s.result, err = s.executor.ExecWithWriter(ctx, command, s.startOutput, contracts.ExecutorOptions{
+	result, err := s.executor.ExecWithWriter(ctx, command, s.startOutput, contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkPath,
 	})
-	s.complete = true
+
+	s.SetResult(result)
+	s.SetComplete()
+
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.startServer] failed to execute start command")
 	}

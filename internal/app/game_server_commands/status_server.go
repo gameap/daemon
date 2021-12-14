@@ -16,28 +16,21 @@ type statusServer struct {
 
 func newStatusServer(cfg *config.Config, executor contracts.Executor) *statusServer {
 	return &statusServer{
-		baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
-		bufCommand{output: components.NewSafeBuffer()},
+		baseCommand: newBaseCommand(cfg, executor),
+		bufCommand:  bufCommand{output: components.NewSafeBuffer()},
 	}
 }
 
 func (s *statusServer) Execute(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Status, "")
 
-	var err error
-	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
+	result, err := s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkPath,
 	})
-	s.complete = true
-	if err != nil {
-		return err
-	}
 
-	return nil
+	s.SetResult(result)
+	s.SetComplete()
+
+	return err
 }

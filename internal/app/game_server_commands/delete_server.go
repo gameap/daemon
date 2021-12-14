@@ -20,19 +20,14 @@ type deleteServer struct {
 
 func newDeleteServer(cfg *config.Config, executor contracts.Executor) *deleteServer {
 	return &deleteServer{
-		baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
-		bufCommand{output: components.NewSafeBuffer()},
+		baseCommand: newBaseCommand(cfg, executor),
+		bufCommand:  bufCommand{output: components.NewSafeBuffer()},
 	}
 }
 
 func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) error {
 	defer func() {
-		cmd.complete = true
+		cmd.SetComplete()
 	}()
 
 	if cmd.cfg.Scripts.Delete != "" {
@@ -45,16 +40,18 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
 
-	var err error
-	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
+	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkDir(),
 	})
-
 	if err != nil {
-		cmd.result = ErrorResult
+		cmd.SetComplete()
+		cmd.SetResult(ErrorResult)
 		_, _ = cmd.output.Write([]byte(err.Error()))
 		return err
 	}
+
+	cmd.SetComplete()
+	cmd.SetResult(result)
 
 	return err
 }
@@ -68,12 +65,14 @@ func (cmd *deleteServer) removeByFilesystem(_ context.Context, server *domain.Se
 
 	err := os.RemoveAll(path)
 	if err != nil {
-		cmd.result = ErrorResult
+		cmd.SetComplete()
+		cmd.SetResult(ErrorResult)
 		_, _ = cmd.output.Write([]byte(err.Error()))
 		return err
 	}
 
-	cmd.result = SuccessResult
+	cmd.SetComplete()
+	cmd.SetResult(SuccessResult)
 
 	return nil
 }

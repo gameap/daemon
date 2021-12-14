@@ -19,7 +19,7 @@ import (
 	"github.com/gameap/daemon/test/mocks"
 )
 
-const taskManagerTimeout = 30 * time.Second
+const taskManagerTimeout = 300 * time.Second
 
 type Suite struct {
 	functional.GameServerSuite
@@ -32,6 +32,20 @@ type Suite struct {
 	Cfg              *config.Config
 
 	WorkPath string
+}
+
+func (suite *Suite) SetupTest() {
+	suite.TaskManager = gdaemonscheduler.NewTaskManager(
+		suite.GDTaskRepository,
+		suite.Cache,
+		gameservercommands.NewFactory(
+			suite.Cfg,
+			suite.ServerRepository,
+			suite.Executor,
+		),
+		suite.Executor,
+		suite.Cfg,
+	)
 }
 
 func (suite *Suite) SetupSuite() {
@@ -53,18 +67,6 @@ func (suite *Suite) SetupSuite() {
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-
-	suite.TaskManager = gdaemonscheduler.NewTaskManager(
-		suite.GDTaskRepository,
-		suite.Cache,
-		gameservercommands.NewFactory(
-			suite.Cfg,
-			suite.ServerRepository,
-			suite.Executor,
-		),
-		suite.Executor,
-		suite.Cfg,
-	)
 }
 
 func (suite *Suite) RunTaskManager(timeout time.Duration) {
@@ -105,6 +107,8 @@ func (suite *Suite) RunTaskManagerUntilTasksCompleted(tasks []*domain.GDTask) {
 			break
 		}
 	}
+
+	time.Sleep(1 * time.Second)
 }
 
 func (suite *Suite) isAllTasksCompleted(tasks []*domain.GDTask) bool {

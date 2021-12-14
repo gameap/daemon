@@ -5,6 +5,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
@@ -100,7 +101,7 @@ func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand)
 		return newDeleteServer(factory.cfg, factory.executor)
 	case domain.Pause:
 	case domain.Unpause:
-		return newNotImplementedCommand()
+		return newNotImplementedCommand(factory.cfg, factory.executor)
 	}
 
 	return nil
@@ -146,18 +147,49 @@ func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domai
 }
 
 type baseCommand struct {
-	executor contracts.Executor
 	cfg      *config.Config
+	executor contracts.Executor
+	mutex    *sync.Mutex
 	complete bool
 	result   int
 }
 
+func newBaseCommand(cfg *config.Config, executor contracts.Executor) baseCommand {
+	return baseCommand{
+		cfg:      cfg,
+		executor: executor,
+		complete: false,
+		result:   UnknownResult,
+		mutex:    &sync.Mutex{},
+	}
+}
+
 func (c *baseCommand) Result() int {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	return c.result
 }
 
+func (c *baseCommand) SetResult(result int) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.result = result
+}
+
 func (c *baseCommand) IsComplete() bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	return c.complete
+}
+
+func (c *baseCommand) SetComplete() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.complete = true
 }
 
 type bufCommand struct {
@@ -184,13 +216,8 @@ func newCommandList(
 	commands []contracts.GameServerCommand,
 ) *commandList {
 	return &commandList{
-		baseCommand: baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
-		commands: commands,
+		baseCommand: newBaseCommand(cfg, executor),
+		commands:    commands,
 	}
 }
 
@@ -211,14 +238,14 @@ func (c *commandList) Execute(ctx context.Context, server *domain.Server) error 
 		}
 
 		if c.commands[i].Result() != SuccessResult {
-			c.result = c.commands[i].Result()
-			c.complete = true
+			c.SetResult(c.commands[i].Result())
+			c.SetComplete()
 			return nil
 		}
 	}
 
-	c.complete = true
-	c.result = 1
+	c.SetComplete()
+	c.SetResult(SuccessResult)
 
 	return nil
 }
@@ -232,20 +259,18 @@ type nilCommand struct {
 }
 
 func (n *nilCommand) Execute(ctx context.Context, _ *domain.Server) error {
-	n.complete = true
-	n.result = n.resultCode
+	n.SetComplete()
+	n.SetResult(n.resultCode)
+
 	_, _ = n.output.Write([]byte(n.message))
 
 	return nil
 }
 
-func newNotImplementedCommand() *nilCommand {
+func newNotImplementedCommand(cfg *config.Config, executor contracts.Executor) *nilCommand {
 	return &nilCommand{
-		baseCommand: baseCommand{
-			complete: false,
-			result:   UnknownResult,
-		},
-		message:    "not implemented command",
-		resultCode: ErrorResult,
+		baseCommand: newBaseCommand(cfg, executor),
+		message:     "not implemented command",
+		resultCode:  ErrorResult,
 	}
 }

@@ -82,12 +82,7 @@ func newUpdateServer(
 	inst := newUpdater(cfg, executor, buffer)
 
 	return &installServer{
-		baseCommand: baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
+		baseCommand:   newBaseCommand(cfg, executor),
 		installator:   inst,
 		serverRepo:    serverRepo,
 		kind:          updater,
@@ -110,12 +105,7 @@ func newInstallServer(
 	inst := newInstallator(cfg, executor, buffer)
 
 	return &installServer{
-		baseCommand: baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
+		baseCommand:   newBaseCommand(cfg, executor),
 		installator:   inst,
 		serverRepo:    serverRepo,
 		kind:          installer,
@@ -128,7 +118,7 @@ func newInstallServer(
 
 func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) error {
 	defer func() {
-		cmd.complete = true
+		cmd.SetComplete()
 	}()
 
 	server.AffectInstall()
@@ -147,16 +137,11 @@ func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) er
 	}
 
 	if err != nil {
-		cmd.result = ErrorResult
+		cmd.SetResult(ErrorResult)
 		return errors.WithMessage(err, "[game_server_commands.installServer] failed to install game server")
 	}
 
-	err = cmd.startServerIfNeeded(ctx, server)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return cmd.startServerIfNeeded(ctx, server)
 }
 
 func (cmd *installServer) ReadOutput() []byte {
@@ -184,6 +169,10 @@ func (cmd *installServer) ReadOutput() []byte {
 }
 
 func (cmd *installServer) stopServerIfNeeded(ctx context.Context, server *domain.Server) error {
+	if server.InstallationStatus() != domain.ServerInstalled {
+		return nil
+	}
+
 	err := cmd.statusCommand.Execute(ctx, server)
 	if err != nil {
 		return errors.WithMessage(
@@ -231,17 +220,18 @@ func (cmd *installServer) installByScript(ctx context.Context, server *domain.Se
 
 	_, _ = cmd.installOutput.Write([]byte("Executing install script ...\n"))
 
-	var err error
-	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.installOutput, contracts.ExecutorOptions{
+	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.installOutput, contracts.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkPath,
 	})
 
-	cmd.complete = true
+	cmd.SetComplete()
+	cmd.SetResult(result)
+
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.installServer] failed to install by script")
 	}
 
-	if cmd.result == SuccessResult {
+	if result == SuccessResult {
 		_, _ = cmd.installOutput.Write([]byte("\nExecuting install script successfully completed\n"))
 	} else {
 		_, _ = cmd.installOutput.Write([]byte("\nExecuting script ended with an error\n"))
@@ -265,7 +255,7 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 
 	err := cmd.installator.Install(ctx, server, gameRules)
 	if err != nil {
-		cmd.result = ErrorResult
+		cmd.SetResult(ErrorResult)
 		return err
 	}
 
@@ -278,13 +268,13 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 
 			err = cmd.installator.Install(ctx, server, gameModRules)
 			if err != nil {
-				cmd.result = ErrorResult
+				cmd.SetResult(ErrorResult)
 				return err
 			}
 		}
 	}
 
-	cmd.result = SuccessResult
+	cmd.SetResult(SuccessResult)
 
 	return nil
 }

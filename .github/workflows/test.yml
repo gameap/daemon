@@ -34,7 +34,7 @@ jobs:
         run: go test -race -v $(go list ./... | grep -v /test/)
 
       - name: Functional Tests
-        run: go test -p 1 ./test/functional/...
+        run: go test -p 1 -race ./test/functional/...
 
 
   cross_compile:

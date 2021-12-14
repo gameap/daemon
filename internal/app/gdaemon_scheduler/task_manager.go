@@ -36,9 +36,10 @@ type TaskManager struct {
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
 	// Runtime
+	mutex              *sync.Mutex
 	lastUpdated        time.Time
 	commandsInProgress sync.Map // map[domain.GDTask]contracts.CommandResultReader
-	queue              taskQueue
+	queue              *taskQueue
 	cache              contracts.Cache
 }
 
@@ -53,8 +54,9 @@ func NewTaskManager(
 		config:               config,
 		repository:           repository,
 		cache:                cache,
-		queue:                taskQueue{},
+		queue:                newTaskQueue(),
 		serverCommandFactory: serverCommandFactory,
+		mutex:                &sync.Mutex{},
 		executor:             executor,
 	}
 }
@@ -288,6 +290,9 @@ func (manager *TaskManager) appendTaskOutput(ctx context.Context, task *domain.G
 }
 
 func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+
 	if time.Since(manager.lastUpdated) <= updateTimeout {
 		return nil
 	}
@@ -308,19 +313,25 @@ func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
 
 type taskQueue struct {
 	tasks []*domain.GDTask
-	mutex sync.Mutex
+	mutex *sync.Mutex
+}
+
+func newTaskQueue() *taskQueue {
+	return &taskQueue{
+		mutex: &sync.Mutex{},
+	}
 }
 
 func (q *taskQueue) Insert(tasks []*domain.GDTask) {
 	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
 	for _, t := range tasks {
 		existenceTask := q.FindByID(t.ID())
 		if existenceTask == nil {
 			q.tasks = append(q.tasks, t)
 		}
 	}
-
-	q.mutex.Unlock()
 }
 
 func (q *taskQueue) Dequeue() *domain.GDTask {
@@ -394,6 +405,7 @@ func (q *taskQueue) Len() int {
 
 type executeCommand struct {
 	output   io.ReadWriter
+	mu       *sync.Mutex
 	complete bool
 	result   int
 
@@ -404,6 +416,7 @@ func newExecuteCommand(executor contracts.Executor) *executeCommand {
 	return &executeCommand{
 		executor: executor,
 		output:   components.NewSafeBuffer(),
+		mu:       &sync.Mutex{},
 	}
 }
 
@@ -412,8 +425,12 @@ func (e *executeCommand) Execute(
 	command string,
 	options contracts.ExecutorOptions,
 ) error {
-	var err error
-	e.result, err = e.executor.ExecWithWriter(ctx, command, e.output, options)
+	result, err := e.executor.ExecWithWriter(ctx, command, e.output, options)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.result = result
 	e.complete = true
 
 	return err
@@ -429,9 +446,15 @@ func (e *executeCommand) ReadOutput() []byte {
 }
 
 func (e *executeCommand) Result() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	return e.result
 }
 
 func (e *executeCommand) IsComplete() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	return e.complete
 }

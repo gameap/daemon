@@ -28,12 +28,8 @@ func newRestartServer(
 	startServer *startServer,
 ) *restartServer {
 	cmd := &restartServer{
-		baseCommand: baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
+		baseCommand:  newBaseCommand(cfg, executor),
+		bufCommand:   bufCommand{output: components.NewSafeBuffer()},
 		statusServer: statusServer,
 		stopServer:   stopServer,
 		startServer:  startServer,
@@ -51,20 +47,19 @@ func (s *restartServer) Execute(ctx context.Context, server *domain.Server) erro
 
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Restart, server.StartCommand())
 
-	var err error
-	s.result, err = s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
+	result, err := s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkDir(),
 	})
-	s.complete = true
-	if err != nil {
-		return err
-	}
+	s.SetResult(result)
+	s.SetComplete()
 
-	return nil
+	return err
 }
 
 func (s *restartServer) restartViaStopStart(ctx context.Context, server *domain.Server) error {
+	defer s.SetComplete()
+
 	err := s.statusServer.Execute(ctx, server)
 	if err != nil {
 		return errors.WithMessage(err, "failed to check server status")
@@ -76,9 +71,9 @@ func (s *restartServer) restartViaStopStart(ctx context.Context, server *domain.
 		if err != nil {
 			return errors.WithMessage(err, "failed to stop server")
 		}
+
 		if s.stopServer.Result() != SuccessResult {
-			s.complete = true
-			s.result = s.stopServer.Result()
+			s.SetResult(s.stopServer.Result())
 			return nil
 		}
 	}
@@ -87,14 +82,8 @@ func (s *restartServer) restartViaStopStart(ctx context.Context, server *domain.
 	if err != nil {
 		return err
 	}
-	if s.startServer.Result() != SuccessResult {
-		s.complete = true
-		s.result = s.startServer.Result()
-		return nil
-	}
 
-	s.complete = true
-	s.result = SuccessResult
+	s.SetResult(s.startServer.Result())
 
 	return nil
 }
