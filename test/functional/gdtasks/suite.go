@@ -18,6 +18,8 @@ import (
 	"github.com/gameap/daemon/test/mocks"
 )
 
+const taskManagerTimeout = 30 * time.Second
+
 type Suite struct {
 	functional.GameServerSuite
 
@@ -37,14 +39,14 @@ func (suite *Suite) SetupSuite() {
 	suite.GDTaskRepository = mocks.NewGDTaskRepository()
 	suite.ServerRepository = mocks.NewServerRepository()
 
-	suite.Executor = components.NewExecutor()
-
 	suite.Cfg = &config.Config{
 		Scripts: config.Scripts{
 			Start: "{command}",
 			Stop:  "{command}",
 		},
 	}
+
+	suite.Executor = components.NewDefaultExtendableExecutor(suite.Cfg)
 
 	suite.Cache, err = services.NewLocalCache(suite.Cfg)
 	if err != nil {
@@ -59,7 +61,7 @@ func (suite *Suite) SetupSuite() {
 			suite.ServerRepository,
 			suite.Executor,
 		),
-		components.NewCleanExecutor(),
+		suite.Executor,
 		suite.Cfg,
 	)
 }
@@ -67,13 +69,50 @@ func (suite *Suite) SetupSuite() {
 func (suite *Suite) RunTaskManager(timeout time.Duration) {
 	suite.T().Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	ctx, timeoutCancel := context.WithTimeout(context.Background(), timeout)
+	defer timeoutCancel()
 
 	err := suite.TaskManager.Run(ctx)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
+}
+
+func (suite *Suite) RunTaskManagerUntilTasksCompleted(tasks []*domain.GDTask) {
+	suite.T().Helper()
+	startedAt := time.Now()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		err := suite.TaskManager.Run(ctx)
+		if err != nil {
+			suite.T().Fatal(err)
+		}
+	}()
+
+	for {
+		if time.Since(startedAt) >= taskManagerTimeout {
+			cancel()
+			break
+		}
+
+		if suite.isAllTasksCompleted(tasks) {
+			cancel()
+			break
+		}
+	}
+}
+
+func (suite *Suite) isAllTasksCompleted(tasks []*domain.GDTask) bool {
+	counter := 0
+	for i := range tasks {
+		if tasks[i].IsComplete() {
+			counter++
+		}
+	}
+
+	return counter >= len(tasks)
 }
 
 func (suite *Suite) AssertGDTaskExist(task *domain.GDTask) {

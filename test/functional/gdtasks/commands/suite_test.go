@@ -39,6 +39,7 @@ func (suite *Suite) SetupTest() {
 	}
 
 	suite.Cfg.WorkPath = suite.WorkPath
+	suite.Cfg.ToolsPath = suite.WorkPath + "/tools"
 }
 
 func (suite *Suite) TearDownTest() {

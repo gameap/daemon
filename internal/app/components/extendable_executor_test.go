@@ -16,11 +16,16 @@ import (
 
 func TestExtendableExecutor_ExecGetTool_ExpectToolDownloaded(t *testing.T) {
 	tmpDir := givenTmp(t)
-	defer syscall.Rmdir(tmpDir)
+	defer func(path string) {
+		err := syscall.Rmdir(path)
+		if err != nil {
+			t.Log(err)
+		}
+	}(tmpDir)
 	cfg := &config.Config{
 		ToolsPath: tmpDir,
 	}
-	executor := components.NewDefaultExtendableExecutor(cfg)
+	executor := components.NewCleanDefaultExtendableExecutor(cfg)
 
 	result, code, err := executor.Exec(
 		context.Background(),
@@ -38,8 +43,13 @@ func TestExtendableExecutor_ExecGetTool_ExpectToolDownloaded(t *testing.T) {
 
 func TestExtendableExecutor_ExecEchoCommand_ExpectCommandExecuted(t *testing.T) {
 	tmpDir := givenTmp(t)
-	defer syscall.Rmdir(tmpDir)
-	executor := components.NewDefaultExtendableExecutor(&config.Config{})
+	defer func(path string) {
+		err := syscall.Rmdir(path)
+		if err != nil {
+			t.Log(err)
+		}
+	}(tmpDir)
+	executor := components.NewCleanDefaultExtendableExecutor(&config.Config{})
 
 	result, code, err := executor.Exec(
 		context.Background(),

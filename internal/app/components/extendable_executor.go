@@ -14,7 +14,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-type CommandHandler func(ctx context.Context, args []string, out io.Writer, options contracts.ExecutorOptions) (int, error)
+type CommandHandler func(
+	ctx context.Context,
+	args []string,
+	out io.Writer,
+	options contracts.ExecutorOptions,
+) (int, error)
 
 type CommandsHandlers map[string]CommandHandler
 
@@ -24,6 +29,17 @@ type ExtendableExecutor struct {
 }
 
 func NewDefaultExtendableExecutor(cfg *config.Config) *ExtendableExecutor {
+	getTool := &GetTool{cfg: cfg}
+
+	return &ExtendableExecutor{
+		handlers: CommandsHandlers{
+			"get-tool": getTool.Handle,
+		},
+		innerExecutor: NewExecutor(),
+	}
+}
+
+func NewCleanDefaultExtendableExecutor(cfg *config.Config) *ExtendableExecutor {
 	getTool := &GetTool{cfg: cfg}
 
 	return &ExtendableExecutor{

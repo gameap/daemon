@@ -45,8 +45,8 @@ func CreateServicesApiCaller(ctx context.Context, c Container) contracts.APIRequ
 	return client
 }
 
-func CreateServicesExecutor(_ context.Context, _ Container) contracts.Executor {
-	return components.NewExecutor()
+func CreateServicesExecutor(ctx context.Context, c Container) contracts.Executor {
+	return components.NewDefaultExtendableExecutor(c.Cfg(ctx))
 }
 
 func CreateServicesGdTaskManager(ctx context.Context, c Container) *gdaemonscheduler.TaskManager {

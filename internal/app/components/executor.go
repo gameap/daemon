@@ -72,6 +72,7 @@ func Exec(ctx context.Context, command string, options contracts.ExecutorOptions
 	return out, exitCode, nil
 }
 
+//nolint:lll
 func ExecWithWriter(ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions) (int, error) {
 	if command == "" {
 		return invalidResult, ErrEmptyCommand
