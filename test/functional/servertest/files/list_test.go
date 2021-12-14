@@ -1,6 +1,8 @@
 package files
 
 import (
+	"os"
+
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
@@ -9,6 +11,10 @@ import (
 
 func (suite *Suite) TestListSuccess() {
 	suite.Auth(server.ModeFiles)
+	err := os.Chmod("../../../../test/files/file.txt", 0664)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 	msg := []interface{}{files.ReadDir, "../../../../test/files", files.ListWithDetails}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)

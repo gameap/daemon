@@ -46,6 +46,13 @@ func (suite *Suite) SetupSuite() {
 			Stop:  "{command}",
 		},
 	}
+}
+
+func (suite *Suite) SetupTest() {
+	var err error
+
+	suite.ServerRepository.Clear()
+	suite.ServerTaskRepository.Clear()
 
 	suite.Scheduler = serversscheduler.NewScheduler(
 		suite.Cfg,
@@ -56,13 +63,6 @@ func (suite *Suite) SetupSuite() {
 			suite.Executor,
 		),
 	)
-}
-
-func (suite *Suite) SetupTest() {
-	var err error
-
-	suite.ServerRepository.Clear()
-	suite.ServerTaskRepository.Clear()
 
 	suite.WorkPath, err = ioutil.TempDir("/tmp", "gameap-daemon-test")
 	if err != nil {

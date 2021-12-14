@@ -1,7 +1,6 @@
 package files
 
 import (
-	"io/fs"
 	"os"
 
 	"github.com/et-nik/binngo"
@@ -21,23 +20,23 @@ const (
 	typeSocket      fileType = 7
 )
 
-func fileTypeByMode(fileMode fs.FileMode) fileType {
+func fileTypeByMode(fileMode os.FileMode) fileType {
 	fType := typeUnknown
 
 	switch {
-	case fileMode&fs.ModeSymlink != 0:
+	case fileMode&os.ModeSymlink != 0:
 		fType = typeSymlink
 	case fileMode.IsRegular():
 		fType = typeFile
 	case fileMode.IsDir():
 		fType = typeDir
-	case fileMode&fs.ModeCharDevice != 0:
+	case fileMode&os.ModeCharDevice != 0:
 		fType = typeCharDevice
-	case fileMode&fs.ModeDevice != 0:
+	case fileMode&os.ModeDevice != 0:
 		fType = typeBlockDevice
-	case fileMode&fs.ModeNamedPipe != 0:
+	case fileMode&os.ModeNamedPipe != 0:
 		fType = typeNamedPipe
-	case fileMode&fs.ModeSocket != 0:
+	case fileMode&os.ModeSocket != 0:
 		fType = typeSocket
 	}
 
@@ -52,7 +51,7 @@ type fileInfoResponse struct {
 	Perm         uint32
 }
 
-func createFileInfoResponse(fi fs.FileInfo) *fileInfoResponse {
+func createFileInfoResponse(fi os.FileInfo) *fileInfoResponse {
 	fType := fileTypeByMode(fi.Mode())
 
 	return &fileInfoResponse{

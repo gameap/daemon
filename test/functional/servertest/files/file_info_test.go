@@ -1,6 +1,8 @@
 package files
 
 import (
+	"os"
+
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
@@ -9,6 +11,10 @@ import (
 
 func (suite *Suite) TestTextFileInfoSuccess() {
 	suite.Auth(server.ModeFiles)
+	err := os.Chmod("../../../../test/files/file.txt", 0664)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 	msg := []interface{}{files.FileInfo, "../../../../test/files/file.txt"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
@@ -24,6 +30,10 @@ func (suite *Suite) TestTextFileInfoSuccess() {
 
 func (suite *Suite) TestJsonFileInfoSuccess() {
 	suite.Auth(server.ModeFiles)
+	err := os.Chmod("../../../../test/files/file.json", 0664)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 	msg := []interface{}{files.FileInfo, "../../../../test/files/file.json"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
@@ -39,6 +49,10 @@ func (suite *Suite) TestJsonFileInfoSuccess() {
 
 func (suite *Suite) TestDirectoryInfoSuccess() {
 	suite.Auth(server.ModeFiles)
+	err := os.Chmod("../../../../test/files/directory", 0775)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 	msg := []interface{}{files.FileInfo, "../../../../test/files/directory"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
@@ -54,6 +68,10 @@ func (suite *Suite) TestDirectoryInfoSuccess() {
 
 func (suite *Suite) TestSymlinkInfoSuccess() {
 	suite.Auth(server.ModeFiles)
+	err := os.Chmod("../../../../test/files/symlink_to_file_txt", 0777)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 	msg := []interface{}{files.FileInfo, "../../../../test/files/symlink_to_file_txt"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
@@ -69,6 +87,10 @@ func (suite *Suite) TestSymlinkInfoSuccess() {
 
 func (suite *Suite) TestFileInfo_EmptyFile_Success() {
 	suite.Authenticate()
+	err := os.Chmod("../../../../test/files/empty_file.txt", 0664)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 	msg := []interface{}{files.FileInfo, "../../../../test/files/empty_file.txt"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
