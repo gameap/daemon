@@ -2,6 +2,7 @@ package serversscheduler
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
@@ -20,6 +21,7 @@ type Scheduler struct {
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
 	// Runtime, state
+	mutex       *sync.Mutex
 	lastUpdated time.Time
 	queue       *taskQueue
 }
@@ -33,6 +35,7 @@ func NewScheduler(
 		config:               config,
 		repository:           repository,
 		serverCommandFactory: serverCommandFactory,
+		mutex:                &sync.Mutex{},
 		queue:                newTaskQueue(),
 	}
 }
@@ -67,11 +70,11 @@ func (s *Scheduler) runNext(ctx context.Context) {
 	}
 
 	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
-		"serverTaskID": task.ID,
-		"gameServerID": task.Server.ID(),
+		"serverTaskID": task.ID(),
+		"gameServerID": task.Server().ID(),
 	}))
 
-	if task.ExecuteDate.Before(time.Now()) {
+	if task.ExecuteDate().Before(time.Now()) {
 		s.queue.Remove(task)
 
 		if task.CanExecute() {
@@ -82,9 +85,9 @@ func (s *Scheduler) runNext(ctx context.Context) {
 }
 
 func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) {
-	cmd := s.serverCommandFactory.LoadServerCommand(taskCommandToServerCommand(task.Command))
+	cmd := s.serverCommandFactory.LoadServerCommand(taskCommandToServerCommand(task.Command()))
 
-	err := cmd.Execute(ctx, task.Server)
+	err := cmd.Execute(ctx, task.Server())
 	if err != nil {
 		logger.Logger(ctx).WithError(err).Warn("Failed to execute server task")
 		s.saveFailInfo(ctx, task, err.Error())
@@ -117,6 +120,9 @@ func (s *Scheduler) saveFailInfo(ctx context.Context, task *domain.ServerTask, e
 }
 
 func (s *Scheduler) updateTasksIfNeeded(ctx context.Context) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	if time.Since(s.lastUpdated) <= updateTimeout {
 		return nil
 	}

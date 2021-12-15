@@ -117,3 +117,33 @@ func (suite *Suite) RunServerSchedulerWithTimeout(duration time.Duration) {
 
 	suite.Require().NoError(err)
 }
+
+func (suite *Suite) RunServerSchedulerUntilTaskCounterIncreased(task *domain.ServerTask) {
+	initTaskCounter := task.Counter()
+	startedAt := time.Now()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func(t *testing.T) {
+		t.Helper()
+
+		err := suite.Scheduler.Run(ctx)
+		if err != nil {
+			t.Log(err)
+		}
+	}(suite.T())
+
+	for {
+		if time.Since(startedAt) >= 10*time.Second {
+			cancel()
+			break
+		}
+
+		if task.Counter() > initTaskCounter {
+			cancel()
+			break
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+}

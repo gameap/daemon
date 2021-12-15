@@ -102,7 +102,7 @@ func (repo *ServerTaskRepository) Save(ctx context.Context, task *domain.ServerT
 		URL:    "/gdaemon_api/servers_tasks/{id}",
 		Body:   marshalled,
 		PathParams: map[string]string{
-			"id": strconv.Itoa(task.ID),
+			"id": strconv.Itoa(task.ID()),
 		},
 	})
 	if err != nil {
@@ -134,7 +134,7 @@ func (repo *ServerTaskRepository) Fail(ctx context.Context, task *domain.ServerT
 		URL:    "/gdaemon_api/servers_tasks/{id}/fail",
 		Body:   marshalled,
 		PathParams: map[string]string{
-			"id": strconv.Itoa(task.ID),
+			"id": strconv.Itoa(task.ID()),
 		},
 	})
 	if err != nil {

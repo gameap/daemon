@@ -49,7 +49,7 @@ func (r *ServerTaskRepository) Save(ctx context.Context, task *domain.ServerTask
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	r.items[task.ID] = task
+	r.items[task.ID()] = task
 
 	return nil
 }
@@ -58,15 +58,15 @@ func (r *ServerTaskRepository) Fail(ctx context.Context, task *domain.ServerTask
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	fails, ok := r.fails[task.ID]
+	fails, ok := r.fails[task.ID()]
 	if !ok {
-		r.fails[task.ID] = [][]byte{}
-		fails = r.fails[task.ID]
+		r.fails[task.ID()] = [][]byte{}
+		fails = r.fails[task.ID()]
 	}
 
 	fails = append(fails, output)
 
-	r.fails[task.ID] = fails
+	r.fails[task.ID()] = fails
 
 	return nil
 }
@@ -76,7 +76,7 @@ func (r *ServerTaskRepository) Set(items []*domain.ServerTask) {
 	defer r.mutex.Unlock()
 
 	for _, v := range items {
-		r.items[v.ID] = v
+		r.items[v.ID()] = v
 	}
 }
 
