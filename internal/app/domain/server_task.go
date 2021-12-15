@@ -134,7 +134,7 @@ func (s *ServerTask) RepeatEndlessly() bool {
 func (s *ServerTask) CanExecute() bool {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	
+
 	return s.RepeatEndlessly() || s.repeat > s.counter
 }
 
