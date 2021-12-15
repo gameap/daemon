@@ -99,10 +99,6 @@ func (cfg *Config) validate() error {
 	}
 
 	if _, err := os.Stat(cfg.CACertificateFile); err != nil {
-		return NewInvalidFileError("invalid CA Certificate file", err)
-	}
-
-	if _, err := os.Stat(cfg.CACertificateFile); err != nil {
 		return NewInvalidFileError("invalid CA certificate file (ca_certificate_file)", err)
 	}
 
