@@ -37,6 +37,18 @@ jobs:
       - name: Functional Tests
         run: go test -p 1 -race ./test/functional/... -coverprofile=functional.out
 
+      - name: Merge coverage profile
+        run: |
+          go install github.com/wadey/gocovmerge@latest
+          gocovmerge unit.out functional.out > coverage.out
+
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: coverage.out
+          flag-name: Go-${{ matrix.go }}
+          parallel: true
+
   cross_compile:
     strategy:
       matrix:
@@ -101,3 +113,10 @@ jobs:
         run: go test -race -v $(go list ./... | grep -v /test/)
       - name: Functional Tests
         run: go test -list -race ./test/functional/...
+  finish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shogo82148/actions-goveralls@v1
+        with:
+          parallel-finished: true
