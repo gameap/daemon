@@ -17,6 +17,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
+          stable: false
           go-version: ${{ matrix.go-version }}
 
       - name: Checkout code
