@@ -513,7 +513,7 @@ func (in *installator) installFromSteam(
 
 	in.writeOutput(ctx, "Installing from steam ...")
 
-	var installTries uint8 = 0
+	var installTries uint8
 
 	executorOptions := contracts.ExecutorOptions{
 		WorkDir: cfg.WorkPath,
