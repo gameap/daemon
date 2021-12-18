@@ -40,3 +40,13 @@ func (suite *Suite) TestListSuccess() {
 	assert.Equal(suite.T(), uint8(2), fileTxtInfo[3])
 	assert.Equal(suite.T(), uint16(0664), fileTxtInfo[4])
 }
+
+func (suite *Suite) TestListNotExistenceDirectory() {
+	suite.Auth(server.ModeFiles)
+	msg := []interface{}{files.ReadDir, "../../../../test/not-existence", files.ListWithDetails}
+
+	r := suite.ClientWriteReadAndDecodeList(msg)
+
+	assert.Equal(suite.T(), response.StatusError, response.Code(r[0].(uint8)))
+	assert.Equal(suite.T(), "Directory does not exist", r[1].(string))
+}

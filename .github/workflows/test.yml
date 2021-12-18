@@ -35,7 +35,7 @@ jobs:
         run: go test -race -v $(go list ./... | grep -v /test/) -coverprofile=unit.out
 
       - name: Functional Tests
-        run: go test -p 1 -race ./test/functional/... -coverprofile=functional.out
+        run: go test -p 1 -race ./test/functional/... -coverpkg ./internal/... -coverprofile=functional.out
 
       - name: Merge coverage profile
         run: |
