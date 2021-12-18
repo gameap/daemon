@@ -6,16 +6,16 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
 type NodeConfigInitializer struct {
-	client interfaces.APIRequestMaker
+	client contracts.APIRequestMaker
 }
 
-func NewNodeConfigInitializer(client interfaces.APIRequestMaker) *NodeConfigInitializer {
+func NewNodeConfigInitializer(client contracts.APIRequestMaker) *NodeConfigInitializer {
 	return &NodeConfigInitializer{client: client}
 }
 

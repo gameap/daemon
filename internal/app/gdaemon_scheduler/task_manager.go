@@ -8,53 +8,55 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 )
 
 var updateTimeout = 5 * time.Second
 
-var taskServerCommandMap = map[domain.GDTaskCommand]gameservercommands.ServerCommand{
-	domain.GDTaskGameServerStart:     gameservercommands.Start,
-	domain.GDTaskGameServerPause:     gameservercommands.Pause,
-	domain.GDTaskGameServerStop:      gameservercommands.Stop,
-	domain.GDTaskGameServerKill:      gameservercommands.Kill,
-	domain.GDTaskGameServerRestart:   gameservercommands.Restart,
-	domain.GDTaskGameServerInstall:   gameservercommands.Install,
-	domain.GDTaskGameServerReinstall: gameservercommands.Reinstall,
-	domain.GDTaskGameServerUpdate:    gameservercommands.Update,
-	domain.GDTaskGameServerDelete:    gameservercommands.Delete,
+var taskServerCommandMap = map[domain.GDTaskCommand]domain.ServerCommand{
+	domain.GDTaskGameServerStart:     domain.Start,
+	domain.GDTaskGameServerPause:     domain.Pause,
+	domain.GDTaskGameServerStop:      domain.Stop,
+	domain.GDTaskGameServerKill:      domain.Kill,
+	domain.GDTaskGameServerRestart:   domain.Restart,
+	domain.GDTaskGameServerInstall:   domain.Install,
+	domain.GDTaskGameServerReinstall: domain.Reinstall,
+	domain.GDTaskGameServerUpdate:    domain.Update,
+	domain.GDTaskGameServerDelete:    domain.Delete,
 }
 
 type TaskManager struct {
 	config               *config.Config
 	repository           domain.GDTaskRepository
-	executor             interfaces.Executor
+	executor             contracts.Executor
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
 	// Runtime
+	mutex              *sync.Mutex
 	lastUpdated        time.Time
-	commandsInProgress sync.Map // map[domain.GDTask]interfaces.CommandResultReader
-	queue              taskQueue
-	cache              interfaces.Cache
+	commandsInProgress sync.Map // map[domain.GDTask]contracts.CommandResultReader
+	queue              *taskQueue
+	cache              contracts.Cache
 }
 
 func NewTaskManager(
 	repository domain.GDTaskRepository,
-	cache interfaces.Cache,
+	cache contracts.Cache,
 	serverCommandFactory *gameservercommands.ServerCommandFactory,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 	config *config.Config,
 ) *TaskManager {
 	return &TaskManager{
 		config:               config,
 		repository:           repository,
 		cache:                cache,
-		queue:                taskQueue{},
+		queue:                newTaskQueue(),
 		serverCommandFactory: serverCommandFactory,
+		mutex:                &sync.Mutex{},
 		executor:             executor,
 	}
 }
@@ -204,7 +206,7 @@ func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDT
 	logger.Debug(ctx, "Running task command")
 
 	go func() {
-		err := cmd.Execute(ctx, task.Command(), components.ExecutorOptions{
+		err := cmd.Execute(ctx, task.Command(), contracts.ExecutorOptions{
 			WorkDir: manager.config.WorkDir(),
 		})
 
@@ -225,7 +227,7 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 		return ErrInvalidTaskError
 	}
 
-	cmdFunc := manager.serverCommandFactory.LoadServerCommandFunc(cmd)
+	cmdFunc := manager.serverCommandFactory.LoadServerCommand(cmd)
 
 	manager.commandsInProgress.Store(*task, cmdFunc)
 
@@ -249,7 +251,7 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 		return errors.New("[gdaemon_scheduler.TaskManager] task not exist in working tasks")
 	}
 
-	cmd := c.(interfaces.CommandResultReader)
+	cmd := c.(contracts.CommandResultReader)
 
 	if cmd.IsComplete() {
 		if cmd.Result() == gameservercommands.SuccessResult {
@@ -288,6 +290,9 @@ func (manager *TaskManager) appendTaskOutput(ctx context.Context, task *domain.G
 }
 
 func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+
 	if time.Since(manager.lastUpdated) <= updateTimeout {
 		return nil
 	}
@@ -308,19 +313,25 @@ func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
 
 type taskQueue struct {
 	tasks []*domain.GDTask
-	mutex sync.Mutex
+	mutex *sync.Mutex
+}
+
+func newTaskQueue() *taskQueue {
+	return &taskQueue{
+		mutex: &sync.Mutex{},
+	}
 }
 
 func (q *taskQueue) Insert(tasks []*domain.GDTask) {
 	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
 	for _, t := range tasks {
 		existenceTask := q.FindByID(t.ID())
 		if existenceTask == nil {
 			q.tasks = append(q.tasks, t)
 		}
 	}
-
-	q.mutex.Unlock()
 }
 
 func (q *taskQueue) Dequeue() *domain.GDTask {
@@ -394,26 +405,32 @@ func (q *taskQueue) Len() int {
 
 type executeCommand struct {
 	output   io.ReadWriter
+	mu       *sync.Mutex
 	complete bool
 	result   int
 
-	executor interfaces.Executor
+	executor contracts.Executor
 }
 
-func newExecuteCommand(executor interfaces.Executor) *executeCommand {
+func newExecuteCommand(executor contracts.Executor) *executeCommand {
 	return &executeCommand{
 		executor: executor,
 		output:   components.NewSafeBuffer(),
+		mu:       &sync.Mutex{},
 	}
 }
 
 func (e *executeCommand) Execute(
 	ctx context.Context,
 	command string,
-	options components.ExecutorOptions,
+	options contracts.ExecutorOptions,
 ) error {
-	var err error
-	e.result, err = e.executor.ExecWithWriter(ctx, command, e.output, options)
+	result, err := e.executor.ExecWithWriter(ctx, command, e.output, options)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.result = result
 	e.complete = true
 
 	return err
@@ -429,9 +446,15 @@ func (e *executeCommand) ReadOutput() []byte {
 }
 
 func (e *executeCommand) Result() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	return e.result
 }
 
 func (e *executeCommand) IsComplete() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	return e.complete
 }

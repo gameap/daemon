@@ -8,7 +8,7 @@ import (
 	"context"
 	"github.com/gameap/daemon/internal/app/config"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -24,7 +24,7 @@ type Container struct {
 	cfg                  *config.Config
 	logger               *logrus.Logger
 	processRunner        *services.Runner
-	cacheManager         interfaces.Cache
+	cacheManager         contracts.Cache
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
 	services     *ServicesContainer
@@ -55,8 +55,8 @@ type ServicesContainer struct {
 	*Container
 
 	resty         *resty.Client
-	apiCaller     interfaces.APIRequestMaker
-	executor      interfaces.Executor
+	apiCaller     contracts.APIRequestMaker
+	executor      contracts.Executor
 	gdTaskManager *gdaemonscheduler.TaskManager
 }
 
@@ -83,7 +83,7 @@ func (c *Container) ProcessRunner(ctx context.Context) *services.Runner {
 	return c.processRunner
 }
 
-func (c *Container) CacheManager(ctx context.Context) interfaces.Cache {
+func (c *Container) CacheManager(ctx context.Context) contracts.Cache {
 	if c.cacheManager == nil && c.err == nil {
 		c.cacheManager = definitions.CreateCacheManager(ctx, c)
 	}
@@ -108,14 +108,14 @@ func (c *ServicesContainer) Resty(ctx context.Context) *resty.Client {
 	return c.resty
 }
 
-func (c *ServicesContainer) ApiCaller(ctx context.Context) interfaces.APIRequestMaker {
+func (c *ServicesContainer) ApiCaller(ctx context.Context) contracts.APIRequestMaker {
 	if c.apiCaller == nil && c.err == nil {
 		c.apiCaller = definitions.CreateServicesApiCaller(ctx, c)
 	}
 	return c.apiCaller
 }
 
-func (c *ServicesContainer) Executor(ctx context.Context) interfaces.Executor {
+func (c *ServicesContainer) Executor(ctx context.Context) contracts.Executor {
 	if c.executor == nil && c.err == nil {
 		c.executor = definitions.CreateServicesExecutor(ctx, c)
 	}
@@ -162,7 +162,7 @@ func (c *Container) SetLogger(s *logrus.Logger) {
 	c.logger = s
 }
 
-func (c *ServicesContainer) SetApiCaller(s interfaces.APIRequestMaker) {
+func (c *ServicesContainer) SetApiCaller(s contracts.APIRequestMaker) {
 	c.apiCaller = s
 }
 

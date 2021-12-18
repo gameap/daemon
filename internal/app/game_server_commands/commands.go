@@ -5,10 +5,11 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 )
 
 const (
@@ -17,34 +18,22 @@ const (
 	ErrorResult   = 1
 )
 
-type ServerCommand int
+type LoadServerCommandFunc func(cmd domain.ServerCommand) contracts.GameServerCommand
 
-const (
-	invalid ServerCommand = iota
-	Start
-	Pause
-	Unpause
-	Status
-	Stop
-	Kill
-	Restart
-	Update
-	Install
-	Reinstall
-	Delete
-	end
-)
+var nilLoadServerCommandFunc = func(cmd domain.ServerCommand) contracts.GameServerCommand {
+	return nil
+}
 
 type ServerCommandFactory struct {
 	cfg        *config.Config
 	serverRepo domain.ServerRepository
-	executor   interfaces.Executor
+	executor   contracts.Executor
 }
 
 func NewFactory(
 	cfg *config.Config,
 	serverRepo domain.ServerRepository,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 ) *ServerCommandFactory {
 	return &ServerCommandFactory{
 		cfg,
@@ -53,21 +42,18 @@ func NewFactory(
 	}
 }
 
-func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) interfaces.GameServerCommand {
-	if cmd <= invalid || cmd >= end {
-		return nil
-	}
-
+//nolint:funlen
+func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand) contracts.GameServerCommand {
 	switch cmd {
-	case Start:
+	case domain.Start:
 		return newStartServer(
 			factory.cfg,
 			factory.executor,
-			newUpdateServer(factory.cfg, factory.executor, factory.serverRepo),
+			factory.LoadServerCommand,
 		)
-	case Stop, Kill:
+	case domain.Stop, domain.Kill:
 		return newStopServer(factory.cfg, factory.executor)
-	case Restart:
+	case domain.Restart:
 		return newRestartServer(
 			factory.cfg,
 			factory.executor,
@@ -76,25 +62,46 @@ func (factory *ServerCommandFactory) LoadServerCommandFunc(cmd ServerCommand) in
 			newStartServer(
 				factory.cfg,
 				factory.executor,
-				newUpdateServer(factory.cfg, factory.executor, factory.serverRepo),
+				factory.LoadServerCommand,
 			),
 		)
-	case Status:
+	case domain.Status:
 		return newStatusServer(factory.cfg, factory.executor)
-	case Install:
-		return newInstallServer(factory.cfg, factory.executor, factory.serverRepo)
-	case Update:
-		return newUpdateServer(factory.cfg, factory.executor, factory.serverRepo)
-	case Reinstall:
-		return newCommandList(factory.cfg, factory.executor, []interfaces.GameServerCommand{
+	case domain.Install:
+		return newInstallServer(
+			factory.cfg,
+			factory.executor,
+			factory.serverRepo,
+			newStatusServer(factory.cfg, factory.executor),
+			newStopServer(factory.cfg, factory.executor),
+			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+		)
+	case domain.Update:
+		return newUpdateServer(
+			factory.cfg,
+			factory.executor,
+			factory.serverRepo,
+			newStatusServer(factory.cfg, factory.executor),
+			newStopServer(factory.cfg, factory.executor),
+			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+		)
+	case domain.Reinstall:
+		return newCommandList(factory.cfg, factory.executor, []contracts.GameServerCommand{
 			newDeleteServer(factory.cfg, factory.executor),
-			newInstallServer(factory.cfg, factory.executor, factory.serverRepo),
+			newInstallServer(
+				factory.cfg,
+				factory.executor,
+				factory.serverRepo,
+				newStatusServer(factory.cfg, factory.executor),
+				newStopServer(factory.cfg, factory.executor),
+				newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+			),
 		})
-	case Delete:
+	case domain.Delete:
 		return newDeleteServer(factory.cfg, factory.executor)
-	case Pause:
-	case Unpause:
-		return newNotImplementedCommand()
+	case domain.Pause:
+	case domain.Unpause:
+		return newNotImplementedCommand(factory.cfg, factory.executor)
 	}
 
 	return nil
@@ -130,6 +137,7 @@ func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domai
 	command = strings.ReplaceAll(command, "{user}", server.User())
 
 	command = strings.ReplaceAll(command, "{node_work_path}", cfg.WorkPath)
+	command = strings.ReplaceAll(command, "{node_tools_path}", cfg.WorkPath+"/tools")
 
 	for k, v := range server.Vars() {
 		command = strings.ReplaceAll(command, "{"+k+"}", v)
@@ -139,18 +147,49 @@ func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domai
 }
 
 type baseCommand struct {
-	executor interfaces.Executor
 	cfg      *config.Config
+	executor contracts.Executor
+	mutex    *sync.Mutex
 	complete bool
 	result   int
 }
 
+func newBaseCommand(cfg *config.Config, executor contracts.Executor) baseCommand {
+	return baseCommand{
+		cfg:      cfg,
+		executor: executor,
+		complete: false,
+		result:   UnknownResult,
+		mutex:    &sync.Mutex{},
+	}
+}
+
 func (c *baseCommand) Result() int {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	return c.result
 }
 
+func (c *baseCommand) SetResult(result int) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.result = result
+}
+
 func (c *baseCommand) IsComplete() bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	return c.complete
+}
+
+func (c *baseCommand) SetComplete() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.complete = true
 }
 
 type bufCommand struct {
@@ -168,22 +207,17 @@ func (c *bufCommand) ReadOutput() []byte {
 type commandList struct {
 	baseCommand
 
-	commands []interfaces.GameServerCommand
+	commands []contracts.GameServerCommand
 }
 
 func newCommandList(
 	cfg *config.Config,
-	executor interfaces.Executor,
-	commands []interfaces.GameServerCommand,
+	executor contracts.Executor,
+	commands []contracts.GameServerCommand,
 ) *commandList {
 	return &commandList{
-		baseCommand: baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
-		commands: commands,
+		baseCommand: newBaseCommand(cfg, executor),
+		commands:    commands,
 	}
 }
 
@@ -204,14 +238,14 @@ func (c *commandList) Execute(ctx context.Context, server *domain.Server) error 
 		}
 
 		if c.commands[i].Result() != SuccessResult {
-			c.result = c.commands[i].Result()
-			c.complete = true
+			c.SetResult(c.commands[i].Result())
+			c.SetComplete()
 			return nil
 		}
 	}
 
-	c.complete = true
-	c.result = 1
+	c.SetComplete()
+	c.SetResult(SuccessResult)
 
 	return nil
 }
@@ -225,20 +259,18 @@ type nilCommand struct {
 }
 
 func (n *nilCommand) Execute(ctx context.Context, _ *domain.Server) error {
-	n.complete = true
-	n.result = n.resultCode
+	n.SetComplete()
+	n.SetResult(n.resultCode)
+
 	_, _ = n.output.Write([]byte(n.message))
 
 	return nil
 }
 
-func newNotImplementedCommand() *nilCommand {
+func newNotImplementedCommand(cfg *config.Config, executor contracts.Executor) *nilCommand {
 	return &nilCommand{
-		baseCommand: baseCommand{
-			complete: false,
-			result:   UnknownResult,
-		},
-		message:    "not implemented command",
-		resultCode: ErrorResult,
+		baseCommand: newBaseCommand(cfg, executor),
+		message:     "not implemented command",
+		resultCode:  ErrorResult,
 	}
 }

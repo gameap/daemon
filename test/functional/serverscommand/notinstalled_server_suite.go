@@ -6,9 +6,9 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
 )
@@ -19,7 +19,7 @@ type NotInstalledServerSuite struct {
 	CommandFactory   *gameservercommands.ServerCommandFactory
 	Cfg              *config.Config
 	ServerRepository domain.ServerRepository
-	Executor         interfaces.Executor
+	Executor         contracts.Executor
 	WorkPath         string
 }
 

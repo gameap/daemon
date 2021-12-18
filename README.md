@@ -1,5 +1,7 @@
 # GameAP Daemon
 
+[![Coverage Status](https://coveralls.io/repos/github/gameap/daemon/badge.svg?branch=develop)](https://coveralls.io/github/gameap/daemon?branch=develop)
+
 The server management daemon
 
 ## Configuration

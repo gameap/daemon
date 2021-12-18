@@ -102,6 +102,9 @@ func readDir(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	}
 
 	dir, err := os.ReadDir(message.Directory)
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		return writeError(readWriter, "Directory does not exist")
+	}
 	if err != nil {
 		return err
 	}
@@ -146,11 +149,11 @@ func moveCopy(ctx context.Context, m message, readWriter io.ReadWriter) error {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	if _, err := os.Stat(message.Source); os.IsNotExist(err) {
+	if _, err := os.Stat(message.Source); errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, fmt.Sprintf("Source \"%s\" not found", message.Source))
 	}
 
-	if _, err := os.Stat(message.Destination); !os.IsNotExist(err) {
+	if _, err := os.Stat(message.Destination); !errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, fmt.Sprintf("Destination \"%s\" already exists", message.Destination))
 	}
 
@@ -221,7 +224,7 @@ func sendFileToClient(ctx context.Context, m message, readWriter io.ReadWriter) 
 		logger.Error(ctx, err)
 		return writeError(readWriter, fmt.Sprintf("File \"%s\" error", message.FilePath))
 	}
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, fmt.Sprintf("File \"%s\" not found", message.FilePath))
 	}
 

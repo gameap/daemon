@@ -8,7 +8,7 @@ import (
 	"context"
 	"github.com/gameap/daemon/internal/app/config"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -24,7 +24,7 @@ type Container interface {
 	Cfg(ctx context.Context) *config.Config
 	Logger(ctx context.Context) *logrus.Logger
 	ProcessRunner(ctx context.Context) *services.Runner
-	CacheManager(ctx context.Context) interfaces.Cache
+	CacheManager(ctx context.Context) contracts.Cache
 	ServerCommandFactory(ctx context.Context) *gameservercommands.ServerCommandFactory
 
 	Services() ServicesContainer
@@ -33,8 +33,8 @@ type Container interface {
 
 type ServicesContainer interface {
 	Resty(ctx context.Context) *resty.Client
-	ApiCaller(ctx context.Context) interfaces.APIRequestMaker
-	Executor(ctx context.Context) interfaces.Executor
+	ApiCaller(ctx context.Context) contracts.APIRequestMaker
+	Executor(ctx context.Context) contracts.Executor
 	GdTaskManager(ctx context.Context) *gdaemonscheduler.TaskManager
 }
 

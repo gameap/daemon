@@ -19,9 +19,9 @@ func TestSuite(t *testing.T) {
 }
 
 func (suite *Suite) SetupTest() {
-	var err error
+	suite.Suite.SetupTest()
 
-	suite.GDTaskRepository.Clear()
+	var err error
 
 	suite.WorkPath, err = ioutil.TempDir("/tmp", "gameap-daemon-test")
 	if err != nil {
@@ -39,9 +39,12 @@ func (suite *Suite) SetupTest() {
 	}
 
 	suite.Cfg.WorkPath = suite.WorkPath
+	suite.Cfg.ToolsPath = suite.WorkPath + "/tools"
 }
 
 func (suite *Suite) TearDownTest() {
+	suite.GDTaskRepository.Clear()
+
 	err := os.RemoveAll(suite.WorkPath)
 	if err != nil {
 		suite.T().Log(err)

@@ -6,8 +6,8 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
@@ -16,40 +16,48 @@ type startServer struct {
 
 	startOutput io.ReadWriter
 
-	update *installServer
+	loadServerCommand LoadServerCommandFunc
+
+	updateCommand        contracts.GameServerCommand
+	enableUpdatingBefore bool
 }
 
-func newStartServer(cfg *config.Config, executor interfaces.Executor, update *installServer) *startServer {
+func newStartServer(
+	cfg *config.Config,
+	executor contracts.Executor,
+	loadServerCommand LoadServerCommandFunc,
+) *startServer {
 	return &startServer{
-		baseCommand: baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
-		startOutput: components.NewSafeBuffer(),
-		update:      update,
+		baseCommand:       newBaseCommand(cfg, executor),
+		startOutput:       components.NewSafeBuffer(),
+		loadServerCommand: loadServerCommand,
 	}
 }
 
 func (s *startServer) Execute(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Start, server.StartCommand())
 
-	var err error
+	if s.enableUpdatingBefore && server.UpdateBeforeStart() {
+		updateCmd := s.loadServerCommand(domain.Update)
 
-	if server.UpdateBeforeStart() && s.update != nil {
-		err = s.update.Execute(ctx, server)
-		if err != nil {
-			s.complete = true
-			return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
+		if updateCmd != nil {
+			s.updateCommand = updateCmd
+			err := updateCmd.Execute(ctx, server)
+			if err != nil {
+				s.SetComplete()
+				return errors.WithMessage(err, "[game_server_commands.startServer] failed to update server before start")
+			}
 		}
 	}
 
-	s.result, err = s.executor.ExecWithWriter(ctx, command, s.startOutput, components.ExecutorOptions{
+	result, err := s.executor.ExecWithWriter(ctx, command, s.startOutput, contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkPath,
 	})
-	s.complete = true
+
+	s.SetResult(result)
+	s.SetComplete()
+
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.startServer] failed to execute start command")
 	}
@@ -62,8 +70,8 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 func (s *startServer) ReadOutput() []byte {
 	var out []byte
 
-	if s.update != nil {
-		out = s.update.ReadOutput()
+	if s.updateCommand != nil {
+		out = s.updateCommand.ReadOutput()
 	}
 
 	startOut, err := io.ReadAll(s.startOutput)

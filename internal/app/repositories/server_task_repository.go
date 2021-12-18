@@ -7,18 +7,18 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/pkg/errors"
 )
 
 type ServerTaskRepository struct {
-	client           interfaces.APIRequestMaker
+	client           contracts.APIRequestMaker
 	serverRepository domain.ServerRepository
 }
 
 func NewServerTaskRepository(
-	client interfaces.APIRequestMaker,
+	client contracts.APIRequestMaker,
 	serverRepository domain.ServerRepository,
 ) *ServerTaskRepository {
 	return &ServerTaskRepository{
@@ -102,7 +102,7 @@ func (repo *ServerTaskRepository) Save(ctx context.Context, task *domain.ServerT
 		URL:    "/gdaemon_api/servers_tasks/{id}",
 		Body:   marshalled,
 		PathParams: map[string]string{
-			"id": strconv.Itoa(task.ID),
+			"id": strconv.Itoa(task.ID()),
 		},
 	})
 	if err != nil {
@@ -134,7 +134,7 @@ func (repo *ServerTaskRepository) Fail(ctx context.Context, task *domain.ServerT
 		URL:    "/gdaemon_api/servers_tasks/{id}/fail",
 		Body:   marshalled,
 		PathParams: map[string]string{
-			"id": strconv.Itoa(task.ID),
+			"id": strconv.Itoa(task.ID()),
 		},
 	})
 	if err != nil {

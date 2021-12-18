@@ -9,7 +9,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/di/internal"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/sirupsen/logrus"
 	"sync"
@@ -58,7 +58,7 @@ func (c *Container) ProcessRunner(ctx context.Context) (*services.Runner, error)
 	return s, err
 }
 
-func SetApiCaller(s interfaces.APIRequestMaker) Injector {
+func SetApiCaller(s contracts.APIRequestMaker) Injector {
 	return func(c *Container) error {
 		c.c.Services().(*internal.ServicesContainer).SetApiCaller(s)
 

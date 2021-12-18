@@ -12,8 +12,10 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/test/mocks"
+	"github.com/gameap/daemon/test/mocks/commandmocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -196,7 +198,14 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
+	install := newInstallServer(
+		cfg,
+		components.NewExecutor(),
+		mocks.NewServerRepository(),
+		commandmocks.LoadServerCommand(domain.Status),
+		commandmocks.LoadServerCommand(domain.Stop),
+		commandmocks.LoadServerCommand(domain.Start),
+	)
 
 	err = install.Execute(context.Background(), givenRemoteInstallationServer(t))
 
@@ -214,7 +223,14 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
+	install := newInstallServer(
+		cfg,
+		components.NewExecutor(),
+		mocks.NewServerRepository(),
+		commandmocks.LoadServerCommand(domain.Status),
+		commandmocks.LoadServerCommand(domain.Stop),
+		commandmocks.LoadServerCommand(domain.Start),
+	)
 
 	err = install.Execute(context.Background(), givenLocalInstallationServer(t))
 
@@ -232,7 +248,14 @@ func TestInstallation_RunAfterInstallScript(t *testing.T) {
 	cfg := &config.Config{
 		WorkPath: workPath,
 	}
-	install := newInstallServer(cfg, components.NewExecutor(), mocks.NewServerRepository())
+	install := newInstallServer(
+		cfg,
+		components.NewExecutor(),
+		mocks.NewServerRepository(),
+		commandmocks.LoadServerCommand(domain.Status),
+		commandmocks.LoadServerCommand(domain.Stop),
+		commandmocks.LoadServerCommand(domain.Start),
+	)
 
 	err = install.Execute(context.Background(), givenLocalInstallationServerWithAfterInstallScript(t))
 
@@ -373,13 +396,13 @@ type testExecutor struct {
 	command string
 }
 
-func (ex *testExecutor) Exec(ctx context.Context, command string, options components.ExecutorOptions) ([]byte, int, error) {
+func (ex *testExecutor) Exec(ctx context.Context, command string, options contracts.ExecutorOptions) ([]byte, int, error) {
 	ex.command = command
 
 	return []byte(""), 0, nil
 }
 
-func (ex *testExecutor) ExecWithWriter(ctx context.Context, command string, out io.Writer, options components.ExecutorOptions) (int, error) {
+func (ex *testExecutor) ExecWithWriter(ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions) (int, error) {
 	ex.command = command
 
 	return 0, nil

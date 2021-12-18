@@ -2,10 +2,10 @@ package internal
 
 import (
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -19,7 +19,7 @@ type Container struct {
 
 	processRunner *services.Runner `di:"public"`
 
-	cacheManager interfaces.Cache
+	cacheManager contracts.Cache
 
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
@@ -29,8 +29,8 @@ type Container struct {
 
 type ServicesContainer struct {
 	resty     *resty.Client
-	apiCaller interfaces.APIRequestMaker `di:"set"`
-	executor  interfaces.Executor
+	apiCaller contracts.APIRequestMaker `di:"set"`
+	executor  contracts.Executor
 
 	gdTaskManager *gdaemonscheduler.TaskManager
 }

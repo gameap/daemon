@@ -8,10 +8,11 @@ import (
 	"strconv"
 	"syscall"
 
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/pkg/errors"
 )
 
-func setCMDSysProcCredential(cmd *exec.Cmd, options ExecutorOptions) (*exec.Cmd, error) {
+func setCMDSysProcCredential(cmd *exec.Cmd, options contracts.ExecutorOptions) (*exec.Cmd, error) {
 	uid, err := strconv.Atoi(options.UID)
 	if err != nil {
 		return nil, errors.WithMessage(err, "[game_server_commands.installator] invalid user uid")

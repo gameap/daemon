@@ -12,8 +12,8 @@ import (
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/hashicorp/go-getter"
 	"github.com/otiai10/copy"
@@ -55,67 +55,80 @@ type installationRule struct {
 	Action      installAction
 }
 
+//nolint: maligned
 type installServer struct {
 	baseCommand
-	bufCommand
 
 	installator *installator
 	serverRepo  domain.ServerRepository
 	kind        installatorKind
+
+	installOutput                     io.ReadWriter
+	serverWasActiveBeforeInstallation bool
+	statusCommand                     contracts.GameServerCommand
+	stopCommand                       contracts.GameServerCommand
+	startCommand                      contracts.GameServerCommand
 }
 
 func newUpdateServer(
 	cfg *config.Config,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 	serverRepo domain.ServerRepository,
+	statusCommand contracts.GameServerCommand,
+	stopCommand contracts.GameServerCommand,
+	startCommand contracts.GameServerCommand,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newUpdater(cfg, executor, buffer)
 
 	return &installServer{
-		baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
-		bufCommand{output: buffer},
-		inst,
-		serverRepo,
-		updater,
+		baseCommand:   newBaseCommand(cfg, executor),
+		installator:   inst,
+		serverRepo:    serverRepo,
+		kind:          updater,
+		installOutput: buffer,
+		statusCommand: statusCommand,
+		stopCommand:   stopCommand,
+		startCommand:  startCommand,
 	}
 }
 
 func newInstallServer(
 	cfg *config.Config,
-	executor interfaces.Executor,
+	executor contracts.Executor,
 	serverRepo domain.ServerRepository,
+	statusCommand contracts.GameServerCommand,
+	stopCommand contracts.GameServerCommand,
+	startCommand contracts.GameServerCommand,
 ) *installServer {
 	buffer := components.NewSafeBuffer()
 	inst := newInstallator(cfg, executor, buffer)
 
 	return &installServer{
-		baseCommand{
-			cfg:      cfg,
-			executor: executor,
-			complete: false,
-			result:   UnknownResult,
-		},
-		bufCommand{output: buffer},
-		inst,
-		serverRepo,
-		installer,
+		baseCommand:   newBaseCommand(cfg, executor),
+		installator:   inst,
+		serverRepo:    serverRepo,
+		kind:          installer,
+		installOutput: buffer,
+		statusCommand: statusCommand,
+		stopCommand:   stopCommand,
+		startCommand:  startCommand,
 	}
 }
 
 func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) error {
 	defer func() {
-		cmd.complete = true
+		cmd.SetComplete()
 	}()
 
 	server.AffectInstall()
 
 	var err error
+
+	err = cmd.stopServerIfNeeded(ctx, server)
+	if err != nil {
+		return err
+	}
 
 	if cmd.cfg.Scripts.Install != "" {
 		err = cmd.installByScript(ctx, server)
@@ -124,8 +137,79 @@ func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) er
 	}
 
 	if err != nil {
-		cmd.result = ErrorResult
+		cmd.SetResult(ErrorResult)
 		return errors.WithMessage(err, "[game_server_commands.installServer] failed to install game server")
+	}
+
+	return cmd.startServerIfNeeded(ctx, server)
+}
+
+func (cmd *installServer) ReadOutput() []byte {
+	var out []byte
+
+	if cmd.statusCommand != nil {
+		out = append(out, cmd.statusCommand.ReadOutput()...)
+	}
+
+	if cmd.stopCommand != nil {
+		out = append(out, cmd.stopCommand.ReadOutput()...)
+	}
+
+	installOutput, err := io.ReadAll(cmd.installOutput)
+	if err != nil {
+		return nil
+	}
+	out = append(out, installOutput...)
+
+	if cmd.startCommand != nil {
+		out = append(out, cmd.startCommand.ReadOutput()...)
+	}
+
+	return out
+}
+
+func (cmd *installServer) stopServerIfNeeded(ctx context.Context, server *domain.Server) error {
+	if server.InstallationStatus() != domain.ServerInstalled {
+		return nil
+	}
+
+	err := cmd.statusCommand.Execute(ctx, server)
+	if err != nil {
+		return errors.WithMessage(
+			err,
+			"[game_server_commands.installServer] failed to check server status before installation/updating",
+		)
+	}
+
+	if cmd.statusCommand.Result() != SuccessResult {
+		cmd.serverWasActiveBeforeInstallation = false
+		return nil
+	}
+
+	cmd.serverWasActiveBeforeInstallation = true
+
+	err = cmd.stopCommand.Execute(ctx, server)
+	if err != nil {
+		return errors.WithMessage(
+			err,
+			"[game_server_commands.installServer] failed to stop server before installation/updating",
+		)
+	}
+
+	return nil
+}
+
+func (cmd *installServer) startServerIfNeeded(ctx context.Context, server *domain.Server) error {
+	if !cmd.serverWasActiveBeforeInstallation {
+		return nil
+	}
+
+	err := cmd.startCommand.Execute(ctx, server)
+	if err != nil {
+		return errors.WithMessage(
+			err,
+			"[game_server_commands.installServer] failed to start server after installation/updating",
+		)
 	}
 
 	return nil
@@ -134,22 +218,23 @@ func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) er
 func (cmd *installServer) installByScript(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Install, "")
 
-	_, _ = cmd.output.Write([]byte("Executing install script ...\n"))
+	_, _ = cmd.installOutput.Write([]byte("Executing install script ...\n"))
 
-	var err error
-	cmd.result, err = cmd.executor.ExecWithWriter(ctx, command, cmd.output, components.ExecutorOptions{
+	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.installOutput, contracts.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkPath,
 	})
 
-	cmd.complete = true
+	cmd.SetComplete()
+	cmd.SetResult(result)
+
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.installServer] failed to install by script")
 	}
 
-	if cmd.result == SuccessResult {
-		_, _ = cmd.output.Write([]byte("\nExecuting install script successfully completed\n"))
+	if result == SuccessResult {
+		_, _ = cmd.installOutput.Write([]byte("\nExecuting install script successfully completed\n"))
 	} else {
-		_, _ = cmd.output.Write([]byte("\nExecuting script ended with an error\n"))
+		_, _ = cmd.installOutput.Write([]byte("\nExecuting script ended with an error\n"))
 	}
 
 	return nil
@@ -166,11 +251,11 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 		return ErrDefinedNoGameInstallationRulesError
 	}
 
-	_, _ = cmd.output.Write([]byte("Installing game files ...\n"))
+	_, _ = cmd.installOutput.Write([]byte("Installing game files ...\n"))
 
 	err := cmd.installator.Install(ctx, server, gameRules)
 	if err != nil {
-		cmd.result = ErrorResult
+		cmd.SetResult(ErrorResult)
 		return err
 	}
 
@@ -178,18 +263,18 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 		gameModRules := sd.DefineGameModRules(&gameMod)
 
 		if len(gameModRules) > 0 {
-			_, _ = cmd.output.Write([]byte("\n\n"))
-			_, _ = cmd.output.Write([]byte("Installing game mod files ...\n"))
+			_, _ = cmd.installOutput.Write([]byte("\n\n"))
+			_, _ = cmd.installOutput.Write([]byte("Installing game mod files ...\n"))
 
 			err = cmd.installator.Install(ctx, server, gameModRules)
 			if err != nil {
-				cmd.result = ErrorResult
+				cmd.SetResult(ErrorResult)
 				return err
 			}
 		}
 	}
 
-	cmd.result = SuccessResult
+	cmd.SetResult(SuccessResult)
 
 	return nil
 }
@@ -286,12 +371,12 @@ func (d *installationRulesDefiner) DefineGameModRules(gameMod *domain.GameMod) [
 
 type installator struct {
 	cfg      *config.Config
-	executor interfaces.Executor
+	executor contracts.Executor
 	output   io.ReadWriter
 	kind     installatorKind
 }
 
-func newInstallator(cfg *config.Config, executor interfaces.Executor, output io.ReadWriter) *installator {
+func newInstallator(cfg *config.Config, executor contracts.Executor, output io.ReadWriter) *installator {
 	return &installator{
 		cfg:      cfg,
 		executor: executor,
@@ -300,7 +385,7 @@ func newInstallator(cfg *config.Config, executor interfaces.Executor, output io.
 	}
 }
 
-func newUpdater(cfg *config.Config, executor interfaces.Executor, output io.ReadWriter) *installator {
+func newUpdater(cfg *config.Config, executor contracts.Executor, output io.ReadWriter) *installator {
 	return &installator{
 		cfg:      cfg,
 		executor: executor,
@@ -428,9 +513,9 @@ func (in *installator) installFromSteam(
 
 	in.writeOutput(ctx, "Installing from steam ...")
 
-	var installTries uint8 = 0
+	var installTries uint8
 
-	executorOptions := components.ExecutorOptions{
+	executorOptions := contracts.ExecutorOptions{
 		WorkDir: cfg.WorkPath,
 	}
 
@@ -557,7 +642,7 @@ func (in *installator) runAfterInstallScript(
 
 	if in.kind == installer {
 		in.writeOutput(ctx, "Executing after install script")
-		result, err := in.executor.ExecWithWriter(ctx, scriptFullPath, in.output, components.ExecutorOptions{
+		result, err := in.executor.ExecWithWriter(ctx, scriptFullPath, in.output, contracts.ExecutorOptions{
 			WorkDir: serverPath,
 		})
 		if err != nil {

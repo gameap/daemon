@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 type GDTaskStatus string
 
@@ -49,7 +52,9 @@ type GDTask struct {
 	server     *Server
 	task       GDTaskCommand
 	cmd        string
-	status     GDTaskStatus
+
+	statusMutex *sync.Mutex
+	status      GDTaskStatus
 }
 
 func NewGDTask(
@@ -66,6 +71,7 @@ func NewGDTask(
 		server,
 		task,
 		cmd,
+		&sync.Mutex{},
 		status,
 	}
 }
@@ -99,6 +105,9 @@ func (task *GDTask) Server() *Server {
 }
 
 func (task *GDTask) SetStatus(status GDTaskStatus) error {
+	task.statusMutex.Lock()
+	defer task.statusMutex.Unlock()
+
 	task.status = status
 
 	task.affectServer()
@@ -120,14 +129,23 @@ func (task *GDTask) affectServer() {
 }
 
 func (task *GDTask) IsWaiting() bool {
+	task.statusMutex.Lock()
+	defer task.statusMutex.Unlock()
+
 	return task.status == GDTaskStatusWaiting
 }
 
 func (task *GDTask) IsWorking() bool {
+	task.statusMutex.Lock()
+	defer task.statusMutex.Unlock()
+
 	return task.status == GDTaskStatusWorking
 }
 
 func (task *GDTask) IsComplete() bool {
+	task.statusMutex.Lock()
+	defer task.statusMutex.Unlock()
+
 	return task.status == GDTaskStatusError ||
 		task.status == GDTaskStatusSuccess ||
 		task.status == GDTaskStatusCanceled

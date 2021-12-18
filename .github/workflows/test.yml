@@ -10,13 +10,14 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.15.x, 1.16.x, 1.17.x]
+        go-version: [1.16.x, 1.17.x, 1.18.0-beta1]
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
+          stable: false
           go-version: ${{ matrix.go-version }}
 
       - name: Checkout code
@@ -31,11 +32,22 @@ jobs:
           version: v1.43.0
 
       - name: Unit Tests
-        run: go test -race -v $(go list ./... | grep -v /test/)
+        run: go test -race -v $(go list ./... | grep -v /test/) -coverprofile=unit.out
 
       - name: Functional Tests
-        run: go test -list -race ./test/functional/...
+        run: go test -p 1 -race ./test/functional/... -coverpkg ./internal/... -coverprofile=functional.out
 
+      - name: Merge coverage profile
+        run: |
+          go install github.com/wadey/gocovmerge@latest
+          gocovmerge unit.out functional.out > coverage.out
+
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: coverage.out
+          flag-name: Go-${{ matrix.go }}
+          parallel: true
 
   cross_compile:
     strategy:
@@ -101,3 +113,10 @@ jobs:
         run: go test -race -v $(go list ./... | grep -v /test/)
       - name: Functional Tests
         run: go test -list -race ./test/functional/...
+  finish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shogo82148/actions-goveralls@v1
+        with:
+          parallel-finished: true

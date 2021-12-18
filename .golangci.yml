@@ -7,6 +7,8 @@ linters:
     - dogsled
     - dupl
     - errcheck
+    - exportloopref
+    - govet
     - forbidigo
     - funlen
     - gochecknoinits
@@ -19,7 +21,6 @@ linters:
     - goerr113
     - gofmt
     - goimports
-    - golint
     - gomodguard
     - goprintffuncname
     - gosec
@@ -28,15 +29,14 @@ linters:
     - ineffassign
     - lll
     - makezero
-    - maligned
     - misspell
     - nakedret
     - nestif
     - noctx
     - nolintlint
     - prealloc
+    - revive
     - rowserrcheck
-    - scopelint
     - staticcheck
     - structcheck
     - stylecheck
@@ -58,9 +58,9 @@ issues:
         - scopelint
     - path: internal/app/di
       linters:
-        - maligned
+        - govet
     - path: internal/app/di/internal/definitions
       linters:
-        - stylecheck
         - funlen
-        - golint
+        - revive
+        - stylecheck

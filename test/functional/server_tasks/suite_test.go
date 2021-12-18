@@ -9,9 +9,9 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
@@ -25,7 +25,7 @@ type Suite struct {
 	Scheduler            *serversscheduler.Scheduler
 	ServerTaskRepository *mocks.ServerTaskRepository
 	ServerRepository     *mocks.ServerRepository
-	Executor             interfaces.Executor
+	Executor             contracts.Executor
 	Cfg                  *config.Config
 
 	WorkPath string
@@ -46,6 +46,13 @@ func (suite *Suite) SetupSuite() {
 			Stop:  "{command}",
 		},
 	}
+}
+
+func (suite *Suite) SetupTest() {
+	var err error
+
+	suite.ServerRepository.Clear()
+	suite.ServerTaskRepository.Clear()
 
 	suite.Scheduler = serversscheduler.NewScheduler(
 		suite.Cfg,
@@ -56,13 +63,6 @@ func (suite *Suite) SetupSuite() {
 			suite.Executor,
 		),
 	)
-}
-
-func (suite *Suite) SetupTest() {
-	var err error
-
-	suite.ServerRepository.Clear()
-	suite.ServerTaskRepository.Clear()
 
 	suite.WorkPath, err = ioutil.TempDir("/tmp", "gameap-daemon-test")
 	if err != nil {
@@ -116,4 +116,34 @@ func (suite *Suite) RunServerSchedulerWithTimeout(duration time.Duration) {
 	err := suite.Scheduler.Run(ctx)
 
 	suite.Require().NoError(err)
+}
+
+func (suite *Suite) RunServerSchedulerUntilTaskCounterIncreased(task *domain.ServerTask) {
+	initTaskCounter := task.Counter()
+	startedAt := time.Now()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func(t *testing.T) {
+		t.Helper()
+
+		err := suite.Scheduler.Run(ctx)
+		if err != nil {
+			t.Log(err)
+		}
+	}(suite.T())
+
+	for {
+		if time.Since(startedAt) >= 10*time.Second {
+			cancel()
+			break
+		}
+
+		if task.Counter() > initTaskCounter {
+			cancel()
+			break
+		}
+	}
+
+	time.Sleep(1 * time.Second)
 }

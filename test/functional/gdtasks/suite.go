@@ -5,18 +5,21 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
-	"github.com/gameap/daemon/internal/app/interfaces"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
 )
+
+const taskManagerTimeout = 300 * time.Second
 
 type Suite struct {
 	functional.GameServerSuite
@@ -24,33 +27,14 @@ type Suite struct {
 	TaskManager      *gdaemonscheduler.TaskManager
 	GDTaskRepository *mocks.GDTaskRepository
 	ServerRepository *mocks.ServerRepository
-	Executor         interfaces.Executor
-	Cache            interfaces.Cache
+	Executor         contracts.Executor
+	Cache            contracts.Cache
 	Cfg              *config.Config
 
 	WorkPath string
 }
 
-func (suite *Suite) SetupSuite() {
-	var err error
-
-	suite.GDTaskRepository = mocks.NewGDTaskRepository()
-	suite.ServerRepository = mocks.NewServerRepository()
-
-	suite.Executor = components.NewExecutor()
-
-	suite.Cfg = &config.Config{
-		Scripts: config.Scripts{
-			Start: "{command}",
-			Stop:  "{command}",
-		},
-	}
-
-	suite.Cache, err = services.NewLocalCache(suite.Cfg)
-	if err != nil {
-		suite.T().Fatal(err)
-	}
-
+func (suite *Suite) SetupTest() {
 	suite.TaskManager = gdaemonscheduler.NewTaskManager(
 		suite.GDTaskRepository,
 		suite.Cache,
@@ -59,21 +43,83 @@ func (suite *Suite) SetupSuite() {
 			suite.ServerRepository,
 			suite.Executor,
 		),
-		components.NewCleanExecutor(),
+		suite.Executor,
 		suite.Cfg,
 	)
+}
+
+func (suite *Suite) SetupSuite() {
+	var err error
+
+	suite.GDTaskRepository = mocks.NewGDTaskRepository()
+	suite.ServerRepository = mocks.NewServerRepository()
+
+	suite.Cfg = &config.Config{
+		Scripts: config.Scripts{
+			Start: "{command}",
+			Stop:  "{command}",
+		},
+	}
+
+	suite.Executor = components.NewDefaultExtendableExecutor(suite.Cfg)
+
+	suite.Cache, err = services.NewLocalCache(suite.Cfg)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 }
 
 func (suite *Suite) RunTaskManager(timeout time.Duration) {
 	suite.T().Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	ctx, timeoutCancel := context.WithTimeout(context.Background(), timeout)
+	defer timeoutCancel()
 
 	err := suite.TaskManager.Run(ctx)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
+}
+
+func (suite *Suite) RunTaskManagerUntilTasksCompleted(tasks []*domain.GDTask) {
+	suite.T().Helper()
+	startedAt := time.Now()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func(t *testing.T) {
+		t.Helper()
+
+		err := suite.TaskManager.Run(ctx)
+		if err != nil {
+			t.Log(err)
+		}
+	}(suite.T())
+
+	for {
+		if time.Since(startedAt) >= taskManagerTimeout {
+			cancel()
+			break
+		}
+
+		if suite.isAllTasksCompleted(tasks) {
+			cancel()
+			break
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+}
+
+func (suite *Suite) isAllTasksCompleted(tasks []*domain.GDTask) bool {
+	counter := 0
+	for i := range tasks {
+		if tasks[i].IsComplete() {
+			counter++
+		}
+	}
+
+	return counter >= len(tasks)
 }
 
 func (suite *Suite) AssertGDTaskExist(task *domain.GDTask) {
