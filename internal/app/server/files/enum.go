@@ -21,3 +21,16 @@ const (
 	GetFileFromClient = 1
 	SendFileToClient  = 2
 )
+
+type FileType uint8
+
+const (
+	TypeUnknown     FileType = 0
+	TypeDir         FileType = 1
+	TypeFile        FileType = 2
+	TypeCharDevice  FileType = 3
+	TypeBlockDevice FileType = 4
+	TypeNamedPipe   FileType = 5
+	TypeSymlink     FileType = 6
+	TypeSocket      FileType = 7
+)

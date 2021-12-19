@@ -28,7 +28,7 @@ func (suite *Suite) TestAuth() {
 
 func (suite *Suite) TestExecSuccess() {
 	suite.Auth(server.ModeCommands)
-	msg, err := binngo.Marshal([]interface{}{1, "echo -n \"test string\"", "/"})
+	msg, err := binngo.Marshal([]interface{}{1, echoTestStringCmd, "/"})
 	if err != nil {
 		suite.T().Fatal(err)
 	}
@@ -48,7 +48,7 @@ func (suite *Suite) TestExecSuccess() {
 
 func (suite *Suite) TestExecErrorCode() {
 	suite.Auth(server.ModeCommands)
-	msg, err := binngo.Marshal([]interface{}{1, "false", "/"})
+	msg, err := binngo.Marshal([]interface{}{1, falseCmd, "/"})
 	if err != nil {
 		suite.T().Fatal(err)
 	}
@@ -59,11 +59,10 @@ func (suite *Suite) TestExecErrorCode() {
 
 	err = decode.Unmarshal(buf, &r)
 
-	if assert.NoError(suite.T(), err) {
-		assert.Equal(suite.T(), response.StatusOK, response.Code(r[0].(uint8)))
-		assert.Equal(suite.T(), uint8(1), r[1])
-		assert.Equal(suite.T(), "", r[2])
-	}
+	suite.Require().NoError(err)
+	suite.Assert().Equal(response.StatusOK, response.Code(r[0].(uint8)))
+	suite.Assert().Equal(uint8(1), r[1])
+	suite.Assert().Equal("", r[2])
 }
 
 func (suite *Suite) TestInvalidCommand() {

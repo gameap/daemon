@@ -39,7 +39,7 @@ func (suite *NotInstalledServerSuite) SetupSuite() {
 func (suite *NotInstalledServerSuite) SetupTest() {
 	var err error
 
-	suite.WorkPath, err = os.MkdirTemp("/tmp", "gameap-daemon-test")
+	suite.WorkPath, err = os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
 	if err != nil {
 		suite.T().Fatal(err)
 	}

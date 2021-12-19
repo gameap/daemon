@@ -22,7 +22,7 @@ func (suite *Suite) SetupTest() {
 
 	var err error
 
-	suite.WorkPath, err = os.MkdirTemp("/tmp", "gameap-daemon-test")
+	suite.WorkPath, err = os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
 	if err != nil {
 		suite.T().Fatal(err)
 	}

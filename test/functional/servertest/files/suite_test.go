@@ -2,6 +2,7 @@ package files
 
 import (
 	"os"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -53,7 +54,53 @@ func (suite *Suite) readMessageFromClient() []interface{} {
 	return msg
 }
 
+func (suite *Suite) assertFileDetails(
+	fInfo []interface{},
+	name string,
+	size uint64,
+	fileType files.FileType,
+	permissions uint16,
+	mime string,
+) {
+	suite.T().Helper()
+
+	// file name
+	suite.Equal(name, fInfo[0])
+
+	if runtime.GOOS == "windows" && fileType == files.TypeSymlink {
+		suite.T().Log("ignore symlink assertion in windows")
+		return
+	}
+
+	// file size
+	if fileType != files.TypeDir {
+		switch fInfo[1].(type) {
+		case uint8:
+			suite.Equal(size, uint64(fInfo[1].(uint8)))
+		case uint16:
+			suite.Equal(size, uint64(fInfo[1].(uint16)))
+		case uint32:
+			suite.Equal(size, uint64(fInfo[1].(uint32)))
+		case uint64:
+			suite.Equal(size, fInfo[1].(uint64))
+		}
+	}
+
+	// file type (file, directory, ...)
+	suite.Equal(uint8(fileType), fInfo[2])
+
+	// permissions
+	if runtime.GOOS != "windows" {
+		suite.Equal(permissions, fInfo[6])
+	}
+
+	// mime type
+	suite.Equal(mime, fInfo[7])
+}
+
 func (suite *Suite) assertUploadedFileContents(expected []byte) {
+	suite.T().Helper()
+
 	contents, err := os.ReadFile(suite.tempFileDestination)
 	if err != nil {
 		suite.T().Fatal(err)
@@ -62,6 +109,8 @@ func (suite *Suite) assertUploadedFileContents(expected []byte) {
 }
 
 func (suite *Suite) assertFirstAndLastFileBytes(first []byte, last []byte) {
+	suite.T().Helper()
+
 	contents, err := os.ReadFile(suite.tempFileDestination)
 	if err != nil {
 		suite.T().Fatal(err)
@@ -87,6 +136,8 @@ func (suite *Suite) assertUploadedFileSize(expected int) {
 }
 
 func (suite *Suite) givenUploadMessage(size int) []interface{} {
+	suite.T().Helper()
+
 	return []interface{}{
 		files.FileSend,
 		files.GetFileFromClient,

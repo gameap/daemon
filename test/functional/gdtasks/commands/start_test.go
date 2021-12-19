@@ -2,10 +2,11 @@ package commands
 
 import (
 	"github.com/gameap/daemon/internal/app/domain"
+	"runtime"
 )
 
 func (suite *Suite) TestStartSuccess() {
-	server := suite.GivenServerWithStartCommand("./make_file_with_contents.sh")
+	server := suite.GivenServerWithStartCommand(MakeFileWithContentsScript)
 	task := suite.GivenGDTaskWithIDForServer(1, server)
 
 	suite.RunTaskManagerUntilTasksCompleted([]*domain.GDTask{task})
@@ -24,12 +25,12 @@ func (suite *Suite) TestStartSuccess() {
 }
 
 func (suite *Suite) TestStartScriptReturnFailError() {
-	server := suite.GivenServerWithStartCommand("./fail.sh")
+	server := suite.GivenServerWithStartCommand(FailScript)
 	task := suite.GivenGDTaskWithIDForServer(1, server)
 
 	suite.RunTaskManagerUntilTasksCompleted([]*domain.GDTask{task})
 
-	suite.Assert().FileExists(suite.WorkPath + "/server/fail_sh_executed.txt")
+	suite.Assert().FileExists(suite.WorkPath + "/server/fail_executed.txt")
 	suite.AssertGDTaskExist(
 		domain.NewGDTask(
 			1,
@@ -62,20 +63,24 @@ func (suite *Suite) TestStartNotExistenceScript() {
 
 func (suite *Suite) TestStartSequenceTasks() {
 	server := suite.GivenServerWithStartAndStopCommand(
-		"./append_to_file.sh start",
-		"./append_to_file.sh stop",
+		StartCommandScript,
+		StopCommandScript,
 	)
 	tasks := suite.GivenSequenceGDTaskForServer(server)
 
 	suite.RunTaskManagerUntilTasksCompleted(tasks)
 
-	suite.AssertFileContents(suite.WorkPath+"/server/file.txt", []byte("start\nstop\nstop\nstart\nstart\n"))
+	if runtime.GOOS == "windows" {
+		suite.AssertFileContents(suite.WorkPath+"/server/file.txt", []byte("start\r\nstop\r\nstop\r\nstart\r\nstart\r\n"))
+	} else {
+		suite.AssertFileContents(suite.WorkPath+"/server/file.txt", []byte("start\nstop\nstop\nstart\nstart\n"))
+	}
 }
 
 func (suite *Suite) TestRaceTasks() {
 	server := suite.GivenServerWithStartAndStopCommand(
-		"./sleep_and_check.sh",
-		"./sleep_and_check.sh",
+		SleepAndCheckScript,
+		SleepAndCheckScript,
 	)
 	tasks := suite.GivenSequenceGDTaskForServer(server)
 

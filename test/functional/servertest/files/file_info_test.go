@@ -6,7 +6,6 @@ import (
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
-	"github.com/stretchr/testify/assert"
 )
 
 func (suite *Suite) TestTextFileInfoSuccess() {
@@ -21,11 +20,14 @@ func (suite *Suite) TestTextFileInfoSuccess() {
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
 	fInfo := r[2].([]interface{})
-	assert.Equal(suite.T(), "file.txt", fInfo[0])
-	assert.Equal(suite.T(), uint8(9), fInfo[1])
-	assert.Equal(suite.T(), uint8(2), fInfo[2])
-	assert.Equal(suite.T(), uint16(0664), fInfo[6])
-	assert.Equal(suite.T(), "text/plain; charset=utf-8", fInfo[7])
+	suite.assertFileDetails(
+		fInfo,
+		"file.txt",
+		9,
+		files.TypeFile,
+		0664,
+		"text/plain; charset=utf-8",
+	)
 }
 
 func (suite *Suite) TestJsonFileInfoSuccess() {
@@ -40,11 +42,14 @@ func (suite *Suite) TestJsonFileInfoSuccess() {
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
 	fInfo := r[2].([]interface{})
-	assert.Equal(suite.T(), "file.json", fInfo[0])
-	assert.Equal(suite.T(), uint8(66), fInfo[1])
-	assert.Equal(suite.T(), uint8(2), fInfo[2])
-	assert.Equal(suite.T(), uint16(0664), fInfo[6])
-	assert.Equal(suite.T(), "application/json", fInfo[7])
+	suite.assertFileDetails(
+		fInfo,
+		"file.json",
+		66,
+		files.TypeFile,
+		0664,
+		"application/json",
+	)
 }
 
 func (suite *Suite) TestDirectoryInfoSuccess() {
@@ -59,11 +64,14 @@ func (suite *Suite) TestDirectoryInfoSuccess() {
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
 	fInfo := r[2].([]interface{})
-	assert.Equal(suite.T(), "directory", fInfo[0])
-	assert.Equal(suite.T(), uint16(4096), fInfo[1])
-	assert.Equal(suite.T(), uint8(1), fInfo[2])
-	assert.Equal(suite.T(), uint16(0775), fInfo[6])
-	assert.Equal(suite.T(), "", fInfo[7])
+	suite.assertFileDetails(
+		fInfo,
+		"directory",
+		0,
+		files.TypeDir,
+		0775,
+		"",
+	)
 }
 
 func (suite *Suite) TestSymlinkInfoSuccess() {
@@ -78,11 +86,14 @@ func (suite *Suite) TestSymlinkInfoSuccess() {
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
 	fInfo := r[2].([]interface{})
-	assert.Equal(suite.T(), "symlink_to_file_txt", fInfo[0])
-	assert.Equal(suite.T(), uint8(10), fInfo[1])
-	assert.Equal(suite.T(), uint8(6), fInfo[2])
-	assert.Equal(suite.T(), uint16(0777), fInfo[6])
-	assert.Equal(suite.T(), "", fInfo[7])
+	suite.assertFileDetails(
+		fInfo,
+		"symlink_to_file_txt",
+		10,
+		files.TypeSymlink,
+		0777,
+		"",
+	)
 }
 
 func (suite *Suite) TestFileInfo_EmptyFile_Success() {
@@ -97,9 +108,12 @@ func (suite *Suite) TestFileInfo_EmptyFile_Success() {
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
 	fInfo, ok := r[2].([]interface{})
 	suite.Require().True(ok)
-	suite.Equal("empty_file.txt", fInfo[0])
-	suite.Equal(uint8(0), fInfo[1])
-	suite.Equal(uint8(2), fInfo[2])
-	suite.Equal(uint16(0664), fInfo[6])
-	suite.Equal("", fInfo[7])
+	suite.assertFileDetails(
+		fInfo,
+		"empty_file.txt",
+		0,
+		files.TypeFile,
+		0664,
+		"",
+	)
 }

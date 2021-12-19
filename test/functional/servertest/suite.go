@@ -41,7 +41,7 @@ func (suite *Suite) SetupSuite() {
 
 	suite.Server, err = server.NewServer(
 		"127.0.0.1",
-		31717,
+		3717,
 		ServerCert,
 		ServerKey,
 		server.CredentialsConfig{
@@ -80,6 +80,8 @@ func (suite *Suite) TearDownSuite() {
 }
 
 func (suite *Suite) loadClient() {
+	suite.T().Helper()
+
 	cer, err := tls.LoadX509KeyPair(ClientCert, ClientKey)
 	if err != nil {
 		suite.T().Fatal(err)
@@ -90,7 +92,7 @@ func (suite *Suite) loadClient() {
 		InsecureSkipVerify: true,
 	}
 
-	conn, err := tls.Dial("tcp", "127.0.0.1:31717", conf)
+	conn, err := tls.Dial("tcp", "127.0.0.1:3717", conf)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
@@ -99,6 +101,8 @@ func (suite *Suite) loadClient() {
 }
 
 func (suite *Suite) closeClient() {
+	suite.T().Helper()
+
 	if suite.Client == nil {
 		return
 	}
@@ -110,6 +114,8 @@ func (suite *Suite) closeClient() {
 }
 
 func (suite *Suite) Auth(mode server.Mode) {
+	suite.T().Helper()
+
 	msg, err := binngo.Marshal([]interface{}{0, "login", "password", mode})
 	if err != nil {
 		suite.T().Fatal(err)

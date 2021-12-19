@@ -3,6 +3,7 @@ package gameservercommands
 import (
 	"context"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func (suite *deleteSuite) TearDownSuite() {
 
 func (suite *deleteSuite) givenWorkPath() string {
 	suite.T().Helper()
-	workPath, err := os.MkdirTemp("/tmp", "delete-server-test")
+	workPath, err := os.MkdirTemp("", "delete-server-test")
 	if err != nil {
 		suite.T().Fatal(err)
 	}
@@ -65,10 +66,16 @@ func (suite *deleteSuite) TestDeleteServerByFilesystemSuccess() {
 
 func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 	workPath := suite.givenWorkPath()
+	var deleteCommand string
+	if runtime.GOOS == "windows" {
+		deleteCommand = "cmd /c rmdir /S /Q simple"
+	} else {
+		deleteCommand = "rm -rf ./simple"
+	}
 	cfg := &config.Config{
 		WorkPath: workPath,
 		Scripts: config.Scripts{
-			Delete: "rm -rf ./simple",
+			Delete: deleteCommand,
 		},
 	}
 	server := givenServerWithStartCommand(suite.T(), "./run.sh")
@@ -87,10 +94,16 @@ func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 
 func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 	workPath := suite.givenWorkPath()
+	var deleteCommand string
+	if runtime.GOOS == "windows" {
+		deleteCommand = "cmd /c fail.bat"
+	} else {
+		deleteCommand = "./fail.sh"
+	}
 	cfg := &config.Config{
 		WorkPath: workPath,
 		Scripts: config.Scripts{
-			Delete: "./fail.sh",
+			Delete: deleteCommand,
 		},
 	}
 	server := givenServerWithStartCommand(suite.T(), "")
@@ -102,7 +115,11 @@ func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 
 	suite.Require().Nil(err)
 	suite.Assert().Equal(ErrorResult, deleteServerCommand.Result())
-	suite.Assert().Equal("command failed\n", string(deleteServerCommand.ReadOutput()))
+	if runtime.GOOS == "windows" {
+		suite.Assert().Equal("command failed\r\n", string(deleteServerCommand.ReadOutput()))
+	} else {
+		suite.Assert().Equal("command failed\n", string(deleteServerCommand.ReadOutput()))
+	}
 }
 
 func installSimpleServerFiles(t *testing.T, cfg *config.Config, server *domain.Server) {

@@ -2,6 +2,7 @@ package files
 
 import (
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/gameap/daemon/internal/app/server"
@@ -15,16 +16,34 @@ func (suite *Suite) TestChmodSuccess() {
 	tempDir, _ := os.MkdirTemp("", "files_test_")
 	tempFile, _ := os.CreateTemp(tempDir, "file")
 
-	tests := []struct {
+	var tests []struct {
 		name     string
 		perm     uint16
 		expected string
-	}{
-		{"only owner read write", 0600, "-rw-------"},
-		{"only owner read", 0400, "-r--------"},
-		{"all read write", 0666, "-rw-rw-rw-"},
-		{"all read write execute", 0777, "-rwxrwxrwx"},
 	}
+	if runtime.GOOS == "windows" {
+		tests = []struct {
+			name     string
+			perm     uint16
+			expected string
+		}{
+			{"only owner read write", 0600, "-rw-rw-rw-"},
+			{"only owner read", 0400, "-r--r--r--"},
+			{"all read write", 0666, "-rw-rw-rw-"},
+		}
+	} else {
+		tests = []struct {
+			name     string
+			perm     uint16
+			expected string
+		}{
+			{"only owner read write", 0600, "-rw-------"},
+			{"only owner read", 0400, "-r--------"},
+			{"all read write", 0666, "-rw-rw-rw-"},
+			{"all read write execute", 0777, "-rwxrwxrwx"},
+		}
+	}
+
 	for _, test := range tests {
 		suite.T().Run(test.name, func(t *testing.T) {
 			msg := []interface{}{files.FileChmod, tempFile.Name(), test.perm}

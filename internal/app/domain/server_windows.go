@@ -3,4 +3,4 @@
 
 package domain
 
-const AfterInstallScriptName = "gdaemon_after_install.ps"
+const AfterInstallScriptName = "gdaemon_after_install.ps1"

@@ -10,14 +10,19 @@ import (
 
 func (suite *Suite) TestRemoveFileSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir, _ := os.MkdirTemp("", "files_test_")
+	tempDir, _ := os.MkdirTemp(os.TempDir(), "files_test_")
 	tempFile, _ := os.CreateTemp(tempDir, "file")
-	msg := []interface{}{files.FileRemove, tempFile.Name(), false}
+	tempFileName := tempFile.Name()
+	err := tempFile.Close()
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+	msg := []interface{}{files.FileRemove, tempFileName, false}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
-	suite.NoFileExists(tempFile.Name())
+	suite.NoFileExists(tempFileName)
 }
 
 func (suite *Suite) TestRemoveEmptyDirSuccess() {
