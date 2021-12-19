@@ -2,6 +2,7 @@ package gameservercommands_test
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -21,7 +22,13 @@ func TestStartServer(t *testing.T) {
 			Start: "{command}",
 		},
 	}
-	server := givenServerWithStartCommand(t, "./run.sh")
+	var startCommand string
+	if runtime.GOOS == "windows" {
+		startCommand = "cmd /c run.bat"
+	} else {
+		startCommand = "./run.sh"
+	}
+	server := givenServerWithStartCommand(t, startCommand)
 	startServerCommand := givenCommandFactory(t, cfg).LoadServerCommand(domain.Start)
 
 	err := startServerCommand.Execute(context.Background(), server)
@@ -41,7 +48,13 @@ func TestStartServer_ReadOutput(t *testing.T) {
 			Stop:  "{command}",
 		},
 	}
-	server := givenServerWithStartCommand(t, "./run2.sh")
+	var startCommand string
+	if runtime.GOOS == "windows" {
+		startCommand = "powershell ./run2.ps1"
+	} else {
+		startCommand = "./run2.sh"
+	}
+	server := givenServerWithStartCommand(t, startCommand)
 	ctx, cancel := context.WithCancel(context.Background())
 	startServerCommand := givenCommandFactory(t, cfg).LoadServerCommand(domain.Start)
 	go func() {

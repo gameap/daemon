@@ -7,37 +7,24 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 )
 
-type fileType uint8
-
-const (
-	typeUnknown     fileType = 0
-	typeDir         fileType = 1
-	typeFile        fileType = 2
-	typeCharDevice  fileType = 3
-	typeBlockDevice fileType = 4
-	typeNamedPipe   fileType = 5
-	typeSymlink     fileType = 6
-	typeSocket      fileType = 7
-)
-
-func fileTypeByMode(fileMode os.FileMode) fileType {
-	fType := typeUnknown
+func fileTypeByMode(fileMode os.FileMode) FileType {
+	fType := TypeUnknown
 
 	switch {
 	case fileMode&os.ModeSymlink != 0:
-		fType = typeSymlink
+		fType = TypeSymlink
 	case fileMode.IsRegular():
-		fType = typeFile
+		fType = TypeFile
 	case fileMode.IsDir():
-		fType = typeDir
+		fType = TypeDir
 	case fileMode&os.ModeCharDevice != 0:
-		fType = typeCharDevice
+		fType = TypeCharDevice
 	case fileMode&os.ModeDevice != 0:
-		fType = typeBlockDevice
+		fType = TypeBlockDevice
 	case fileMode&os.ModeNamedPipe != 0:
-		fType = typeNamedPipe
+		fType = TypeNamedPipe
 	case fileMode&os.ModeSocket != 0:
-		fType = typeSocket
+		fType = TypeSocket
 	}
 
 	return fType
@@ -90,7 +77,7 @@ func createfileDetailsResponse(path string) (*fileDetailsResponse, error) {
 	fileTime := fileTimeFromFileInfo(fi)
 
 	var mime string
-	if fType == typeFile && fi.Size() > 0 {
+	if fType == TypeFile && fi.Size() > 0 {
 		mm, err := mimetype.DetectFile(path)
 
 		if err != nil {

@@ -30,9 +30,9 @@ func (suite *InstalledServerSuite) TearDownTest() {
 }
 
 func (suite *InstalledServerSuite) GivenServerIsDown() {
-	suite.Cfg.Scripts.Status = "./command_fail.sh status"
+	suite.Cfg.Scripts.Status = CommandFailScript + " status"
 }
 
 func (suite *InstalledServerSuite) GivenServerIsActive() {
-	suite.Cfg.Scripts.Status = "./command.sh status"
+	suite.Cfg.Scripts.Status = CommandScript + " status"
 }

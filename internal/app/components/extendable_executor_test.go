@@ -2,8 +2,8 @@ package components_test
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
+	"runtime"
 	"syscall"
 	"testing"
 
@@ -42,6 +42,12 @@ func TestExtendableExecutor_ExecGetTool_ExpectToolDownloaded(t *testing.T) {
 }
 
 func TestExtendableExecutor_ExecEchoCommand_ExpectCommandExecuted(t *testing.T) {
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "cmd /c echo hello"
+	} else {
+		command = "echo hello"
+	}
 	tmpDir := givenTmp(t)
 	defer func(path string) {
 		err := syscall.Rmdir(path)
@@ -53,7 +59,7 @@ func TestExtendableExecutor_ExecEchoCommand_ExpectCommandExecuted(t *testing.T) 
 
 	result, code, err := executor.Exec(
 		context.Background(),
-		"echo hello",
+		command,
 		contracts.ExecutorOptions{
 			WorkDir: tmpDir,
 		},
@@ -61,7 +67,11 @@ func TestExtendableExecutor_ExecEchoCommand_ExpectCommandExecuted(t *testing.T) 
 
 	require.NoError(t, err)
 	require.Equal(t, 0, code)
-	require.Equal(t, "hello\n", string(result))
+	if runtime.GOOS == "windows" {
+		require.Equal(t, "hello\r\n", string(result))
+	} else {
+		require.Equal(t, "hello\n", string(result))
+	}
 }
 
 func assertFileIsExecutableByOwner(t *testing.T, filePath string) bool {
@@ -77,7 +87,7 @@ func assertFileIsExecutableByOwner(t *testing.T, filePath string) bool {
 func givenTmp(t *testing.T) string {
 	t.Helper()
 
-	workPath, err := ioutil.TempDir("/tmp", "extendable-executor-test")
+	workPath, err := os.MkdirTemp("", "extendable-executor-test")
 	if err != nil {
 		t.Fatal(err)
 	}

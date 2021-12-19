@@ -2,6 +2,7 @@ package files
 
 import (
 	"os"
+	"runtime"
 
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
@@ -38,7 +39,9 @@ func (suite *Suite) TestListSuccess() {
 	assert.Equal(suite.T(), "file.txt", fileTxtInfo[0])
 	assert.Equal(suite.T(), uint8(9), fileTxtInfo[1])
 	assert.Equal(suite.T(), uint8(2), fileTxtInfo[3])
-	assert.Equal(suite.T(), uint16(0664), fileTxtInfo[4])
+	if runtime.GOOS != "windows" {
+		assert.Equal(suite.T(), uint16(0664), fileTxtInfo[4])
+	}
 }
 
 func (suite *Suite) TestListNotExistenceDirectory() {

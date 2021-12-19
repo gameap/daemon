@@ -1,7 +1,6 @@
 package serverscommand
 
 import (
-	"io/ioutil"
 	"os"
 
 	"github.com/gameap/daemon/internal/app/components"
@@ -40,7 +39,7 @@ func (suite *NotInstalledServerSuite) SetupSuite() {
 func (suite *NotInstalledServerSuite) SetupTest() {
 	var err error
 
-	suite.WorkPath, err = ioutil.TempDir("/tmp", "gameap-daemon-test")
+	suite.WorkPath, err = os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
 	if err != nil {
 		suite.T().Fatal(err)
 	}

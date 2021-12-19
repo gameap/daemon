@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/server/response"
@@ -338,7 +339,7 @@ func remove(ctx context.Context, m message, readWriter io.ReadWriter) error {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	cleanedPath := path.Clean(message.Path)
+	cleanedPath := filepath.Clean(message.Path)
 
 	if cleanedPath == "." || cleanedPath == "/" {
 		return writeError(readWriter, "Invalid path")

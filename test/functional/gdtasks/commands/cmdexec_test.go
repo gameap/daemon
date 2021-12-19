@@ -5,7 +5,7 @@ import (
 )
 
 func (suite *Suite) TestExecuteCommandSuccess() {
-	task := suite.GivenGDTaskWithCommand("./server/make_file_with_contents.sh")
+	task := suite.GivenGDTaskWithCommand(MakeFileWithContentsServerScript)
 
 	suite.RunTaskManagerUntilTasksCompleted([]*domain.GDTask{task})
 

@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -23,13 +23,13 @@ import (
 func TestInstallationRuleDefiner_CopyFromLocalDirectory(t *testing.T) {
 	rulesDefiner := installationRulesDefiner{}
 	game := &domain.Game{
-		LocalRepository: "/tmp",
+		LocalRepository: os.TempDir(),
 	}
 
 	rules := rulesDefiner.DefineGameRules(game)
 
 	require.Len(t, rules, 1)
-	assert.Equal(t, "/tmp", rules[0].SourceValue)
+	assert.Equal(t, os.TempDir(), rules[0].SourceValue)
 	assert.Equal(t, copyDirectoryFromLocalRepository, rules[0].Action)
 }
 
@@ -130,14 +130,14 @@ func TestInstallationRuleDefiner_ValidRepositories_ExpectRemoteLocalAndSteamRepo
 	rulesDefiner := installationRulesDefiner{}
 	game := &domain.Game{
 		RemoteRepository: "https://example.com/file.zip",
-		LocalRepository:  "/tmp",
+		LocalRepository:  os.TempDir(),
 		SteamAppID:       domain.SteamAppID(90),
 	}
 
 	rules := rulesDefiner.DefineGameRules(game)
 
 	require.Len(t, rules, 3)
-	assert.Equal(t, "/tmp", rules[0].SourceValue)
+	assert.Equal(t, os.TempDir(), rules[0].SourceValue)
 	assert.Equal(t, copyDirectoryFromLocalRepository, rules[0].Action)
 	assert.Equal(t, "https://example.com/file.zip", rules[1].SourceValue)
 	assert.Equal(t, downloadAnUnpackFromRemoteRepository, rules[1].Action)
@@ -149,13 +149,13 @@ func TestInstallationRuleDefiner_GameModValidRepositories_ExpectRemoteLocalRepos
 	rulesDefiner := installationRulesDefiner{}
 	gameMod := &domain.GameMod{
 		RemoteRepository: "https://example.com/file.zip",
-		LocalRepository:  "/tmp",
+		LocalRepository:  os.TempDir(),
 	}
 
 	rules := rulesDefiner.DefineGameModRules(gameMod)
 
 	require.Len(t, rules, 2)
-	assert.Equal(t, "/tmp", rules[0].SourceValue)
+	assert.Equal(t, os.TempDir(), rules[0].SourceValue)
 	assert.Equal(t, copyDirectoryFromLocalRepository, rules[0].Action)
 	assert.Equal(t, "https://example.com/file.zip", rules[1].SourceValue)
 	assert.Equal(t, downloadAnUnpackFromRemoteRepository, rules[1].Action)
@@ -179,18 +179,18 @@ func TestInstallationRuleDefiner_GameModInvalidRemoteRepository_ExpectLocalRepo(
 	rulesDefiner := installationRulesDefiner{}
 	gameMod := &domain.GameMod{
 		RemoteRepository: "invalid",
-		LocalRepository:  "/tmp",
+		LocalRepository:  os.TempDir(),
 	}
 
 	rules := rulesDefiner.DefineGameModRules(gameMod)
 
 	require.Len(t, rules, 1)
-	assert.Equal(t, "/tmp", rules[0].SourceValue)
+	assert.Equal(t, os.TempDir(), rules[0].SourceValue)
 	assert.Equal(t, copyDirectoryFromLocalRepository, rules[0].Action)
 }
 
 func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
-	workPath, err := ioutil.TempDir("/tmp", "gameap-daemon-test")
+	workPath, err := os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
 	defer os.RemoveAll(workPath)
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 }
 
 func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
-	workPath, err := ioutil.TempDir("/tmp", "gameap-daemon-test")
+	workPath, err := os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
 	defer os.RemoveAll(workPath)
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 }
 
 func TestInstallation_RunAfterInstallScript(t *testing.T) {
-	workPath, err := ioutil.TempDir("/tmp", "gameap-daemon-test")
+	workPath, err := os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
 	defer os.RemoveAll(workPath)
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +275,11 @@ func TestUpdateBySteam_SteamCommandWithoutValidate(t *testing.T) {
 	err := updater.Install(context.Background(), server, rules)
 
 	require.Nil(t, err)
-	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
+	if runtime.GOOS == "windows" {
+		executor.AssertCommand(t, "/steamcmd.exe +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
+	} else {
+		executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
+	}
 }
 
 func TestInstallBySteam_SteamCommandWitValidate(t *testing.T) {
@@ -290,7 +294,11 @@ func TestInstallBySteam_SteamCommandWitValidate(t *testing.T) {
 	err := updater.Install(context.Background(), server, rules)
 
 	require.Nil(t, err)
-	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 validate +quit")
+	if runtime.GOOS == "windows" {
+		executor.AssertCommand(t, "/steamcmd.exe +force_install_dir \"/test-server\" +login anonymous +app_update 90 validate +quit")
+	} else {
+		executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 validate +quit")
+	}
 }
 
 func givenRemoteInstallationServer(t *testing.T) *domain.Server {
