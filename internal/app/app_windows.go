@@ -5,9 +5,10 @@ package app
 
 import (
 	"context"
+	"sync"
+
 	"github.com/judwhite/go-svc"
 	log "github.com/sirupsen/logrus"
-	"sync"
 )
 
 type program struct {
