@@ -17,8 +17,10 @@ import (
 )
 
 func setCMDSysProcAttr(cmd *exec.Cmd, options domain.ExecutorOptions) (*exec.Cmd, error) {
+	//nolint:revive,stylecheck
 	const _DETACHED_PROCESS = 0x00000008
-	const _CREATE_NEW_CONSOLE = 0x00000010
+	// const _CREATE_NEW_CONSOLE = 0x00000010
+
 	cmd.SysProcAttr = &windows.SysProcAttr{
 		HideWindow:       true,
 		CreationFlags:    _DETACHED_PROCESS,

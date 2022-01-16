@@ -4,6 +4,9 @@
 package sys
 
 import (
+	"context"
+
+	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
@@ -25,7 +28,12 @@ func IsRootUser() (bool, error) {
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to AllocateAndInitializeSid")
 	}
-	defer windows.FreeSid(sid)
+	defer func(sid *windows.SID) {
+		err := windows.FreeSid(sid)
+		if err != nil {
+			logger.Logger(context.TODO()).WithError(err).Warn("failed to free sid")
+		}
+	}(sid)
 
 	token := windows.Token(0)
 
