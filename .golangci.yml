@@ -64,3 +64,8 @@ issues:
         - funlen
         - revive
         - stylecheck
+    - path: internal\\app\\di\\internal\\definitions
+      linters:
+        - funlen
+        - revive
+        - stylecheck
