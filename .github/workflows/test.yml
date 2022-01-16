@@ -28,6 +28,7 @@ jobs:
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v2
+        if: matrix.os != 'windows-latest'
         with:
           version: v1.43.0
           args: --timeout 5m --verbose
