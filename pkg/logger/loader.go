@@ -44,8 +44,8 @@ func NewLogger(cfg config.Config) *log.Logger {
 		)
 	}
 
-	if _, err = os.Stat(path.Dir(cfg.OutputLog)); errors.Is(err, os.ErrNotExist) {
-		err = os.MkdirAll(path.Dir(cfg.OutputLog), 0640)
+	if _, err = os.Stat(filepath.Dir(cfg.OutputLog)); errors.Is(err, os.ErrNotExist) {
+		err = os.MkdirAll(filepath.Dir(cfg.OutputLog), 0640)
 	}
 
 	if err == nil {

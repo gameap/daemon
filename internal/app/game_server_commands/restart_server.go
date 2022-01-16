@@ -50,6 +50,7 @@ func (s *restartServer) Execute(ctx context.Context, server *domain.Server) erro
 	result, err := s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkDir(),
+		Username:        server.User(),
 	})
 	s.SetResult(result)
 	s.SetComplete()

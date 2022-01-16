@@ -12,18 +12,51 @@ import (
 	"github.com/pkg/errors"
 )
 
-func setCMDSysProcCredential(cmd *exec.Cmd, options contracts.ExecutorOptions) (*exec.Cmd, error) {
-	uid, err := strconv.Atoi(options.UID)
-	if err != nil {
-		return nil, errors.WithMessage(err, "[game_server_commands.installator] invalid user uid")
+func setCMDSysProcAttr(cmd *exec.Cmd, options contracts.ExecutorOptions) (*exec.Cmd, error) {
+	var uid, gid int
+	var err error
+
+	if options.UID != "" {
+		uid, err = strconv.Atoi(options.UID)
+		if err != nil {
+			return nil, errors.WithMessage(err, "[components.executor] invalid user uid")
+		}
 	}
 
-	gid, err := strconv.Atoi(options.UID)
-	if err != nil {
-		return nil, errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
+	if options.GID != "" {
+		gid, err = strconv.Atoi(options.GID)
+		if err != nil {
+			return nil, errors.WithMessage(err, "[components.executor] invalid user gid")
+		}
 	}
+
+	if uid != 0 && gid != 0 && options.Username != "" {
+		uid, gid, err = findUIDAndGIDByUsername(options.Username)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
 
 	return cmd, nil
+}
+
+func findUIDAndGIDByUsername(username string) (int, int, error) {
+	systemUser, err := user.Lookup(userName)
+	if err != nil {
+		return 0, 0, errors.WithMessage(err, "[components] failed to lookup user")
+	}
+
+	uid, err := strconv.Atoi(systemUser.Uid)
+	if err != nil {
+		return 0, 0, errors.WithMessage(err, "[components] invalid user uid")
+	}
+	gid, err := strconv.Atoi(systemUser.Uid)
+	if err != nil {
+		return 0, 0, errors.WithMessage(err, "[components] invalid user gid")
+	}
+
+	return uid, gid, nil
 }

@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func Run(args []string) {
+func run(ctx context.Context, args []string) {
 	app := &cli.App{
 		Name:  "gameap-daemon",
 		Usage: "GameAP Daemon",
@@ -32,7 +32,7 @@ func Run(args []string) {
 		Action: initialize,
 	}
 
-	err := app.Run(args)
+	err := app.RunContext(ctx, args)
 	if err != nil {
 		log.Fatal(err)
 	}

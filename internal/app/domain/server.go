@@ -2,7 +2,7 @@ package domain
 
 import (
 	"context"
-	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -212,7 +212,7 @@ func (s *Server) Dir() string {
 }
 
 func (s *Server) WorkDir(cfg workDirReader) string {
-	return path.Clean(cfg.WorkDir() + "/" + s.dir)
+	return filepath.Clean(cfg.WorkDir() + "/" + s.dir)
 }
 
 func (s *Server) StartCommand() string {

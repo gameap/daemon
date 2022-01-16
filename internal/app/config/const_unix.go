@@ -1,5 +1,5 @@
-//go:build linux
-// +build linux
+//go:build !windows && !plan9
+// +build !windows,!plan9
 
 package config
 

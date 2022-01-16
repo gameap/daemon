@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"os"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
@@ -46,6 +47,11 @@ func NewProcessRunner(
 
 func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
 	err := r.initNodeConfigFromAPI(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	err = os.Chdir(cfg.WorkDir())
 	if err != nil {
 		return err
 	}

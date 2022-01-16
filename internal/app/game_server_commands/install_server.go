@@ -2,11 +2,12 @@ package gameservercommands
 
 import (
 	"context"
+	"github.com/gameap/daemon/pkg/sys"
 	"io"
 	"net/url"
 	"os"
 	"os/user"
-	"path"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -521,7 +522,12 @@ func (in *installator) installFromSteam(
 		WorkDir: cfg.WorkPath,
 	}
 
-	if isRootUser() && server.User() != "" {
+	isRoot, err := sys.IsRootUser()
+	if err != nil {
+		return err
+	}
+
+	if isRoot && server.User() != "" {
 		systemUser, err := user.Lookup(server.User())
 		if err != nil {
 			err = errors.WithMessage(err, "[game_server_commands.installator] failed to lookup user")
@@ -529,12 +535,13 @@ func (in *installator) installFromSteam(
 			return err
 		}
 
+		executorOptions.Username = systemUser.Username
+
 		executorOptions.UID = systemUser.Uid
 		executorOptions.GID = systemUser.Gid
 	}
 
 	var result int
-	var err error
 	for installTries < maxSteamCMDInstallTries {
 		result, err = in.executor.ExecWithWriter(
 			ctx,
@@ -602,7 +609,15 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 }
 
 func (in *installator) chown(ctx context.Context, dst string, userName string) error {
-	if !isRootUser() {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+
+	isRoot, err := sys.IsRootUser()
+	if err != nil {
+		return err
+	}
+	if !isRoot {
 		return nil
 	}
 
@@ -621,7 +636,7 @@ func (in *installator) chown(ctx context.Context, dst string, userName string) e
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
 	}
-	err = chownR(dst, uid, gid)
+	err = sys.ChownR(dst, uid, gid)
 	if err != nil {
 		return err
 	}
@@ -633,7 +648,7 @@ func (in *installator) runAfterInstallScript(
 	ctx context.Context,
 	serverPath string,
 ) error {
-	scriptFullPath := path.Clean(serverPath + "/" + domain.AfterInstallScriptName)
+	scriptFullPath := filepath.Clean(serverPath + "/" + domain.AfterInstallScriptName)
 	_, err := os.Stat(scriptFullPath)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return nil

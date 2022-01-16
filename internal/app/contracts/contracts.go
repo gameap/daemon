@@ -71,5 +71,6 @@ type ExecutorOptions struct {
 	FallbackWorkDir string
 	UID             string
 	GID             string
+	Username        string
 	Env             map[string]string
 }

@@ -53,6 +53,7 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 	result, err := s.executor.ExecWithWriter(ctx, command, s.startOutput, contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkPath,
+		Username:        server.User(),
 	})
 
 	s.SetResult(result)

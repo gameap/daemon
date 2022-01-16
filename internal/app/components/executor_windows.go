@@ -4,62 +4,134 @@
 package components
 
 import (
+	"encoding/base64"
 	"github.com/gameap/daemon/internal/app/contracts"
+	"github.com/itchio/ox/winox"
+	"github.com/pkg/errors"
+	"golang.org/x/sys/windows"
+	"gopkg.in/yaml.v3"
+	"os"
 	"os/exec"
+	"sync"
 )
 
-func setCMDSysProcCredential(cmd *exec.Cmd, _ contracts.ExecutorOptions) (*exec.Cmd, error) {
+func setCMDSysProcAttr(cmd *exec.Cmd, options contracts.ExecutorOptions) (*exec.Cmd, error) {
+	const _DETACHED_PROCESS = 0x00000008
+	const _CREATE_NEW_CONSOLE = 0x00000010
+	cmd.SysProcAttr = &windows.SysProcAttr{
+		HideWindow:       true,
+		CreationFlags:    _DETACHED_PROCESS,
+		NoInheritHandles: true,
+	}
+
+	if options.Username != "" {
+		password, err := getUserPassword(options.Username)
+		if err != nil {
+			return nil, err
+		}
+
+		if password != "" {
+			token, err := winox.Logon(options.Username, ".", password)
+			if err != nil {
+				return nil, err
+			}
+
+			cmd.SysProcAttr.Token = token
+		}
+	}
+
 	return cmd, nil
 }
 
-//nolint:lll
-//func ExecWithWriter(ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions) (int, error) {
-//	if command == "" {
-//		return invalidResult, ErrEmptyCommand
-//	}
-//
-//	args, err := shellquote.Split(command)
-//	if err != nil {
-//		return invalidResult, err
-//	}
-//
-//	workDir := options.WorkDir
-//	_, err = os.Stat(workDir)
-//	if err != nil && options.FallbackWorkDir == "" {
-//		return invalidResult, errors.Wrapf(err, "invalid work directory %s", workDir)
-//	} else if err != nil && options.FallbackWorkDir != "" {
-//		_, err = os.Stat(options.FallbackWorkDir)
-//		if err != nil {
-//			return invalidResult, errors.Wrapf(err, "invalid fallback work directory %s", options.FallbackWorkDir)
-//		}
-//
-//		workDir = options.FallbackWorkDir
-//	}
-//
-//	cmdArgs := []string{"/c"}
-//	cmdArgs = append(cmdArgs, args...)
-//
-//	cmd := exec.CommandContext(ctx, "cmd", cmdArgs...) //nolint:gosec
-//	cmd.Dir = workDir
-//	cmd.Stdout = out
-//	cmd.Stderr = out
-//
-//	if options.UID != "" && options.GID != "" {
-//		cmd, err = setCMDSysProcCredential(cmd, options)
-//		if err != nil {
-//			return invalidResult, err
-//		}
-//	}
-//
-//	err = cmd.Run()
-//	if err != nil {
-//		_, ok := err.(*exec.ExitError)
-//		if !ok {
-//			log.Warning(err)
-//
-//			return invalidResult, err
-//		}
-//	}
-//
-//	return cmd.ProcessState.ExitCode(), nil
-//}
+var mutex sync.Mutex
+var userPass = map[string]string{}
+var userPassLoaded bool
+
+func getUserPassword(userName string) (string, error) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if !userPassLoaded {
+		err := loadUserPassMap()
+		if err != nil {
+			return "", err
+		}
+
+		userPassLoaded = true
+	}
+
+	pass, exists := userPass[userName]
+	if !exists {
+		return "", nil
+	}
+
+	return pass, nil
+}
+
+func loadUserPassMap() error {
+	filePath := findUsersFile()
+	if filePath == "" {
+		return nil
+	}
+
+	contents, err := os.ReadFile(filePath)
+	if err != nil {
+		return errors.WithMessage(err, "failed to read users passwords config")
+	}
+
+	var userPassMap map[string]string
+
+	err = yaml.Unmarshal(contents, &userPassMap)
+	if err != nil {
+		return errors.WithMessage(err, "failed to unmarshal users passwords config")
+	}
+
+	for userName, encodedPass := range userPassMap {
+		pass, err := decodePassword(encodedPass)
+		if err != nil {
+			return err
+		}
+
+		userPass[userName] = pass
+	}
+
+	return nil
+}
+
+func decodePassword(encodedPass string) (string, error) {
+	if len(encodedPass) > 7 {
+		if encodedPass[:7] == "base64:" {
+			decodedPass, err := base64.StdEncoding.DecodeString(encodedPass[7:])
+			if err != nil {
+				return "", errors.WithMessage(err, "failed to decode base64 password")
+			}
+
+			return string(decodedPass), nil
+		}
+	}
+
+	return encodedPass, nil
+}
+
+var usersFileLocations = []string{
+	"./users.yaml",
+	"./users.yml",
+	"./daemon/users.yaml",
+	"./daemon/users.yml",
+	"./daemon/config/users.yaml",
+	"./daemon/config/users.yml",
+	"./gameap-daemon/users.yaml",
+	"./gameap-daemon/users.yml",
+	"./gameap-daemon/config/users.yaml",
+	"./gameap-daemon/config/users.yml",
+}
+
+func findUsersFile() string {
+	for _, path := range usersFileLocations {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	return ""
+}

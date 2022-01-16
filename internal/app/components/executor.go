@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -102,7 +101,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 		name = workDir + "/" + args[0]
 	}
 
-	_, err = os.Stat(path.Clean(name))
+	_, err = os.Stat(filepath.Clean(name))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		_, err = exec.LookPath(args[0])
 		if err != nil {
@@ -117,11 +116,9 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 	cmd.Stdout = out
 	cmd.Stderr = out
 
-	if options.UID != "" && options.GID != "" {
-		cmd, err = setCMDSysProcCredential(cmd, options)
-		if err != nil {
-			return invalidResult, err
-		}
+	cmd, err = setCMDSysProcAttr(cmd, options)
+	if err != nil {
+		return invalidResult, err
 	}
 
 	err = cmd.Run()
