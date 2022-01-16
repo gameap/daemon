@@ -30,6 +30,7 @@ jobs:
         uses: golangci/golangci-lint-action@v2
         with:
           version: v1.43.0
+          args: --timeout 5m
 
       - name: Unit Tests
         run: go test -race -v $(go list ./... | grep -v /test/) -coverprofile=unit.out
