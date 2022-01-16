@@ -40,7 +40,7 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
 
-	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
+	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, domain.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkDir(),
 	})
 	if err != nil {

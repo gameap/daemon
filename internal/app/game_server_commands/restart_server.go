@@ -47,7 +47,7 @@ func (s *restartServer) Execute(ctx context.Context, server *domain.Server) erro
 
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Restart, server.StartCommand())
 
-	result, err := s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
+	result, err := s.executor.ExecWithWriter(ctx, command, s.output, domain.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkDir(),
 		Username:        server.User(),

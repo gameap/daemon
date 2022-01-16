@@ -3,16 +3,17 @@ package components
 import (
 	"context"
 	"fmt"
-	"github.com/gameap/daemon/internal/app/contracts"
-	"github.com/gopherclass/go-shellquote"
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gopherclass/go-shellquote"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 var ErrEmptyCommand = errors.New("empty command")
@@ -34,7 +35,7 @@ func NewCleanExecutor() *Executor {
 	return &Executor{appendCommandAndExitCode: false}
 }
 
-func (e *Executor) Exec(ctx context.Context, command string, options contracts.ExecutorOptions) ([]byte, int, error) {
+func (e *Executor) Exec(ctx context.Context, command string, options domain.ExecutorOptions) ([]byte, int, error) {
 	return Exec(ctx, command, options)
 }
 
@@ -42,7 +43,7 @@ func (e *Executor) ExecWithWriter(
 	ctx context.Context,
 	command string,
 	out io.Writer,
-	options contracts.ExecutorOptions,
+	options domain.ExecutorOptions,
 ) (int, error) {
 	if e.appendCommandAndExitCode {
 		_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, command)))
@@ -57,7 +58,7 @@ func (e *Executor) ExecWithWriter(
 	return result, err
 }
 
-func Exec(ctx context.Context, command string, options contracts.ExecutorOptions) ([]byte, int, error) {
+func Exec(ctx context.Context, command string, options domain.ExecutorOptions) ([]byte, int, error) {
 	buf := NewSafeBuffer()
 	exitCode, err := ExecWithWriter(ctx, command, buf, options)
 	if err != nil {
@@ -72,8 +73,7 @@ func Exec(ctx context.Context, command string, options contracts.ExecutorOptions
 	return out, exitCode, nil
 }
 
-//nolint:lll
-func ExecWithWriter(ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions) (int, error) {
+func ExecWithWriter(ctx context.Context, command string, out io.Writer, options domain.ExecutorOptions) (int, error) {
 	if command == "" {
 		return invalidResult, ErrEmptyCommand
 	}

@@ -49,8 +49,8 @@ type APIResponse interface {
 }
 
 type Executor interface {
-	Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte, int, error)
-	ExecWithWriter(ctx context.Context, command string, out io.Writer, options ExecutorOptions) (int, error)
+	Exec(ctx context.Context, command string, options domain.ExecutorOptions) ([]byte, int, error)
+	ExecWithWriter(ctx context.Context, command string, out io.Writer, options domain.ExecutorOptions) (int, error)
 }
 
 type GameProcessController interface {
@@ -64,13 +64,4 @@ type GameProcessController interface {
 
 type DomainPrimitiveValidator interface {
 	Validate() error
-}
-
-type ExecutorOptions struct {
-	WorkDir         string
-	FallbackWorkDir string
-	UID             string
-	GID             string
-	Username        string
-	Env             map[string]string
 }

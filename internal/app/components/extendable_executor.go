@@ -8,6 +8,7 @@ import (
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gopherclass/go-shellquote"
 	"github.com/hashicorp/go-getter"
 	"github.com/pkg/errors"
@@ -17,7 +18,7 @@ type CommandHandler func(
 	ctx context.Context,
 	args []string,
 	out io.Writer,
-	options contracts.ExecutorOptions,
+	options domain.ExecutorOptions,
 ) (int, error)
 
 type CommandsHandlers map[string]CommandHandler
@@ -52,7 +53,7 @@ func NewCleanDefaultExtendableExecutor(cfg *config.Config) *ExtendableExecutor {
 func (executor *ExtendableExecutor) Exec(
 	ctx context.Context,
 	command string,
-	options contracts.ExecutorOptions,
+	options domain.ExecutorOptions,
 ) ([]byte, int, error) {
 	buf := NewSafeBuffer()
 
@@ -73,7 +74,7 @@ func (executor *ExtendableExecutor) ExecWithWriter(
 	ctx context.Context,
 	command string,
 	out io.Writer,
-	options contracts.ExecutorOptions,
+	options domain.ExecutorOptions,
 ) (int, error) {
 	if command == "" {
 		return invalidResult, ErrEmptyCommand
@@ -102,7 +103,7 @@ type GetTool struct {
 	cfg *config.Config
 }
 
-func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ contracts.ExecutorOptions) (int, error) {
+func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ domain.ExecutorOptions) (int, error) {
 	source := args[0]
 	fileName := filepath.Base(source)
 	destination := filepath.Clean(g.cfg.ToolsPath) + "/" + fileName

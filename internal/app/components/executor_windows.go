@@ -5,17 +5,18 @@ package components
 
 import (
 	"encoding/base64"
-	"github.com/gameap/daemon/internal/app/contracts"
+	"os"
+	"os/exec"
+	"sync"
+
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/itchio/ox/winox"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 	"gopkg.in/yaml.v3"
-	"os"
-	"os/exec"
-	"sync"
 )
 
-func setCMDSysProcAttr(cmd *exec.Cmd, options contracts.ExecutorOptions) (*exec.Cmd, error) {
+func setCMDSysProcAttr(cmd *exec.Cmd, options domain.ExecutorOptions) (*exec.Cmd, error) {
 	const _DETACHED_PROCESS = 0x00000008
 	const _CREATE_NEW_CONSOLE = 0x00000010
 	cmd.SysProcAttr = &windows.SysProcAttr{

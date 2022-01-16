@@ -2,8 +2,10 @@ package start
 
 import (
 	"context"
-	"github.com/gameap/daemon/test/functional/serverscommand"
 	"runtime"
+
+	"github.com/gameap/daemon/pkg/sys"
+	"github.com/gameap/daemon/test/functional/serverscommand"
 
 	"github.com/gameap/daemon/internal/app/domain"
 )
@@ -20,7 +22,7 @@ func (suite *Suite) TestStartSuccess() {
 	suite.Require().Nil(err)
 	suite.Assert().True(cmd.IsComplete())
 	suite.Assert().Equal(0, cmd.Result())
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == sys.Windows {
 		suite.Assert().Equal([]byte("start\r\n"), cmd.ReadOutput())
 	} else {
 		suite.Assert().Equal([]byte("start\n"), cmd.ReadOutput())

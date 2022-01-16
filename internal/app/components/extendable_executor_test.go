@@ -9,7 +9,7 @@ import (
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
-	"github.com/gameap/daemon/internal/app/contracts"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +30,7 @@ func TestExtendableExecutor_ExecGetTool_ExpectToolDownloaded(t *testing.T) {
 	result, code, err := executor.Exec(
 		context.Background(),
 		"get-tool https://raw.githubusercontent.com/gameap/scripts/master/fastdl/fastdl.sh",
-		contracts.ExecutorOptions{},
+		domain.ExecutorOptions{},
 	)
 
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestExtendableExecutor_ExecEchoCommand_ExpectCommandExecuted(t *testing.T) 
 	result, code, err := executor.Exec(
 		context.Background(),
 		command,
-		contracts.ExecutorOptions{
+		domain.ExecutorOptions{
 			WorkDir: tmpDir,
 		},
 	)

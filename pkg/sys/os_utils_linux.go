@@ -4,10 +4,11 @@
 package sys
 
 import (
-	"github.com/pkg/errors"
 	"os"
 	"os/user"
 	"path/filepath"
+
+	"github.com/pkg/errors"
 )
 
 // https://github.com/gutengo/fil/blob/6109b2e0b5cfdefdef3a254cc1a3eaa35bc89284/file.go#L27
@@ -25,5 +26,6 @@ func IsRootUser() (bool, error) {
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to check current user")
 	}
-	return currentUser.Username == "root"
+
+	return currentUser.Username == "root", nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/pkg/sys"
 	copyPkg "github.com/otiai10/copy"
 	"github.com/stretchr/testify/suite"
 )
@@ -67,7 +68,7 @@ func (suite *deleteSuite) TestDeleteServerByFilesystemSuccess() {
 func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 	workPath := suite.givenWorkPath()
 	var deleteCommand string
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == sys.Windows {
 		deleteCommand = "cmd /c rmdir /S /Q simple"
 	} else {
 		deleteCommand = "rm -rf ./simple"
@@ -95,7 +96,7 @@ func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 	workPath := suite.givenWorkPath()
 	var deleteCommand string
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == sys.Windows {
 		deleteCommand = "cmd /c fail.bat"
 	} else {
 		deleteCommand = "./fail.sh"
@@ -115,7 +116,7 @@ func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 
 	suite.Require().Nil(err)
 	suite.Assert().Equal(ErrorResult, deleteServerCommand.Result())
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == sys.Windows {
 		suite.Assert().Equal("command failed\r\n", string(deleteServerCommand.ReadOutput()))
 	} else {
 		suite.Assert().Equal("command failed\n", string(deleteServerCommand.ReadOutput()))

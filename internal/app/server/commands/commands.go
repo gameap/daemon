@@ -6,7 +6,7 @@ import (
 
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/components"
-	"github.com/gameap/daemon/internal/app/contracts"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/server/response"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
@@ -37,7 +37,7 @@ func (c *Commands) Handle(ctx context.Context, readWriter io.ReadWriter) error {
 
 func (c Commands) executeCommand(ctx context.Context, msg commandExec, writer io.Writer) error {
 	logger.WithField(ctx, "command", msg.Command).Debug("Executing command")
-	out, exitCode, err := components.Exec(ctx, msg.Command, contracts.ExecutorOptions{
+	out, exitCode, err := components.Exec(ctx, msg.Command, domain.ExecutorOptions{
 		WorkDir: msg.WorkDir,
 	})
 

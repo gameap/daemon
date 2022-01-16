@@ -8,6 +8,7 @@ import (
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
+	"github.com/gameap/daemon/pkg/sys"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -21,7 +22,7 @@ func (suite *Suite) TestChmodSuccess() {
 		perm     uint16
 		expected string
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == sys.Windows {
 		tests = []struct {
 			name     string
 			perm     uint16

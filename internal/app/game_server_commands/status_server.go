@@ -24,7 +24,7 @@ func newStatusServer(cfg *config.Config, executor contracts.Executor) *statusSer
 func (s *statusServer) Execute(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Status, "")
 
-	result, err := s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
+	result, err := s.executor.ExecWithWriter(ctx, command, s.output, domain.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkPath,
 		Username:        server.User(),

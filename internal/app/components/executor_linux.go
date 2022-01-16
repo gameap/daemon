@@ -5,14 +5,15 @@ package components
 
 import (
 	"os/exec"
+	"os/user"
 	"strconv"
 	"syscall"
 
-	"github.com/gameap/daemon/internal/app/contracts"
+	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/pkg/errors"
 )
 
-func setCMDSysProcAttr(cmd *exec.Cmd, options contracts.ExecutorOptions) (*exec.Cmd, error) {
+func setCMDSysProcAttr(cmd *exec.Cmd, options domain.ExecutorOptions) (*exec.Cmd, error) {
 	var uid, gid int
 	var err error
 
@@ -44,7 +45,7 @@ func setCMDSysProcAttr(cmd *exec.Cmd, options contracts.ExecutorOptions) (*exec.
 }
 
 func findUIDAndGIDByUsername(username string) (int, int, error) {
-	systemUser, err := user.Lookup(userName)
+	systemUser, err := user.Lookup(username)
 	if err != nil {
 		return 0, 0, errors.WithMessage(err, "[components] failed to lookup user")
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
+	"github.com/gameap/daemon/pkg/sys"
 	"github.com/gameap/daemon/test/functional/servertest"
 	"github.com/stretchr/testify/suite"
 )
@@ -74,15 +75,15 @@ func (suite *Suite) assertFileDetails(
 
 	// file size
 	if fileType != files.TypeDir {
-		switch fInfo[1].(type) {
+		switch v := fInfo[1].(type) {
 		case uint8:
-			suite.Equal(size, uint64(fInfo[1].(uint8)))
+			suite.Equal(size, uint64(v))
 		case uint16:
-			suite.Equal(size, uint64(fInfo[1].(uint16)))
+			suite.Equal(size, uint64(v))
 		case uint32:
-			suite.Equal(size, uint64(fInfo[1].(uint32)))
+			suite.Equal(size, uint64(v))
 		case uint64:
-			suite.Equal(size, fInfo[1].(uint64))
+			suite.Equal(size, v)
 		}
 	}
 
@@ -90,7 +91,7 @@ func (suite *Suite) assertFileDetails(
 	suite.Equal(uint8(fileType), fInfo[2])
 
 	// permissions
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != sys.Windows {
 		suite.Equal(permissions, fInfo[6])
 	}
 

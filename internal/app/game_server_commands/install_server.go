@@ -2,7 +2,6 @@ package gameservercommands
 
 import (
 	"context"
-	"github.com/gameap/daemon/pkg/sys"
 	"io"
 	"net/url"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/gameap/daemon/pkg/sys"
 
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gameap/daemon/internal/app/components"
@@ -223,7 +224,7 @@ func (cmd *installServer) installByScript(ctx context.Context, server *domain.Se
 
 	_, _ = cmd.installOutput.Write([]byte("Executing install script ...\n"))
 
-	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.installOutput, contracts.ExecutorOptions{
+	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.installOutput, domain.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkPath,
 	})
 
@@ -518,27 +519,10 @@ func (in *installator) installFromSteam(
 
 	var installTries uint8
 
-	executorOptions := contracts.ExecutorOptions{
-		WorkDir: cfg.WorkPath,
-	}
-
-	isRoot, err := sys.IsRootUser()
+	executorOptions, err := in.createExecutorOptions(cfg, server)
 	if err != nil {
+		in.writeOutput(ctx, err.Error())
 		return err
-	}
-
-	if isRoot && server.User() != "" {
-		systemUser, err := user.Lookup(server.User())
-		if err != nil {
-			err = errors.WithMessage(err, "[game_server_commands.installator] failed to lookup user")
-			in.writeOutput(ctx, err.Error())
-			return err
-		}
-
-		executorOptions.Username = systemUser.Username
-
-		executorOptions.UID = systemUser.Uid
-		executorOptions.GID = systemUser.Gid
 	}
 
 	var result int
@@ -569,6 +553,37 @@ func (in *installator) installFromSteam(
 	}
 
 	return nil
+}
+
+func (in *installator) createExecutorOptions(
+	cfg *config.Config,
+	server *domain.Server,
+) (domain.ExecutorOptions, error) {
+	executorOptions := domain.ExecutorOptions{
+		WorkDir: cfg.WorkPath,
+	}
+
+	isRoot, err := sys.IsRootUser()
+	if err != nil {
+		return executorOptions, err
+	}
+
+	if isRoot && server.User() != "" {
+		systemUser, err := user.Lookup(server.User())
+		if err != nil {
+			return executorOptions, errors.WithMessage(
+				err,
+				"[game_server_commands.installator] failed to lookup user",
+			)
+		}
+
+		executorOptions.Username = systemUser.Username
+
+		executorOptions.UID = systemUser.Uid
+		executorOptions.GID = systemUser.Gid
+	}
+
+	return executorOptions, nil
 }
 
 func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) string {
@@ -609,7 +624,7 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 }
 
 func (in *installator) chown(ctx context.Context, dst string, userName string) error {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == sys.Windows {
 		return nil
 	}
 
@@ -658,13 +673,13 @@ func (in *installator) runAfterInstallScript(
 	}
 
 	commandScriptPath := scriptFullPath
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == sys.Windows {
 		commandScriptPath = "powershell " + commandScriptPath
 	}
 
 	if in.kind == installer {
 		in.writeOutput(ctx, "Executing after install script")
-		result, err := in.executor.ExecWithWriter(ctx, commandScriptPath, in.output, contracts.ExecutorOptions{
+		result, err := in.executor.ExecWithWriter(ctx, commandScriptPath, in.output, domain.ExecutorOptions{
 			WorkDir: serverPath,
 		})
 		if err != nil {

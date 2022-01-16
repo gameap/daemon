@@ -206,7 +206,7 @@ func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDT
 	logger.Debug(ctx, "Running task command")
 
 	go func() {
-		err := cmd.Execute(ctx, task.Command(), contracts.ExecutorOptions{
+		err := cmd.Execute(ctx, task.Command(), domain.ExecutorOptions{
 			WorkDir: manager.config.WorkDir(),
 		})
 
@@ -423,7 +423,7 @@ func newExecuteCommand(executor contracts.Executor) *executeCommand {
 func (e *executeCommand) Execute(
 	ctx context.Context,
 	command string,
-	options contracts.ExecutorOptions,
+	options domain.ExecutorOptions,
 ) error {
 	result, err := e.executor.ExecWithWriter(ctx, command, e.output, options)
 

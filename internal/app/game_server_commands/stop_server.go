@@ -26,7 +26,7 @@ func (s *stopServer) Execute(ctx context.Context, server *domain.Server) error {
 
 	server.AffectStop()
 
-	result, err := s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
+	result, err := s.executor.ExecWithWriter(ctx, command, s.output, domain.ExecutorOptions{
 		WorkDir:         server.WorkDir(s.cfg),
 		FallbackWorkDir: s.cfg.WorkDir(),
 		Username:        server.User(),

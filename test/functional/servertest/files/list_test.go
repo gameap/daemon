@@ -7,6 +7,7 @@ import (
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
+	"github.com/gameap/daemon/pkg/sys"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,7 +40,7 @@ func (suite *Suite) TestListSuccess() {
 	assert.Equal(suite.T(), "file.txt", fileTxtInfo[0])
 	assert.Equal(suite.T(), uint8(9), fileTxtInfo[1])
 	assert.Equal(suite.T(), uint8(2), fileTxtInfo[3])
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != sys.Windows {
 		assert.Equal(suite.T(), uint16(0664), fileTxtInfo[4])
 	}
 }

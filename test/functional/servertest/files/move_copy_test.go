@@ -11,6 +11,7 @@ import (
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
+	"github.com/gameap/daemon/pkg/sys"
 )
 
 func (suite *Suite) TestMoveFileSuccess() {
@@ -57,7 +58,7 @@ func (suite *Suite) TestCopyRelativePathSuccess() {
 	suite.DirExists(tempDir + "/directory")
 	suite.FileExists(tempDir + "/file.json")
 	suite.FileExists(tempDir + "/file.txt")
-	if runtime.GOOS != "windows" && suite.FileExists(tempDir+"/symlink_to_file_txt") {
+	if runtime.GOOS != sys.Windows && suite.FileExists(tempDir+"/symlink_to_file_txt") {
 		s, err := os.Lstat(tempDir + "/symlink_to_file_txt")
 		if err != nil {
 			suite.T().Fatal(err)

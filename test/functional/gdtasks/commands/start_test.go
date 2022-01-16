@@ -1,8 +1,9 @@
 package commands
 
 import (
-	"github.com/gameap/daemon/internal/app/domain"
 	"runtime"
+
+	"github.com/gameap/daemon/internal/app/domain"
 )
 
 func (suite *Suite) TestStartSuccess() {
