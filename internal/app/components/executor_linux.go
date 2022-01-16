@@ -31,15 +31,17 @@ func setCMDSysProcAttr(cmd *exec.Cmd, options domain.ExecutorOptions) (*exec.Cmd
 		}
 	}
 
-	if uid != 0 && gid != 0 && options.Username != "" {
+	if uid == 0 && gid == 0 && options.Username != "" {
 		uid, gid, err = findUIDAndGIDByUsername(options.Username)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+	if uid != 0 && gid != 0 {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+	}
 
 	return cmd, nil
 }

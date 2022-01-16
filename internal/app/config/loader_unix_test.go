@@ -4,7 +4,7 @@
 package config
 
 const (
-	configPath = "C:\\gameap\\daemon.cfg"
+	configPath = "/etc/gameap-daemon/gameap-daemon.cfg"
 
 	caCertificateFilePath    = "/etc/gameap-daemon/certs/ca.crt"
 	certificateChainFilePath = "/etc/gameap-daemon/certs/server.crt"

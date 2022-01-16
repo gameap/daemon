@@ -10,12 +10,14 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/pkg/sys"
 	"github.com/gameap/daemon/test/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStartServer(t *testing.T) {
+	ctx := context.Background()
 	cfg := &config.Config{
 		WorkPath: "../../../test/servers",
 		Scripts: config.Scripts{
@@ -23,7 +25,7 @@ func TestStartServer(t *testing.T) {
 		},
 	}
 	var startCommand string
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == sys.Windows {
 		startCommand = "cmd /c run.bat"
 	} else {
 		startCommand = "./run.sh"
@@ -31,7 +33,7 @@ func TestStartServer(t *testing.T) {
 	server := givenServerWithStartCommand(t, startCommand)
 	startServerCommand := givenCommandFactory(t, cfg).LoadServerCommand(domain.Start)
 
-	err := startServerCommand.Execute(context.Background(), server)
+	err := startServerCommand.Execute(ctx, server)
 
 	require.Nil(t, err)
 	assert.Equal(t, gameservercommands.SuccessResult, startServerCommand.Result())
@@ -119,7 +121,7 @@ func givenServerWithStartCommand(t *testing.T, startCommand string) *domain.Serv
 		1339,
 		"paS$w0rD",
 		"simple",
-		"gameap-user",
+		"",
 		startCommand,
 		"",
 		"",
