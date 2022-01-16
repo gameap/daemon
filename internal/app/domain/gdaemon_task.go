@@ -93,6 +93,9 @@ func (task *GDTask) Command() string {
 }
 
 func (task *GDTask) Status() GDTaskStatus {
+	task.statusMutex.Lock()
+	defer task.statusMutex.Unlock()
+
 	return task.status
 }
 

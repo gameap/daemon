@@ -26,7 +26,7 @@ var GameServer = domain.NewServer(
 	1339,
 	"paS$w0rD",
 	"server",
-	"gameap-user",
+	"",
 	"startCommand",
 	"stopCommand",
 	"",
