@@ -83,6 +83,20 @@ func TestGameRulesDefiner_DefineGameRules_FromSteam(t *testing.T) {
 	assert.Equal(t, installFromSteam, rules[0].Action)
 }
 
+func TestGameRulesDefiner_DefineGameRules_FromSteamWithConfig(t *testing.T) {
+	rulesDefiner := installationRulesDefiner{}
+	game := &domain.Game{
+		SteamAppID:        domain.SteamAppID(90),
+		SteamAppSetConfig: "mod czero",
+	}
+
+	rules := rulesDefiner.DefineGameRules(game)
+
+	require.Len(t, rules, 1)
+	assert.Equal(t, "90 mod czero", rules[0].SourceValue)
+	assert.Equal(t, installFromSteam, rules[0].Action)
+}
+
 func TestInstallationRuleDefiner_InvalidRemoteValueButValidLocalValue_FromLocalRepository(t *testing.T) {
 	rulesDefiner := installationRulesDefiner{}
 	game := &domain.Game{
@@ -278,7 +292,22 @@ func TestUpdateBySteam_SteamCommandWithoutValidate(t *testing.T) {
 	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
 }
 
-func TestInstallBySteam_SteamCommandWitValidate(t *testing.T) {
+func TestUpdateBySteam_SteamCommandWithSetConfig(t *testing.T) {
+	cfg := &config.Config{}
+	executor := &testExecutor{}
+	updater := newUpdater(cfg, executor, &bytes.Buffer{})
+	server := givenLocalInstallationServer(t)
+	rules := []*installationRule{
+		{SourceValue: "90 mod czero", Action: installFromSteam},
+	}
+
+	err := updater.Install(context.Background(), server, rules)
+
+	require.Nil(t, err)
+	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 mod czero +quit")
+}
+
+func TestInstallBySteam_SteamCommandWithValidate(t *testing.T) {
 	cfg := &config.Config{}
 	executor := &testExecutor{}
 	updater := newInstallator(cfg, executor, &bytes.Buffer{})

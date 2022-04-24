@@ -303,6 +303,10 @@ func (d *installationRulesDefiner) DefineGameRules(game *domain.Game) []*install
 			SourceValue: game.SteamAppID.String(),
 			Action:      installFromSteam,
 		}
+		if game.SteamAppSetConfig != "" {
+			rule.SourceValue += " " + game.SteamAppSetConfig
+		}
+
 		rules = append(rules, rule)
 	}
 
@@ -584,11 +588,6 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 
 	execCmd.WriteString(" +app_update ")
 	execCmd.WriteString(appID)
-
-	if server.Game().SteamSettings.SteamAppSetConfig != "" {
-		execCmd.WriteString(" ")
-		execCmd.WriteString(server.Game().SteamSettings.SteamAppSetConfig)
-	}
 
 	if in.kind == installer {
 		execCmd.WriteString(" validate")
