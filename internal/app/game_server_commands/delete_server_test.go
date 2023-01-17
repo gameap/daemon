@@ -2,7 +2,6 @@ package gameservercommands
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -35,7 +34,7 @@ func (suite *deleteSuite) TearDownSuite() {
 
 func (suite *deleteSuite) givenWorkPath() string {
 	suite.T().Helper()
-	workPath, err := ioutil.TempDir("/tmp", "delete-server-test")
+	workPath, err := os.MkdirTemp("/tmp", "delete-server-test")
 	if err != nil {
 		suite.T().Fatal(err)
 	}

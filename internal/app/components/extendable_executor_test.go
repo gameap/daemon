@@ -2,7 +2,6 @@ package components_test
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"syscall"
 	"testing"
@@ -77,7 +76,7 @@ func assertFileIsExecutableByOwner(t *testing.T, filePath string) bool {
 func givenTmp(t *testing.T) string {
 	t.Helper()
 
-	workPath, err := ioutil.TempDir("/tmp", "extendable-executor-test")
+	workPath, err := os.MkdirTemp("/tmp", "extendable-executor-test")
 	if err != nil {
 		t.Fatal(err)
 	}

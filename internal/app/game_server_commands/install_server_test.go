@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -204,8 +203,13 @@ func TestInstallationRuleDefiner_GameModInvalidRemoteRepository_ExpectLocalRepo(
 }
 
 func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
-	workPath, err := ioutil.TempDir("/tmp", "gameap-daemon-test")
-	defer os.RemoveAll(workPath)
+	workPath, err := os.MkdirTemp("/tmp", "gameap-daemon-test")
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}(workPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,8 +233,13 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 }
 
 func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
-	workPath, err := ioutil.TempDir("/tmp", "gameap-daemon-test")
-	defer os.RemoveAll(workPath)
+	workPath, err := os.MkdirTemp("/tmp", "gameap-daemon-test")
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}(workPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,8 +263,14 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 }
 
 func TestInstallation_RunAfterInstallScript(t *testing.T) {
-	workPath, err := ioutil.TempDir("/tmp", "gameap-daemon-test")
-	defer os.RemoveAll(workPath)
+	workPath, err := os.MkdirTemp("/tmp", "gameap-daemon-test")
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}(workPath)
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,13 +440,13 @@ type testExecutor struct {
 	command string
 }
 
-func (ex *testExecutor) Exec(ctx context.Context, command string, options contracts.ExecutorOptions) ([]byte, int, error) {
+func (ex *testExecutor) Exec(_ context.Context, command string, _ contracts.ExecutorOptions) ([]byte, int, error) {
 	ex.command = command
 
 	return []byte(""), 0, nil
 }
 
-func (ex *testExecutor) ExecWithWriter(ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions) (int, error) {
+func (ex *testExecutor) ExecWithWriter(_ context.Context, command string, _ io.Writer, _ contracts.ExecutorOptions) (int, error) {
 	ex.command = command
 
 	return 0, nil
