@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/go-getter"
 	"github.com/otiai10/copy"
 	"github.com/pkg/errors"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -55,7 +56,6 @@ type installationRule struct {
 	Action      installAction
 }
 
-//nolint: maligned
 type installServer struct {
 	baseCommand
 
