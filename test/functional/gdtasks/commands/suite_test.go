@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -23,7 +22,7 @@ func (suite *Suite) SetupTest() {
 
 	var err error
 
-	suite.WorkPath, err = ioutil.TempDir("/tmp", "gameap-daemon-test")
+	suite.WorkPath, err = os.MkdirTemp("/tmp", "gameap-daemon-test")
 	if err != nil {
 		suite.T().Fatal(err)
 	}

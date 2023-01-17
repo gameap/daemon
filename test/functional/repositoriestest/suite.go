@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -203,7 +202,7 @@ func (suite *Suite) AssertAPICalled(method string, url string, body []byte) {
 	}
 
 	if !isCalled {
-		suite.T().Error(fmt.Sprintf("api call not found (%s)", url))
+		suite.T().Errorf("api call not found (%s)", url)
 		return
 	}
 
@@ -215,10 +214,9 @@ func (suite *Suite) AssertAPICalled(method string, url string, body []byte) {
 	}
 
 	if !equalFound {
-		suite.T().Error(fmt.Sprintf(
-			"api call not found (%s)\n"+
-				"found: \n%s",
+		suite.T().Errorf("api call not found (%s)\n"+
+			"found: \n%s",
 			url, urlCalled,
-		))
+		)
 	}
 }

@@ -2,7 +2,7 @@ package gdtasks
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"os"
 	"testing"
@@ -242,7 +242,7 @@ func (suite *Suite) AssertFileContents(file string, expectedContents []byte) {
 		}
 	}()
 
-	buf, err := ioutil.ReadAll(fd)
+	buf, err := io.ReadAll(fd)
 
 	suite.Assert().Equal(expectedContents, buf)
 }

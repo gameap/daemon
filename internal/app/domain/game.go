@@ -36,20 +36,19 @@ func (appID SteamAppID) String() string {
 }
 
 type Game struct {
-	Code             string     `json:"code"`
-	StartCode        string     `json:"start_code"`
-	Name             string     `json:"name"`
-	Engine           string     `json:"engine"`
-	EngineVersion    string     `json:"engine_version"`
-	SteamAppID       SteamAppID `json:"steam_app_id"`
-	SteamSettings    SteamSettings
-	RemoteRepository string `json:"remote_repository"`
-	LocalRepository  string `json:"local_repository"`
+	Code              string     `json:"code"`
+	StartCode         string     `json:"start_code"`
+	Name              string     `json:"name"`
+	Engine            string     `json:"engine"`
+	EngineVersion     string     `json:"engine_version"`
+	SteamAppID        SteamAppID `json:"steam_app_id"`
+	SteamAppSetConfig string     `json:"steam_app_set_config"`
+	RemoteRepository  string     `json:"remote_repository"`
+	LocalRepository   string     `json:"local_repository"`
 }
 
 type SteamSettings struct {
-	SteamAppID        SteamAppID
-	SteamAppSetConfig string
+	AppSetConfig string
 }
 
 type GameModVarTemplate struct {

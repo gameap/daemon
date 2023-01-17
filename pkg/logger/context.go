@@ -2,7 +2,7 @@ package logger
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -24,7 +24,7 @@ func Logger(ctx context.Context) log.FieldLogger {
 	}
 
 	nilLogger := log.New()
-	nilLogger.Out = ioutil.Discard
+	nilLogger.Out = io.Discard
 
 	return nilLogger
 }
@@ -45,10 +45,12 @@ func Debug(ctx context.Context, args ...interface{}) {
 	Logger(ctx).Debug(args...)
 }
 
+//nolint
 func Debugf(ctx context.Context, format string, args ...interface{}) {
 	Logger(ctx).Debugf(format, args...)
 }
 
+//nolint
 func Trace(ctx context.Context, args ...interface{}) {
 	Logger(ctx).Debug(args...)
 }
@@ -65,6 +67,7 @@ func Infof(ctx context.Context, format string, args ...interface{}) {
 	Logger(ctx).Infof(format, args...)
 }
 
+//nolint
 func Print(ctx context.Context, args ...interface{}) {
 	Logger(ctx).Print(args...)
 }

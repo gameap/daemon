@@ -2,7 +2,6 @@ package servertasks
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -64,7 +63,7 @@ func (suite *Suite) SetupTest() {
 		),
 	)
 
-	suite.WorkPath, err = ioutil.TempDir("/tmp", "gameap-daemon-test")
+	suite.WorkPath, err = os.MkdirTemp("/tmp", "gameap-daemon-test")
 	if err != nil {
 		suite.T().Fatal(err)
 	}

@@ -10,7 +10,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.16.x, 1.17.x, 1.18.0-beta1]
+        go-version: [1.16.x, 1.17.x, 1.18.x, 1.19.x]
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -27,9 +27,9 @@ jobs:
         run: go mod download
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v2
+        uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.43.0
+          version: v1.50.1
 
       - name: Unit Tests
         run: go test -race -v $(go list ./... | grep -v /test/) -coverprofile=unit.out
