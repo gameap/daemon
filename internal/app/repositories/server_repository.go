@@ -13,7 +13,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const serverCacheTTL = 1 * time.Minute
+const serverCacheTTL = 10 * time.Second
 
 type ServerRepository struct {
 	innerRepo apiServerRepo
@@ -211,7 +211,10 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 	if srv.LastProcessCheck != "" {
 		lastProcessCheck, err = time.Parse("2006-01-02 15:04:05", srv.LastProcessCheck)
 		if err != nil {
-			return nil, err
+			lastProcessCheck, err = time.Parse(time.RFC3339, srv.LastProcessCheck)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
