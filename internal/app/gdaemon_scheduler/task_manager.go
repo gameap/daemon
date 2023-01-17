@@ -3,6 +3,7 @@ package gdaemonscheduler
 import (
 	"context"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -199,7 +200,7 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 }
 
 func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDTask) error {
-	cmd := newExecuteCommand(manager.executor)
+	cmd := newExecuteCommand(manager.config, manager.executor)
 
 	manager.commandsInProgress.Store(*task, cmd)
 
@@ -404,6 +405,7 @@ func (q *taskQueue) Len() int {
 }
 
 type executeCommand struct {
+	config   *config.Config
 	output   io.ReadWriter
 	mu       *sync.Mutex
 	complete bool
@@ -412,8 +414,9 @@ type executeCommand struct {
 	executor contracts.Executor
 }
 
-func newExecuteCommand(executor contracts.Executor) *executeCommand {
+func newExecuteCommand(config *config.Config, executor contracts.Executor) *executeCommand {
 	return &executeCommand{
+		config:   config,
 		executor: executor,
 		output:   components.NewSafeBuffer(),
 		mu:       &sync.Mutex{},
@@ -425,6 +428,9 @@ func (e *executeCommand) Execute(
 	command string,
 	options contracts.ExecutorOptions,
 ) error {
+	command = strings.ReplaceAll(command, "{node_work_path}", e.config.WorkPath)
+	command = strings.ReplaceAll(command, "{node_tools_path}", e.config.WorkPath+"/tools")
+
 	result, err := e.executor.ExecWithWriter(ctx, command, e.output, options)
 
 	e.mu.Lock()
