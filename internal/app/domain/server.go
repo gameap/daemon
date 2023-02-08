@@ -49,7 +49,7 @@ type ServerRepository interface {
 	Save(ctx context.Context, task *Server) error
 }
 
-// Settings are impact on server management by daemon
+// Settings are impact on server management by daemon.
 type Settings map[string]string
 
 //nolint:maligned

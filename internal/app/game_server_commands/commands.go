@@ -42,8 +42,10 @@ func NewFactory(
 	}
 }
 
-//nolint:funlen
-func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand, server *domain.Server) contracts.GameServerCommand {
+func (factory *ServerCommandFactory) LoadServerCommand(
+	cmd domain.ServerCommand,
+	server *domain.Server,
+) contracts.GameServerCommand {
 	switch cmd {
 	case domain.Start:
 		return factory.makeStartCommand(server)
