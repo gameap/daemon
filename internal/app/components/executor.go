@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
 
 	"github.com/gameap/daemon/internal/app/contracts"
@@ -96,7 +97,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 		workDir = options.FallbackWorkDir
 	}
 
-	_, err = os.Stat(path.Clean(workDir + "/" + args[0]))
+	_, err = os.Stat(path.Clean(filepath.Join(workDir, args[0])))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		_, err = exec.LookPath(args[0])
 		if err != nil {

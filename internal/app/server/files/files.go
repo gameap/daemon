@@ -16,7 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type operationHandlerFunc func(ctx context.Context, message message, readWriter io.ReadWriter) error
+type operationHandlerFunc func(ctx context.Context, message anyMessage, readWriter io.ReadWriter) error
 
 type Files struct {
 	handlers map[Operation]operationHandlerFunc
@@ -39,7 +39,7 @@ func NewFiles() *Files {
 }
 
 func (f *Files) Handle(ctx context.Context, readWriter io.ReadWriter) error {
-	var msg message
+	var msg anyMessage
 
 	decoder := decode.NewDecoder(readWriter)
 	err := decoder.Decode(&msg)
@@ -95,7 +95,7 @@ func writeError(readWriter io.Writer, message string) error {
 	})
 }
 
-func readDir(ctx context.Context, m message, readWriter io.ReadWriter) error {
+func readDir(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createReadDirMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -126,7 +126,7 @@ func readDir(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func makeDir(ctx context.Context, m message, readWriter io.ReadWriter) error {
+func makeDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createMkDirMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -143,7 +143,7 @@ func makeDir(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func moveCopy(ctx context.Context, m message, readWriter io.ReadWriter) error {
+func moveCopy(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createMoveMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -184,7 +184,7 @@ func moveCopy(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func fileSend(ctx context.Context, m message, readWriter io.ReadWriter) error {
+func fileSend(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	if len(m) < 2 {
 		return writeError(readWriter, "Invalid message")
 	}
@@ -209,7 +209,7 @@ func fileSend(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	}
 }
 
-func sendFileToClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
+func sendFileToClient(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createSendFileToClientMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -267,7 +267,7 @@ func sendFileToClient(ctx context.Context, m message, readWriter io.ReadWriter) 
 }
 
 //nolint:funlen
-func getFileFromClient(ctx context.Context, m message, readWriter io.ReadWriter) error {
+func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createGetFileFromClientMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -332,23 +332,23 @@ func getFileFromClient(ctx context.Context, m message, readWriter io.ReadWriter)
 	})
 }
 
-func remove(ctx context.Context, m message, readWriter io.ReadWriter) error {
-	message, err := createRemoveMessage(m)
-	if message == nil || err != nil {
+func remove(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
+	msg, err := createRemoveMessage(m)
+	if msg == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	cleanedPath := path.Clean(message.Path)
+	cleanedPath := path.Clean(msg.Path)
 
 	if cleanedPath == "." || cleanedPath == "/" {
 		return writeError(readWriter, "Invalid path")
 	}
 
-	if _, err := os.Stat(cleanedPath); errors.Is(err, os.ErrNotExist) {
+	if _, err = os.Stat(cleanedPath); errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, "Path not exist")
 	}
 
-	if message.Recursive {
+	if msg.Recursive {
 		err = os.RemoveAll(cleanedPath)
 	} else {
 		err = os.Remove(cleanedPath)
@@ -364,13 +364,13 @@ func remove(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func fileInfo(ctx context.Context, m message, readWriter io.ReadWriter) error {
-	message, err := createFileInfoMessage(m)
-	if message == nil || err != nil {
+func fileInfo(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
+	msg, err := createFileInfoMessage(m)
+	if msg == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	r, err := createfileDetailsResponse(message.Path)
+	r, err := createfileDetailsResponse(msg.Path)
 	if err != nil {
 		return writeError(readWriter, "Failed to read file details")
 	}
@@ -381,13 +381,13 @@ func fileInfo(ctx context.Context, m message, readWriter io.ReadWriter) error {
 	})
 }
 
-func chmod(ctx context.Context, m message, readWriter io.ReadWriter) error {
-	message, err := createChmodMessage(m)
-	if message == nil || err != nil {
+func chmod(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
+	msg, err := createChmodMessage(m)
+	if msg == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	err = os.Chmod(message.Path, os.FileMode(message.Perm))
+	err = os.Chmod(msg.Path, os.FileMode(msg.Perm))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, "Path not exist")
 	}

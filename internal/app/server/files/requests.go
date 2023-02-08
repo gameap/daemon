@@ -7,7 +7,7 @@ import (
 
 var errInvalidMessage = errors.New("unknown binn value, cannot be presented as struct")
 
-type message []interface{}
+type anyMessage []interface{}
 
 func convertToCode(val interface{}) (uint8, error) {
 	switch v := val.(type) {
@@ -52,7 +52,7 @@ type readDirMessage struct {
 	DetailsMode bool
 }
 
-func createReadDirMessage(m message) (*readDirMessage, error) {
+func createReadDirMessage(m anyMessage) (*readDirMessage, error) {
 	if len(m) < 3 {
 		return nil, errInvalidMessage
 	}
@@ -77,7 +77,7 @@ type mkDirMessage struct {
 	Directory string
 }
 
-func createMkDirMessage(m message) (*mkDirMessage, error) {
+func createMkDirMessage(m anyMessage) (*mkDirMessage, error) {
 	if len(m) < 2 {
 		return nil, errInvalidMessage
 	}
@@ -96,7 +96,7 @@ type moveMessage struct {
 	Copy        bool
 }
 
-func createMoveMessage(m message) (*moveMessage, error) {
+func createMoveMessage(m anyMessage) (*moveMessage, error) {
 	if len(m) < 3 {
 		return nil, errInvalidMessage
 	}
@@ -123,7 +123,7 @@ type sendFileToClientMessage struct {
 	FilePath string
 }
 
-func createSendFileToClientMessage(m message) (*sendFileToClientMessage, error) {
+func createSendFileToClientMessage(m anyMessage) (*sendFileToClientMessage, error) {
 	if len(m) < 3 {
 		return nil, errInvalidMessage
 	}
@@ -143,7 +143,7 @@ type getFileFromClientMessage struct {
 	Perms    os.FileMode
 }
 
-func createGetFileFromClientMessage(m message) (*getFileFromClientMessage, error) {
+func createGetFileFromClientMessage(m anyMessage) (*getFileFromClientMessage, error) {
 	if len(m) < 6 {
 		return nil, errInvalidMessage
 	}
@@ -181,7 +181,7 @@ type removeMessage struct {
 	Recursive bool
 }
 
-func createRemoveMessage(m message) (*removeMessage, error) {
+func createRemoveMessage(m anyMessage) (*removeMessage, error) {
 	if len(m) < 3 {
 		return nil, errInvalidMessage
 	}
@@ -203,7 +203,7 @@ type fileInfoMessage struct {
 	Path string
 }
 
-func createFileInfoMessage(m message) (*fileInfoMessage, error) {
+func createFileInfoMessage(m anyMessage) (*fileInfoMessage, error) {
 	if len(m) < 2 {
 		return nil, errInvalidMessage
 	}
@@ -221,7 +221,7 @@ type chmodMessage struct {
 	Perm uint32
 }
 
-func createChmodMessage(m message) (*chmodMessage, error) {
+func createChmodMessage(m anyMessage) (*chmodMessage, error) {
 	if len(m) < 3 {
 		return nil, errInvalidMessage
 	}

@@ -3,6 +3,7 @@ package gameservercommands
 import (
 	"context"
 	"os"
+	"path/filepath"
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
@@ -78,6 +79,7 @@ func (cmd *deleteServer) removeByFilesystem(_ context.Context, server *domain.Se
 }
 
 func (cmd *deleteServer) isWorkDirForbiddenToRemove(path string) bool {
+	path = filepath.Clean(path)
 	if path == cmd.cfg.WorkPath || path == cmd.cfg.SteamCMDPath || path == "/" {
 		return true
 	}

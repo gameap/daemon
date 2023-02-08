@@ -130,19 +130,19 @@ func updatePaths(cfgPath string, cfg *Config) *Config {
 	cfgDirPath := filepath.Dir(cfgPath)
 
 	if !filepath.IsAbs(cfg.CACertificateFile) {
-		cfg.CACertificateFile, _ = filepath.Abs(filepath.Clean(cfgDirPath + "/" + cfg.CACertificateFile))
+		cfg.CACertificateFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.CACertificateFile))
 	}
 
 	if !filepath.IsAbs(cfg.CertificateChainFile) {
-		cfg.CertificateChainFile, _ = filepath.Abs(filepath.Clean(cfgDirPath + "/" + cfg.CertificateChainFile))
+		cfg.CertificateChainFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.CertificateChainFile))
 	}
 
 	if !filepath.IsAbs(cfg.PrivateKeyFile) {
-		cfg.PrivateKeyFile, _ = filepath.Abs(filepath.Clean(cfgDirPath + "/" + cfg.PrivateKeyFile))
+		cfg.PrivateKeyFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.PrivateKeyFile))
 	}
 
 	if !filepath.IsAbs(cfg.DHFile) {
-		cfg.DHFile, _ = filepath.Abs(filepath.Clean(cfgDirPath + "/" + cfg.DHFile))
+		cfg.DHFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.DHFile))
 	}
 
 	return cfg
@@ -172,9 +172,9 @@ func findConfigFile() string {
 
 	systemUser, err := user.Current()
 	if err == nil {
-		cfgPaths = append(cfgPaths, systemUser.HomeDir+"/gameap-daemon.cfg")
-		cfgPaths = append(cfgPaths, systemUser.HomeDir+"/gameap-daemon.yml")
-		cfgPaths = append(cfgPaths, systemUser.HomeDir+"/gameap-daemon.yaml")
+		cfgPaths = append(cfgPaths, filepath.Join(systemUser.HomeDir, "gameap-daemon.cfg"))
+		cfgPaths = append(cfgPaths, filepath.Join(systemUser.HomeDir, "gameap-daemon.yml"))
+		cfgPaths = append(cfgPaths, filepath.Join(systemUser.HomeDir, "gameap-daemon.yaml"))
 	}
 
 	log.Info("Looking up configuration file")

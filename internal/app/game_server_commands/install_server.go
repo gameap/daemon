@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -630,7 +631,7 @@ func (in *installator) runAfterInstallScript(
 	ctx context.Context,
 	serverPath string,
 ) error {
-	scriptFullPath := serverPath + "/" + domain.AfterInstallScriptName
+	scriptFullPath := filepath.Join(serverPath, domain.AfterInstallScriptName)
 	_, err := os.Stat(scriptFullPath)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return nil

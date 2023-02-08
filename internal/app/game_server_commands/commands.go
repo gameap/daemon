@@ -258,7 +258,7 @@ type nilCommand struct {
 	resultCode int
 }
 
-func (n *nilCommand) Execute(ctx context.Context, _ *domain.Server) error {
+func (n *nilCommand) Execute(_ context.Context, _ *domain.Server) error {
 	n.SetComplete()
 	n.SetResult(n.resultCode)
 

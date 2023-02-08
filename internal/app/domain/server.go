@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,7 @@ type ServerRepository interface {
 	Save(ctx context.Context, task *Server) error
 }
 
+// Settings are impact on server management by daemon
 type Settings map[string]string
 
 //nolint:maligned
@@ -212,7 +214,7 @@ func (s *Server) Dir() string {
 }
 
 func (s *Server) WorkDir(cfg workDirReader) string {
-	return path.Clean(cfg.WorkDir() + "/" + s.dir)
+	return path.Clean(filepath.Join(cfg.WorkDir(), s.dir))
 }
 
 func (s *Server) StartCommand() string {
