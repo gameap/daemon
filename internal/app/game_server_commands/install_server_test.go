@@ -293,7 +293,9 @@ func TestInstallation_RunAfterInstallScript(t *testing.T) {
 }
 
 func TestUpdateBySteam_SteamCommandWithoutValidate(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.Config{
+		WorkPath: "/",
+	}
 	executor := &testExecutor{}
 	updater := newUpdater(cfg, executor, &bytes.Buffer{})
 	server := givenLocalInstallationServer(t)
@@ -308,7 +310,9 @@ func TestUpdateBySteam_SteamCommandWithoutValidate(t *testing.T) {
 }
 
 func TestUpdateBySteam_SteamCommandWithSetConfig(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.Config{
+		WorkPath: "/work-path",
+	}
 	executor := &testExecutor{}
 	updater := newUpdater(cfg, executor, &bytes.Buffer{})
 	server := givenLocalInstallationServer(t)
@@ -319,11 +323,13 @@ func TestUpdateBySteam_SteamCommandWithSetConfig(t *testing.T) {
 	err := updater.Install(context.Background(), server, rules)
 
 	require.Nil(t, err)
-	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 mod czero +quit")
+	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/work-path/test-server\" +login anonymous +app_update 90 mod czero +quit")
 }
 
 func TestInstallBySteam_SteamCommandWithValidate(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.Config{
+		WorkPath: "/",
+	}
 	executor := &testExecutor{}
 	updater := newInstallator(cfg, executor, &bytes.Buffer{})
 	server := givenLocalInstallationServer(t)
