@@ -38,7 +38,7 @@ func (s *startServer) Execute(ctx context.Context, server *domain.Server) error 
 	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Start, server.StartCommand())
 
 	if s.enableUpdatingBefore && server.UpdateBeforeStart() {
-		updateCmd := s.loadServerCommand(domain.Update)
+		updateCmd := s.loadServerCommand(domain.Update, server)
 
 		if updateCmd != nil {
 			s.updateCommand = updateCmd

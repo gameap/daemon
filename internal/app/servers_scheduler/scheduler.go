@@ -85,7 +85,7 @@ func (s *Scheduler) runNext(ctx context.Context) {
 }
 
 func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) {
-	cmd := s.serverCommandFactory.LoadServerCommand(taskCommandToServerCommand(task.Command()))
+	cmd := s.serverCommandFactory.LoadServerCommand(taskCommandToServerCommand(task.Command()), task.Server())
 
 	err := cmd.Execute(ctx, task.Server())
 	if err != nil {

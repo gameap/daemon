@@ -228,7 +228,7 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 		return ErrInvalidTaskError
 	}
 
-	cmdFunc := manager.serverCommandFactory.LoadServerCommand(cmd)
+	cmdFunc := manager.serverCommandFactory.LoadServerCommand(cmd, task.Server())
 
 	manager.commandsInProgress.Store(*task, cmdFunc)
 

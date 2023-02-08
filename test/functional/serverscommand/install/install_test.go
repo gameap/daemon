@@ -13,7 +13,7 @@ func (suite *Suite) TestInstall_NoRules() {
 		"./command.sh stop",
 	)
 	server.SetInstallationStatus(domain.ServerNotInstalled)
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Install)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Install, server)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -31,7 +31,7 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameInstalled() {
 		},
 	)
 	server.SetInstallationStatus(domain.ServerNotInstalled)
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Install)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Install, server)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -52,7 +52,7 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameAndModInstalled(
 		},
 	)
 	server.SetInstallationStatus(domain.ServerNotInstalled)
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Install)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Install, server)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -75,7 +75,7 @@ func (suite *Suite) TestInstall_InstallFromLocalRepository_GameAndModInstalledFr
 		},
 	)
 	server.SetInstallationStatus(domain.ServerNotInstalled)
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Install)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Install, server)
 
 	err := cmd.Execute(context.Background(), server)
 
