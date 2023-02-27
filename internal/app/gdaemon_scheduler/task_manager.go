@@ -238,7 +238,11 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 		err := cmdFunc.Execute(ctx, task.Server())
 		if err != nil {
 			logger.Warn(ctx, err)
-			manager.appendTaskOutput(ctx, task, []byte(err.Error()))
+			manager.appendTaskOutput(
+				ctx,
+				task,
+				append(cmdFunc.ReadOutput(), err.Error()...),
+			)
 			manager.failTask(ctx, task)
 		}
 	}()
