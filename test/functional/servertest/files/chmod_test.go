@@ -21,6 +21,7 @@ func (suite *Suite) TestChmodSuccess() {
 		perm     uint16
 		expected string
 	}
+	//nolint:goconst
 	if runtime.GOOS == "windows" {
 		tests = []struct {
 			name     string

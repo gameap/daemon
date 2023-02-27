@@ -1,10 +1,10 @@
-//go:build linux
-// +build linux
+//go:build linux || darwin
+// +build linux darwin
 
 package config
 
 const (
-	configPath = "C:\\gameap\\daemon.cfg"
+	configPath = "/etc/gameap-daemon/daemon.cfg"
 
 	caCertificateFilePath    = "/etc/gameap-daemon/certs/ca.crt"
 	certificateChainFilePath = "/etc/gameap-daemon/certs/server.crt"

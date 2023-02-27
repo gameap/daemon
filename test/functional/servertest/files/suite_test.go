@@ -74,6 +74,7 @@ func (suite *Suite) assertFileDetails(
 
 	// file size
 	if fileType != files.TypeDir {
+		//nolint:gocritic
 		switch fInfo[1].(type) {
 		case uint8:
 			suite.Equal(size, uint64(fInfo[1].(uint8)))

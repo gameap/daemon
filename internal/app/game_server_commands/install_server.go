@@ -642,8 +642,9 @@ func (in *installator) runAfterInstallScript(
 	}
 
 	commandScriptPath := scriptFullPath
+	//nolint:goconst
 	if runtime.GOOS == "windows" {
-		commandScriptPath = "powershell " + commandScriptPath
+		commandScriptPath = "powershell " + commandScriptPath //nolint
 	}
 
 	if in.kind == installer {

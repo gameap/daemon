@@ -2,8 +2,9 @@ package restart
 
 import (
 	"context"
-	"github.com/gameap/daemon/test/functional/serverscommand"
 	"runtime"
+
+	"github.com/gameap/daemon/test/functional/serverscommand"
 
 	"github.com/gameap/daemon/internal/app/domain"
 )
@@ -21,6 +22,7 @@ func (suite *Suite) TestRestartViaStartStop_ServerIsActive_ExecutedStatusStopAnd
 	suite.Require().Nil(err)
 	suite.Assert().True(cmd.IsComplete())
 	suite.Assert().Equal(0, cmd.Result())
+	//nolint:goconst
 	if runtime.GOOS == "windows" {
 		suite.Assert().Equal([]byte("status\r\nstop\r\nstart\r\n"), cmd.ReadOutput())
 	} else {
