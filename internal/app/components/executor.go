@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strconv"
 
@@ -103,7 +102,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 		name = filepath.Join(workDir, args[0])
 	}
 
-	_, err = os.Stat(path.Clean(name))
+	_, err = os.Stat(filepath.Clean(name))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		_, err = exec.LookPath(args[0])
 		if err != nil {

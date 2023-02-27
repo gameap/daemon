@@ -280,7 +280,7 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 
 	logger.Debug(ctx, "Starting transferring file from client")
 
-	dir := path.Dir(message.FilePath)
+	dir := filepath.Dir(message.FilePath)
 	_, err = os.Stat(dir)
 
 	//nolint:nestif

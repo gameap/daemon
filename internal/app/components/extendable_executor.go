@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 
 	"github.com/gameap/daemon/internal/app/config"
@@ -106,7 +105,7 @@ type GetTool struct {
 func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ contracts.ExecutorOptions) (int, error) {
 	source := args[0]
 	fileName := filepath.Base(source)
-	destination := path.Clean(filepath.Join(g.cfg.ToolsPath, fileName))
+	destination := filepath.Join(g.cfg.ToolsPath, fileName)
 
 	c := getter.Client{
 		Ctx:  ctx,
