@@ -4,7 +4,9 @@
 package components
 
 import (
+	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"syscall"
 
@@ -13,17 +15,25 @@ import (
 )
 
 func setCMDSysProcCredential(cmd *exec.Cmd, options contracts.ExecutorOptions) (*exec.Cmd, error) {
-	uid, err := strconv.Atoi(options.UID)
+	u, err := user.LookupId(options.UID)
 	if err != nil {
 		return nil, errors.WithMessage(err, "[game_server_commands.installator] invalid user uid")
 	}
 
-	gid, err := strconv.Atoi(options.UID)
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return nil, errors.WithMessage(err, "[game_server_commands.installator] invalid user uid")
+	}
+
+	gid, err := strconv.Atoi(u.Gid)
 	if err != nil {
 		return nil, errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "HOME="+u.HomeDir)
 
 	return cmd, nil
 }
