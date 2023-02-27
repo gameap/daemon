@@ -18,9 +18,9 @@ const (
 	ErrorResult   = 1
 )
 
-type LoadServerCommandFunc func(cmd domain.ServerCommand) contracts.GameServerCommand
+type LoadServerCommandFunc func(cmd domain.ServerCommand, server *domain.Server) contracts.GameServerCommand
 
-var nilLoadServerCommandFunc = func(cmd domain.ServerCommand) contracts.GameServerCommand {
+var nilLoadServerCommandFunc = func(_ domain.ServerCommand, _ *domain.Server) contracts.GameServerCommand {
 	return nil
 }
 
@@ -42,69 +42,103 @@ func NewFactory(
 	}
 }
 
-//nolint:funlen
-func (factory *ServerCommandFactory) LoadServerCommand(cmd domain.ServerCommand) contracts.GameServerCommand {
+func (factory *ServerCommandFactory) LoadServerCommand(
+	cmd domain.ServerCommand,
+	server *domain.Server,
+) contracts.GameServerCommand {
 	switch cmd {
 	case domain.Start:
-		return newStartServer(
-			factory.cfg,
-			factory.executor,
-			factory.LoadServerCommand,
-		)
+		return factory.makeStartCommand(server)
 	case domain.Stop, domain.Kill:
-		return newStopServer(factory.cfg, factory.executor)
+		return factory.makeStopCommand(server)
 	case domain.Restart:
-		return newRestartServer(
-			factory.cfg,
-			factory.executor,
-			newStatusServer(factory.cfg, factory.executor),
-			newStopServer(factory.cfg, factory.executor),
-			newStartServer(
-				factory.cfg,
-				factory.executor,
-				factory.LoadServerCommand,
-			),
-		)
+		return factory.makeRestartCommand(server)
 	case domain.Status:
-		return newStatusServer(factory.cfg, factory.executor)
+		return factory.makeStatusCommand(server)
 	case domain.Install:
-		return newInstallServer(
-			factory.cfg,
-			factory.executor,
-			factory.serverRepo,
-			newStatusServer(factory.cfg, factory.executor),
-			newStopServer(factory.cfg, factory.executor),
-			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
-		)
+		return factory.makeInstallCommand(server)
 	case domain.Update:
-		return newUpdateServer(
-			factory.cfg,
-			factory.executor,
-			factory.serverRepo,
-			newStatusServer(factory.cfg, factory.executor),
-			newStopServer(factory.cfg, factory.executor),
-			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
-		)
+		return factory.makeUpdateCommand(server)
 	case domain.Reinstall:
-		return newCommandList(factory.cfg, factory.executor, []contracts.GameServerCommand{
-			newDeleteServer(factory.cfg, factory.executor),
-			newInstallServer(
-				factory.cfg,
-				factory.executor,
-				factory.serverRepo,
-				newStatusServer(factory.cfg, factory.executor),
-				newStopServer(factory.cfg, factory.executor),
-				newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
-			),
-		})
+		return factory.makeReinstallCommand(server)
 	case domain.Delete:
-		return newDeleteServer(factory.cfg, factory.executor)
+		return factory.makeDeleteCommand(server)
 	case domain.Pause:
 	case domain.Unpause:
 		return newNotImplementedCommand(factory.cfg, factory.executor)
 	}
 
 	return nil
+}
+
+func (factory *ServerCommandFactory) makeStartCommand(_ *domain.Server) contracts.GameServerCommand {
+	return newStartServer(
+		factory.cfg,
+		factory.executor,
+		factory.LoadServerCommand,
+	)
+}
+
+func (factory *ServerCommandFactory) makeStopCommand(_ *domain.Server) contracts.GameServerCommand {
+	return newStopServer(factory.cfg, factory.executor)
+}
+
+func (factory *ServerCommandFactory) makeRestartCommand(_ *domain.Server) contracts.GameServerCommand {
+	return newRestartServer(
+		factory.cfg,
+		factory.executor,
+		newStatusServer(factory.cfg, factory.executor),
+		newStopServer(factory.cfg, factory.executor),
+		newStartServer(
+			factory.cfg,
+			factory.executor,
+			factory.LoadServerCommand,
+		),
+	)
+}
+
+func (factory *ServerCommandFactory) makeStatusCommand(_ *domain.Server) contracts.GameServerCommand {
+	return newStatusServer(factory.cfg, factory.executor)
+}
+
+func (factory *ServerCommandFactory) makeInstallCommand(_ *domain.Server) contracts.GameServerCommand {
+	return newInstallServer(
+		factory.cfg,
+		factory.executor,
+		factory.serverRepo,
+		newStatusServer(factory.cfg, factory.executor),
+		newStopServer(factory.cfg, factory.executor),
+		newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+	)
+}
+
+func (factory *ServerCommandFactory) makeUpdateCommand(_ *domain.Server) contracts.GameServerCommand {
+	return newUpdateServer(
+		factory.cfg,
+		factory.executor,
+		factory.serverRepo,
+		newStatusServer(factory.cfg, factory.executor),
+		newStopServer(factory.cfg, factory.executor),
+		newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+	)
+}
+
+func (factory *ServerCommandFactory) makeReinstallCommand(_ *domain.Server) contracts.GameServerCommand {
+	return newCommandList(factory.cfg, factory.executor, []contracts.GameServerCommand{
+		newDeleteServer(factory.cfg, factory.executor),
+		newInstallServer(
+			factory.cfg,
+			factory.executor,
+			factory.serverRepo,
+			newStatusServer(factory.cfg, factory.executor),
+			newStopServer(factory.cfg, factory.executor),
+			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+		),
+	})
+}
+
+func (factory *ServerCommandFactory) makeDeleteCommand(_ *domain.Server) contracts.GameServerCommand {
+	return newDeleteServer(factory.cfg, factory.executor)
 }
 
 func makeFullCommand(
@@ -258,7 +292,7 @@ type nilCommand struct {
 	resultCode int
 }
 
-func (n *nilCommand) Execute(ctx context.Context, _ *domain.Server) error {
+func (n *nilCommand) Execute(_ context.Context, _ *domain.Server) error {
 	n.SetComplete()
 	n.SetResult(n.resultCode)
 

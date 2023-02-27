@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/user"
-	"path"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -632,7 +632,7 @@ func (in *installator) runAfterInstallScript(
 	ctx context.Context,
 	serverPath string,
 ) error {
-	scriptFullPath := path.Clean(serverPath + "/" + domain.AfterInstallScriptName)
+	scriptFullPath := filepath.Join(serverPath, domain.AfterInstallScriptName)
 	_, err := os.Stat(scriptFullPath)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -648,7 +648,7 @@ func (in *installator) runAfterInstallScript(
 
 	if in.kind == installer {
 		in.writeOutput(ctx, "Executing after install script")
-		result, err := in.executor.ExecWithWriter(ctx, commandScriptPath, in.output, contracts.ExecutorOptions{
+		result, err := in.executor.ExecWithWriter(ctx, scriptFullPath, in.output, contracts.ExecutorOptions{
 			WorkDir: serverPath,
 		})
 		if err != nil {

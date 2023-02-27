@@ -98,7 +98,7 @@ func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) er
 		return nil
 	}
 
-	statusCmd := l.serverCommandFactory.LoadServerCommand(domain.Status)
+	statusCmd := l.serverCommandFactory.LoadServerCommand(domain.Status, server)
 
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
@@ -122,7 +122,7 @@ func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) 
 		return nil
 	}
 
-	startCMD := l.serverCommandFactory.LoadServerCommand(domain.Start)
+	startCMD := l.serverCommandFactory.LoadServerCommand(domain.Start, server)
 
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()

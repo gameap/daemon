@@ -14,7 +14,7 @@ func (suite *Suite) TestRestartViaStartStop_ServerIsActive_ExecutedStatusStopAnd
 		serverscommand.CommandScript+" start",
 		serverscommand.CommandScript+" stop",
 	)
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart, server)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -30,11 +30,11 @@ func (suite *Suite) TestRestartViaStartStop_ServerIsActive_ExecutedStatusStopAnd
 
 func (suite *Suite) TestRestartViaStartStop_ServerIsNotActive_ExecutedStatusAndStartCommands() {
 	suite.GivenServerIsDown()
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart)
 	server := suite.GivenServerWithStartAndStopCommand(
 		serverscommand.CommandScript+" start",
 		serverscommand.CommandScript+" stop",
 	)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart, server)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -54,7 +54,7 @@ func (suite *Suite) TestRestartViaStartStop_StopFailed_ExecutedStatusAndStopComm
 		serverscommand.CommandScript+" start",
 		serverscommand.CommandFailScript+" stop",
 	)
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart, server)
 
 	err := cmd.Execute(context.Background(), server)
 

@@ -9,11 +9,11 @@ import (
 )
 
 func (suite *Suite) TestStartSuccess() {
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Start)
 	server := suite.GivenServerWithStartAndStopCommand(
 		serverscommand.CommandScript+" start",
 		serverscommand.CommandScript+" stop",
 	)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Start, server)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -28,11 +28,11 @@ func (suite *Suite) TestStartSuccess() {
 }
 
 func (suite *Suite) TestStartInvalidCommand() {
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Start)
 	server := suite.GivenServerWithStartAndStopCommand(
 		"./invalid_command.sh",
 		"./command.sh stop",
 	)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Start, server)
 
 	err := cmd.Execute(context.Background(), server)
 
@@ -57,11 +57,11 @@ func (suite *Suite) TestStartInvalidCommand() {
 }
 
 func (suite *Suite) TestStartFailedCommand() {
-	cmd := suite.CommandFactory.LoadServerCommand(domain.Start)
 	server := suite.GivenServerWithStartAndStopCommand(
 		serverscommand.FailScript,
 		serverscommand.CommandScript+" stop",
 	)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Start, server)
 
 	err := cmd.Execute(context.Background(), server)
 

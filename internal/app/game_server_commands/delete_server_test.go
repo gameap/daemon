@@ -3,6 +3,7 @@ package gameservercommands
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func (suite *deleteSuite) TearDownSuite() {
 
 func (suite *deleteSuite) givenWorkPath() string {
 	suite.T().Helper()
-	workPath, err := os.MkdirTemp("", "delete-server-test")
+	workPath, err := os.MkdirTemp("/tmp", "delete-server-test")
 	if err != nil {
 		suite.T().Fatal(err)
 	}
@@ -60,8 +61,8 @@ func (suite *deleteSuite) TestDeleteServerByFilesystemSuccess() {
 	suite.Require().Nil(err)
 	suite.Assert().Equal(SuccessResult, deleteServerCommand.Result())
 	suite.Assert().NoFileExists(server.WorkDir(cfg))
-	suite.Assert().NoFileExists(server.WorkDir(cfg) + "/" + "run.sh")
-	suite.Assert().NoFileExists(server.WorkDir(cfg) + "/" + "run2.sh")
+	suite.Assert().NoFileExists(filepath.Join(server.WorkDir(cfg), "run.sh"))
+	suite.Assert().NoFileExists(filepath.Join(server.WorkDir(cfg), "run2.sh"))
 }
 
 func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {

@@ -3,17 +3,17 @@ package components
 import (
 	"context"
 	"fmt"
-	"github.com/gameap/daemon/internal/app/contracts"
-	"github.com/gopherclass/go-shellquote"
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
-	"strings"
+
+	"github.com/gameap/daemon/internal/app/contracts"
+	"github.com/gopherclass/go-shellquote"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 var ErrEmptyCommand = errors.New("empty command")
@@ -79,7 +79,7 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 		return invalidResult, ErrEmptyCommand
 	}
 
-	args, err := shellquote.Split(strings.ReplaceAll(command, "\\", "\\\\"))
+	args, err := shellquote.Split(command)
 	if err != nil {
 		return invalidResult, err
 	}
@@ -98,8 +98,9 @@ func ExecWithWriter(ctx context.Context, command string, out io.Writer, options 
 	}
 
 	name := args[0]
+
 	if !filepath.IsAbs(name) {
-		name = workDir + "/" + args[0]
+		name = filepath.Join(workDir, args[0])
 	}
 
 	_, err = os.Stat(path.Clean(name))

@@ -106,7 +106,7 @@ type GetTool struct {
 func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ contracts.ExecutorOptions) (int, error) {
 	source := args[0]
 	fileName := filepath.Base(source)
-	destination := path.Clean(g.cfg.ToolsPath) + "/" + fileName
+	destination := path.Clean(filepath.Join(g.cfg.ToolsPath, fileName))
 
 	c := getter.Client{
 		Ctx:  ctx,
