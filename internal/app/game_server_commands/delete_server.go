@@ -14,19 +14,19 @@ import (
 
 var errForbiddenWorkDirectoryPath = errors.New("forbidden game server work directory path")
 
-type deleteServer struct {
+type defaultDeleteServer struct {
 	baseCommand
 	bufCommand
 }
 
-func newDeleteServer(cfg *config.Config, executor contracts.Executor) *deleteServer {
-	return &deleteServer{
+func newDefaultDeleteServer(cfg *config.Config, executor contracts.Executor) *defaultDeleteServer {
+	return &defaultDeleteServer{
 		baseCommand: newBaseCommand(cfg, executor),
 		bufCommand:  bufCommand{output: components.NewSafeBuffer()},
 	}
 }
 
-func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) error {
+func (cmd *defaultDeleteServer) Execute(ctx context.Context, server *domain.Server) error {
 	defer func() {
 		cmd.SetComplete()
 	}()
@@ -38,7 +38,7 @@ func (cmd *deleteServer) Execute(ctx context.Context, server *domain.Server) err
 	return cmd.removeByFilesystem(ctx, server)
 }
 
-func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
+func (cmd *defaultDeleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
 	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
 
 	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
@@ -57,7 +57,7 @@ func (cmd *deleteServer) removeByScript(ctx context.Context, server *domain.Serv
 	return err
 }
 
-func (cmd *deleteServer) removeByFilesystem(_ context.Context, server *domain.Server) error {
+func (cmd *defaultDeleteServer) removeByFilesystem(_ context.Context, server *domain.Server) error {
 	path := server.WorkDir(cmd.cfg)
 
 	if cmd.isWorkDirForbiddenToRemove(path) {
@@ -78,7 +78,7 @@ func (cmd *deleteServer) removeByFilesystem(_ context.Context, server *domain.Se
 	return nil
 }
 
-func (cmd *deleteServer) isWorkDirForbiddenToRemove(path string) bool {
+func (cmd *defaultDeleteServer) isWorkDirForbiddenToRemove(path string) bool {
 	path = filepath.Clean(path)
 	if path == cmd.cfg.WorkPath || path == cmd.cfg.SteamCMDPath || path == "/" {
 		return true

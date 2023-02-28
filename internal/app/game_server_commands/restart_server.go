@@ -11,23 +11,23 @@ import (
 	"github.com/pkg/errors"
 )
 
-type restartServer struct {
+type defaultRestartServer struct {
 	baseCommand
 	bufCommand
 
-	statusServer *statusServer
-	stopServer   *stopServer
-	startServer  *startServer
+	statusServer contracts.GameServerCommand
+	stopServer   contracts.GameServerCommand
+	startServer  contracts.GameServerCommand
 }
 
-func newRestartServer(
+func newDefaultRestartServer(
 	cfg *config.Config,
 	executor contracts.Executor,
-	statusServer *statusServer,
-	stopServer *stopServer,
-	startServer *startServer,
-) *restartServer {
-	cmd := &restartServer{
+	statusServer contracts.GameServerCommand,
+	stopServer contracts.GameServerCommand,
+	startServer contracts.GameServerCommand,
+) *defaultRestartServer {
+	cmd := &defaultRestartServer{
 		baseCommand:  newBaseCommand(cfg, executor),
 		bufCommand:   bufCommand{output: components.NewSafeBuffer()},
 		statusServer: statusServer,
@@ -38,69 +38,69 @@ func newRestartServer(
 	return cmd
 }
 
-func (s *restartServer) Execute(ctx context.Context, server *domain.Server) error {
-	s.output = components.NewSafeBuffer()
+func (cmd *defaultRestartServer) Execute(ctx context.Context, server *domain.Server) error {
+	cmd.output = components.NewSafeBuffer()
 
-	if s.cfg.Scripts.Restart == "" {
-		return s.restartViaStopStart(ctx, server)
+	if cmd.cfg.Scripts.Restart == "" {
+		return cmd.restartViaStopStart(ctx, server)
 	}
 
-	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Restart, server.StartCommand())
+	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Restart, server.StartCommand())
 
-	result, err := s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
-		WorkDir:         server.WorkDir(s.cfg),
-		FallbackWorkDir: s.cfg.WorkDir(),
+	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
+		WorkDir:         server.WorkDir(cmd.cfg),
+		FallbackWorkDir: cmd.cfg.WorkDir(),
 	})
-	s.SetResult(result)
-	s.SetComplete()
+	cmd.SetResult(result)
+	cmd.SetComplete()
 
 	return err
 }
 
-func (s *restartServer) restartViaStopStart(ctx context.Context, server *domain.Server) error {
-	defer s.SetComplete()
+func (cmd *defaultRestartServer) restartViaStopStart(ctx context.Context, server *domain.Server) error {
+	defer cmd.SetComplete()
 
-	err := s.statusServer.Execute(ctx, server)
+	err := cmd.statusServer.Execute(ctx, server)
 	if err != nil {
 		return errors.WithMessage(err, "failed to check server status")
 	}
-	active := s.statusServer.Result() == SuccessResult
+	active := cmd.statusServer.Result() == SuccessResult
 
 	if active {
-		err = s.stopServer.Execute(ctx, server)
+		err = cmd.stopServer.Execute(ctx, server)
 		if err != nil {
 			return errors.WithMessage(err, "failed to stop server")
 		}
 
-		if s.stopServer.Result() != SuccessResult {
-			s.SetResult(s.stopServer.Result())
+		if cmd.stopServer.Result() != SuccessResult {
+			cmd.SetResult(cmd.stopServer.Result())
 			return nil
 		}
 	}
 
-	err = s.startServer.Execute(ctx, server)
+	err = cmd.startServer.Execute(ctx, server)
 	if err != nil {
 		return err
 	}
 
-	s.SetResult(s.startServer.Result())
+	cmd.SetResult(cmd.startServer.Result())
 
 	return nil
 }
 
-func (s *restartServer) ReadOutput() []byte {
+func (cmd *defaultRestartServer) ReadOutput() []byte {
 	var err error
 	var out []byte
 
-	if s.cfg.Scripts.Restart == "" {
-		statusOut := s.statusServer.ReadOutput()
-		stopOut := s.stopServer.ReadOutput()
-		startOut := s.startServer.ReadOutput()
+	if cmd.cfg.Scripts.Restart == "" {
+		statusOut := cmd.statusServer.ReadOutput()
+		stopOut := cmd.stopServer.ReadOutput()
+		startOut := cmd.startServer.ReadOutput()
 		out = append(out, statusOut...)
 		out = append(out, stopOut...)
 		out = append(out, startOut...)
 	} else {
-		out, err = io.ReadAll(s.output)
+		out, err = io.ReadAll(cmd.output)
 		if err != nil {
 			return []byte(err.Error())
 		}

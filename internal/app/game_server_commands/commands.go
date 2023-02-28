@@ -48,7 +48,7 @@ func (factory *ServerCommandFactory) LoadServerCommand(
 ) contracts.GameServerCommand {
 	switch cmd {
 	case domain.Start:
-		return factory.makeStartCommand(server)
+		return factory.makeStartCommand(server, factory.LoadServerCommand)
 	case domain.Stop, domain.Kill:
 		return factory.makeStopCommand(server)
 	case domain.Restart:
@@ -71,74 +71,66 @@ func (factory *ServerCommandFactory) LoadServerCommand(
 	return nil
 }
 
-func (factory *ServerCommandFactory) makeStartCommand(_ *domain.Server) contracts.GameServerCommand {
-	return newStartServer(
-		factory.cfg,
-		factory.executor,
-		factory.LoadServerCommand,
-	)
+func (factory *ServerCommandFactory) makeStartCommand(_ *domain.Server, lf LoadServerCommandFunc) contracts.GameServerCommand {
+	return newDefaultStartServer(factory.cfg, factory.executor, lf)
 }
 
 func (factory *ServerCommandFactory) makeStopCommand(_ *domain.Server) contracts.GameServerCommand {
-	return newStopServer(factory.cfg, factory.executor)
+	return newDefaultStopServer(factory.cfg, factory.executor)
 }
 
-func (factory *ServerCommandFactory) makeRestartCommand(_ *domain.Server) contracts.GameServerCommand {
-	return newRestartServer(
+func (factory *ServerCommandFactory) makeRestartCommand(server *domain.Server) contracts.GameServerCommand {
+	return newDefaultRestartServer(
 		factory.cfg,
 		factory.executor,
-		newStatusServer(factory.cfg, factory.executor),
-		newStopServer(factory.cfg, factory.executor),
-		newStartServer(
-			factory.cfg,
-			factory.executor,
-			factory.LoadServerCommand,
-		),
+		factory.makeStatusCommand(server),
+		factory.makeStopCommand(server),
+		factory.makeStartCommand(server, factory.LoadServerCommand),
 	)
 }
 
 func (factory *ServerCommandFactory) makeStatusCommand(_ *domain.Server) contracts.GameServerCommand {
-	return newStatusServer(factory.cfg, factory.executor)
+	return newDefaultStatusServer(factory.cfg, factory.executor)
 }
 
-func (factory *ServerCommandFactory) makeInstallCommand(_ *domain.Server) contracts.GameServerCommand {
+func (factory *ServerCommandFactory) makeInstallCommand(server *domain.Server) contracts.GameServerCommand {
 	return newInstallServer(
 		factory.cfg,
 		factory.executor,
 		factory.serverRepo,
-		newStatusServer(factory.cfg, factory.executor),
-		newStopServer(factory.cfg, factory.executor),
-		newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+		factory.makeStatusCommand(server),
+		factory.makeStopCommand(server),
+		factory.makeStartCommand(server, nilLoadServerCommandFunc),
 	)
 }
 
-func (factory *ServerCommandFactory) makeUpdateCommand(_ *domain.Server) contracts.GameServerCommand {
+func (factory *ServerCommandFactory) makeUpdateCommand(server *domain.Server) contracts.GameServerCommand {
 	return newUpdateServer(
 		factory.cfg,
 		factory.executor,
 		factory.serverRepo,
-		newStatusServer(factory.cfg, factory.executor),
-		newStopServer(factory.cfg, factory.executor),
-		newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+		factory.makeStatusCommand(server),
+		factory.makeStopCommand(server),
+		factory.makeStartCommand(server, nilLoadServerCommandFunc),
 	)
 }
 
-func (factory *ServerCommandFactory) makeReinstallCommand(_ *domain.Server) contracts.GameServerCommand {
+func (factory *ServerCommandFactory) makeReinstallCommand(server *domain.Server) contracts.GameServerCommand {
 	return newCommandList(factory.cfg, factory.executor, []contracts.GameServerCommand{
-		newDeleteServer(factory.cfg, factory.executor),
+		newDefaultDeleteServer(factory.cfg, factory.executor),
 		newInstallServer(
 			factory.cfg,
 			factory.executor,
 			factory.serverRepo,
-			newStatusServer(factory.cfg, factory.executor),
-			newStopServer(factory.cfg, factory.executor),
-			newStartServer(factory.cfg, factory.executor, nilLoadServerCommandFunc),
+			factory.makeStatusCommand(server),
+			factory.makeStopCommand(server),
+			factory.makeStartCommand(server, nilLoadServerCommandFunc),
 		),
 	})
 }
 
 func (factory *ServerCommandFactory) makeDeleteCommand(_ *domain.Server) contracts.GameServerCommand {
-	return newDeleteServer(factory.cfg, factory.executor)
+	return newDefaultDeleteServer(factory.cfg, factory.executor)
 }
 
 func makeFullCommand(

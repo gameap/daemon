@@ -53,7 +53,7 @@ func (suite *deleteSuite) TestDeleteServerByFilesystemSuccess() {
 	}
 	server := givenServerWithStartCommand(suite.T(), "./run.sh")
 	installSimpleServerFiles(suite.T(), cfg, server)
-	deleteServerCommand := newDeleteServer(cfg, components.NewExecutor())
+	deleteServerCommand := newDefaultDeleteServer(cfg, components.NewExecutor())
 	ctx := context.Background()
 
 	err := deleteServerCommand.Execute(ctx, server)
@@ -81,7 +81,7 @@ func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 	}
 	server := givenServerWithStartCommand(suite.T(), "./run.sh")
 	installSimpleServerFiles(suite.T(), cfg, server)
-	deleteServerCommand := newDeleteServer(cfg, components.NewExecutor())
+	deleteServerCommand := newDefaultDeleteServer(cfg, components.NewExecutor())
 	ctx := context.Background()
 
 	err := deleteServerCommand.Execute(ctx, server)
@@ -109,7 +109,7 @@ func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 	}
 	server := givenServerWithStartCommand(suite.T(), "")
 	installScripts(suite.T(), cfg)
-	deleteServerCommand := newDeleteServer(cfg, components.NewCleanExecutor())
+	deleteServerCommand := newDefaultDeleteServer(cfg, components.NewCleanExecutor())
 	ctx := context.Background()
 
 	err := deleteServerCommand.Execute(ctx, server)

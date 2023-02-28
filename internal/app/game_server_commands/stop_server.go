@@ -9,30 +9,30 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 )
 
-type stopServer struct {
+type defaultStopServer struct {
 	baseCommand
 	bufCommand
 }
 
-func newStopServer(cfg *config.Config, executor contracts.Executor) *stopServer {
-	return &stopServer{
+func newDefaultStopServer(cfg *config.Config, executor contracts.Executor) *defaultStopServer {
+	return &defaultStopServer{
 		baseCommand: newBaseCommand(cfg, executor),
 		bufCommand:  bufCommand{output: components.NewSafeBuffer()},
 	}
 }
 
-func (s *stopServer) Execute(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(s.cfg, server, s.cfg.Scripts.Stop, server.StopCommand())
+func (cmd *defaultStopServer) Execute(ctx context.Context, server *domain.Server) error {
+	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Stop, server.StopCommand())
 
 	server.AffectStop()
 
-	result, err := s.executor.ExecWithWriter(ctx, command, s.output, contracts.ExecutorOptions{
-		WorkDir:         server.WorkDir(s.cfg),
-		FallbackWorkDir: s.cfg.WorkDir(),
+	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
+		WorkDir:         server.WorkDir(cmd.cfg),
+		FallbackWorkDir: cmd.cfg.WorkDir(),
 	})
 
-	s.SetResult(result)
-	s.SetComplete()
+	cmd.SetResult(result)
+	cmd.SetComplete()
 
 	return err
 }
