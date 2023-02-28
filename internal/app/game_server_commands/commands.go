@@ -71,7 +71,10 @@ func (factory *ServerCommandFactory) LoadServerCommand(
 	return nil
 }
 
-func (factory *ServerCommandFactory) makeStartCommand(_ *domain.Server, lf LoadServerCommandFunc) contracts.GameServerCommand {
+func (factory *ServerCommandFactory) makeStartCommand(
+	_ *domain.Server,
+	lf LoadServerCommandFunc,
+) contracts.GameServerCommand {
 	return newDefaultStartServer(factory.cfg, factory.executor, lf)
 }
 
