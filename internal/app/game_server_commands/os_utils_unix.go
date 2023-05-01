@@ -20,8 +20,13 @@ func chownR(path string, uid, gid int) error {
 		}
 
 		if info.Mode()&os.ModeSymlink != 0 {
-			_, err = os.Readlink(name)
+			symlinkFile, err := os.Readlink(name)
 			if err != nil {
+				// Ignore invalid symlink
+				return nil
+			}
+
+			if _, err = os.Stat(symlinkFile); err != nil {
 				// Ignore invalid symlink
 				return nil
 			}
