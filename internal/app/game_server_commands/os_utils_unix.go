@@ -14,10 +14,20 @@ import (
 // https://github.com/gutengo/fil/blob/6109b2e0b5cfdefdef3a254cc1a3eaa35bc89284/file.go#L27
 func chownR(path string, uid, gid int) error {
 	return filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
-		if err == nil {
-			err = os.Chown(name, uid, gid)
+		if err != nil {
+			// Ignore invalid
+			return nil
 		}
-		return err
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			_, err = os.Readlink(name)
+			if err != nil {
+				// Ignore invalid symlink
+				return nil
+			}
+		}
+
+		return os.Chown(name, uid, gid)
 	})
 }
 
