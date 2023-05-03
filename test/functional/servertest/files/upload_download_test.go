@@ -82,6 +82,36 @@ func (suite *Suite) TestUploadSuccess() {
 	suite.assertUploadedFileContents(fileContents)
 }
 
+func (suite *Suite) TestUploadTwiceSuccess() {
+	suite.Authenticate()
+	fileContents := []byte{'f', 'i', 'l', 'e', 'c', 'o', 'n', 't', 'e', 'n', 't', 's'}
+	msg := suite.givenUploadMessage(len(fileContents))
+	r := suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
+
+	// Transfer the file
+	suite.ClientFileContentsWrite(fileContents)
+	r = suite.readMessageFromClient()
+
+	assert.Equal(suite.T(), response.StatusOK, response.Code(r[0].(uint8)))
+	suite.assertUploadedFileSize(len(fileContents))
+	suite.assertUploadedFileContents(fileContents)
+
+	// Upload file with the same name and smaller size
+	fileContents = []byte{'s', 'm', 'a', 'l', 'l', 'e', 'r'}
+	msg = suite.givenUploadMessage(len(fileContents))
+	r = suite.ClientWriteReadAndDecodeList(msg)
+	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
+
+	// Transfer the file
+	suite.ClientFileContentsWrite(fileContents)
+	r = suite.readMessageFromClient()
+
+	assert.Equal(suite.T(), response.StatusOK, response.Code(r[0].(uint8)))
+	suite.assertUploadedFileSize(len(fileContents))
+	suite.assertUploadedFileContents(fileContents)
+}
+
 func (suite *Suite) TestUploadBigFileSuccess() {
 	suite.Authenticate()
 	msg := suite.givenUploadMessage(1000000)

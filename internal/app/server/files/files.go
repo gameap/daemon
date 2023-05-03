@@ -295,34 +295,44 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 			return writeError(readWriter, fmt.Sprintf("File path \"%s\" not found", dir))
 		}
 	} else if err != nil {
-		logger.Error(ctx, err)
+		logger.Error(ctx, errors.WithMessagef(err, "failed to stat directory \"%s\"", dir))
 		return writeError(readWriter, fmt.Sprintf("Directory \"%s\" error", dir))
 	}
 
-	file, err := os.OpenFile(message.FilePath, os.O_CREATE|os.O_WRONLY, message.Perms)
+	tmpFile, err := os.CreateTemp("", filepath.Base(message.FilePath))
 	if err != nil {
-		logger.Error(ctx, err)
-		return writeError(readWriter, "Failed to open file")
+		logger.Error(ctx, errors.WithMessage(err, "failed to create temp file"))
+		return writeError(readWriter, "Failed to create temp file")
 	}
 	defer func(file *os.File) {
-		err := file.Close()
+		err = file.Close()
 		if err != nil {
-			logger.Error(ctx, err)
+			logger.Error(ctx, errors.WithMessage(err, "failed to close temp file"))
 		}
-	}(file)
+		err = os.Remove(file.Name())
+		if err != nil {
+			logger.Error(ctx, errors.WithMessage(err, "failed to remove temp file"))
+		}
+	}(tmpFile)
 
 	err = response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusReadyToTransfer,
 		Info: "File is ready to transfer",
 	})
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "failed to write ready to transfer response")
 	}
 
-	_, err = io.CopyN(file, readWriter, int64(message.FileSize))
+	_, err = io.CopyN(tmpFile, readWriter, int64(message.FileSize))
 	if err != nil {
 		logger.Error(ctx, err)
 		return writeError(readWriter, "Failed to transfer file")
+	}
+
+	err = copy.Copy(tmpFile.Name(), message.FilePath)
+	if err != nil {
+		logger.Error(ctx, errors.WithMessage(err, "failed to copy tmp file"))
+		return writeError(readWriter, "Failed to copy tmp file")
 	}
 
 	logger.Debug(ctx, "File successfully transferred")
