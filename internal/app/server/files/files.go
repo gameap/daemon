@@ -329,7 +329,12 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 		return writeError(readWriter, "Failed to transfer file")
 	}
 
-	err = copy.Copy(tmpFile.Name(), message.FilePath)
+	var permissions os.FileMode
+	if stat, err := os.Stat(message.FilePath); err == nil {
+		permissions = stat.Mode().Perm()
+	}
+
+	err = copy.Copy(tmpFile.Name(), message.FilePath, copy.Options{AddPermission: permissions})
 	if err != nil {
 		logger.Error(ctx, errors.WithMessage(err, "failed to copy tmp file"))
 		return writeError(readWriter, "Failed to copy tmp file")
