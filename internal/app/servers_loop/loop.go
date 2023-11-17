@@ -2,6 +2,7 @@ package serversloop
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
@@ -14,13 +15,27 @@ import (
 
 const (
 	commandTimeout = 10 * time.Second
-	loopDuration   = 30 * time.Second
+	loopDuration   = 5 * time.Second
+
+	// Ticker will not skip the server if the server performed the task less than this time
+	noSkipTime = 5 * time.Minute
+
+	// Maximum number of skips if the server performed the task less than 10 minutes ago
+	skipMaxCount10m = 3
+
+	// Maximum number of skips if the server performed the task less than 60 minutes ago
+	skipMaxCount60m = 10
+
+	// Maximum number of skips if the server performed the task more than 60 minutes ago
+	skipMaxCount = 20
 )
 
 type ServersLoop struct {
 	cfg                  *config.Config
 	serverRepo           domain.ServerRepository
 	serverCommandFactory *commands.ServerCommandFactory
+
+	skipCounter skipCounter
 }
 
 func NewServersLoop(
@@ -29,9 +44,11 @@ func NewServersLoop(
 	cfg *config.Config,
 ) *ServersLoop {
 	return &ServersLoop{
-		cfg,
-		serverRepo,
-		serverCommandFactory,
+		cfg:                  cfg,
+		serverRepo:           serverRepo,
+		serverCommandFactory: serverCommandFactory,
+
+		skipCounter: skipCounter{},
 	}
 }
 
@@ -65,6 +82,10 @@ func (l *ServersLoop) tick(ctx context.Context) {
 		server, err := l.serverRepo.FindByID(ctxWithServer, ids[i])
 		if err != nil {
 			logger.Error(ctxWithServer, err)
+			continue
+		}
+
+		if l.canSkipped(ctxWithServer, server) {
 			continue
 		}
 
@@ -141,4 +162,65 @@ func (l *ServersLoop) save(ctx context.Context, server *domain.Server) error {
 	}
 
 	return l.serverRepo.Save(ctx, server)
+}
+
+func (l *ServersLoop) canSkipped(_ context.Context, server *domain.Server) bool {
+	if time.Since(server.LastTaskCompletedAt()) <= noSkipTime {
+		return false
+	}
+
+	if time.Since(server.LastTaskCompletedAt()) <= 10*time.Minute {
+		if l.skipCounter.Get(server.ID()) >= skipMaxCount10m {
+			l.skipCounter.Reset(server.ID())
+			return false
+		}
+
+		l.skipCounter.Increment(server.ID())
+		return true
+	}
+
+	if time.Since(server.LastTaskCompletedAt()) <= 60*time.Minute {
+		if l.skipCounter.Get(server.ID()) >= skipMaxCount60m {
+			l.skipCounter.Reset(server.ID())
+			return false
+		}
+
+		l.skipCounter.Increment(server.ID())
+		return true
+	}
+
+	if l.skipCounter.Get(server.ID()) >= skipMaxCount {
+		l.skipCounter.Reset(server.ID())
+		return false
+	}
+
+	l.skipCounter.Increment(server.ID())
+	return true
+}
+
+type skipCounter struct {
+	counter sync.Map
+}
+
+func (sc *skipCounter) Increment(serverID int) {
+	val, ok := sc.counter.Load(serverID)
+	if !ok {
+		sc.counter.Store(serverID, 1)
+		return
+	}
+
+	sc.counter.Store(serverID, val.(int)+1)
+}
+
+func (sc *skipCounter) Reset(serverID int) {
+	sc.counter.Delete(serverID)
+}
+
+func (sc *skipCounter) Get(serverID int) int {
+	val, ok := sc.counter.Load(serverID)
+	if !ok {
+		return 0
+	}
+
+	return val.(int)
 }

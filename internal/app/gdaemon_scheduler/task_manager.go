@@ -154,6 +154,10 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 	if task.IsComplete() {
 		logger.Debug(ctx, "Task completed")
 
+		if task.Server() != nil {
+			task.Server().NoticeTaskCompleted()
+		}
+
 		manager.queue.Remove(task)
 
 		err = manager.repository.Save(ctx, task)

@@ -41,7 +41,7 @@ const (
 	updater
 )
 
-const maxSteamCMDInstallTries = 3
+const maxSteamCMDInstallTries = 20
 
 var repeatableSteamCMDInstallResults = hashset.New(7, 8)
 
