@@ -14,7 +14,7 @@ import (
 
 func CreateServicesResty(ctx context.Context, c Container) *resty.Client {
 	restyClient := resty.New()
-	restyClient.SetHostURL(c.Cfg(ctx).APIHost)
+	restyClient.SetBaseURL(c.Cfg(ctx).APIHost)
 	restyClient.SetHeader("User-Agent", "GameAP Daemon/3.0")
 	restyClient.RetryCount = 30
 	restyClient.RetryMaxWaitTime = 10 * time.Minute

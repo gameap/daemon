@@ -18,7 +18,7 @@ func NewServerRepository() *ServerRepository {
 	}
 }
 
-func (r *ServerRepository) IDs(ctx context.Context) ([]int, error) {
+func (r *ServerRepository) IDs(_ context.Context) ([]int, error) {
 	ids := make([]int, 0, len(r.items))
 
 	for _, v := range r.items {
@@ -28,7 +28,7 @@ func (r *ServerRepository) IDs(ctx context.Context) ([]int, error) {
 	return ids, nil
 }
 
-func (r *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Server, error) {
+func (r *ServerRepository) FindByID(_ context.Context, id int) (*domain.Server, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -41,7 +41,7 @@ func (r *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Server
 	return nil, nil
 }
 
-func (r *ServerRepository) Save(ctx context.Context, server *domain.Server) error {
+func (r *ServerRepository) Save(_ context.Context, server *domain.Server) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 

@@ -5,20 +5,22 @@ package config
 
 const SteamCMDExecutableFile = "steamcmd.sh"
 
-const DefaultGameServerScriptStart = "{node_work_path}/runner.sh " +
+const RunnerExecutablePathFile = "{node_work_path}/runner.sh"
+
+const DefaultGameServerScriptStart = RunnerExecutablePathFile + " " +
 	"start -d {dir} -n {uuid} -u {user} -c \"{command}\""
 
-const DefaultGameServerScriptStop = "{node_work_path}/runner.sh " +
+const DefaultGameServerScriptStop = RunnerExecutablePathFile + " " +
 	"stop -d {dir} -n {uuid} -u {user}"
 
-const DefaultGameServerScriptRestart = "{node_work_path}/runner.sh " +
+const DefaultGameServerScriptRestart = RunnerExecutablePathFile + " " +
 	"restart -d {dir} -n {uuid} -u {user} -c \"{command}\""
 
-const DefaultGameServerScriptStatus = "{node_work_path}/runner.sh " +
+const DefaultGameServerScriptStatus = RunnerExecutablePathFile + " " +
 	"status -d {dir} -n {uuid} -u {user}"
 
-const DefaultGameServerScriptGetOutput = "{node_work_path}/runner.sh " +
+const DefaultGameServerScriptGetOutput = RunnerExecutablePathFile + " " +
 	"get_console -d {dir} -n {uuid} -u {user}"
 
-const DefaultGameServerScriptSendInput = "{node_work_path}/runner.sh " +
+const DefaultGameServerScriptSendInput = RunnerExecutablePathFile + " " +
 	"send_command -d {dir} -n {uuid} -u {user} -c \"{command}\""

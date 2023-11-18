@@ -34,7 +34,7 @@ func NewStatus(gdTaskStatsReader domain.GDTaskStatsReader) *Status {
 	return status
 }
 
-func (s *Status) Handle(ctx context.Context, readWriter io.ReadWriter) error {
+func (s *Status) Handle(_ context.Context, readWriter io.ReadWriter) error {
 	var operation Operation
 	decoder := decode.NewDecoder(readWriter)
 	err := decoder.Decode(&operation)

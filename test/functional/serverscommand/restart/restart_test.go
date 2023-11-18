@@ -12,8 +12,8 @@ import (
 func (suite *Suite) TestRestartViaStartStop_ServerIsActive_ExecutedStatusStopAndStartCommands() {
 	suite.GivenServerIsActive()
 	server := suite.GivenServerWithStartAndStopCommand(
-		serverscommand.CommandScript+" start",
-		serverscommand.CommandScript+" stop",
+		serverscommand.CommandScript+" start", //nolint:goconst
+		serverscommand.CommandScript+" stop",  //nolint:goconst
 	)
 	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart, server)
 

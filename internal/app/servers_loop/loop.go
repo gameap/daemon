@@ -17,16 +17,16 @@ const (
 	commandTimeout = 10 * time.Second
 	loopDuration   = 5 * time.Second
 
-	// Ticker will not skip the server if the server performed the task less than this time
+	// Ticker will not skip the server if the server performed the task less than this time.
 	noSkipTime = 5 * time.Minute
 
-	// Maximum number of skips if the server performed the task less than 10 minutes ago
+	// Maximum number of skips if the server performed the task less than 10 minutes ago.
 	skipMaxCount10m = 3
 
-	// Maximum number of skips if the server performed the task less than 60 minutes ago
+	// Maximum number of skips if the server performed the task less than 60 minutes ago.
 	skipMaxCount60m = 10
 
-	// Maximum number of skips if the server performed the task more than 60 minutes ago
+	// Maximum number of skips if the server performed the task more than 60 minutes ago.
 	skipMaxCount = 20
 )
 

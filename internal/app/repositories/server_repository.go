@@ -17,7 +17,7 @@ import (
 
 const serverCacheTTL = 10 * time.Second
 
-// limit scheduler consts
+// limit scheduler consts.
 const (
 	schedulerDefaultDuration        = 1 * time.Second
 	schedulerDefaultBulkCallFromNum = 5

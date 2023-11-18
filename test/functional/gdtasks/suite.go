@@ -219,7 +219,7 @@ func (suite *Suite) GivenSequenceGDTaskForServer(server *domain.Server) []*domai
 		),
 	}
 
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 	rand.Shuffle(len(tasks), func(i, j int) { tasks[i], tasks[j] = tasks[j], tasks[i] })
 
 	suite.GDTaskRepository.Set(tasks)

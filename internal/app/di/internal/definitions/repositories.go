@@ -15,7 +15,7 @@ func CreateRepositoriesGdTaskRepository(ctx context.Context, c Container) domain
 }
 
 func CreateRepositoriesServerRepository(ctx context.Context, c Container) domain.ServerRepository {
-	return repositories.NewServerRepository(ctx, c.Services().ApiCaller(ctx))
+	return repositories.NewServerRepository(ctx, c.Services().ApiCaller(ctx), c.Logger(ctx))
 }
 
 func CreateRepositoriesServerTaskRepository(ctx context.Context, c Container) domain.ServerTaskRepository {

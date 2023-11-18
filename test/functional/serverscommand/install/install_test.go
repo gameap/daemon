@@ -36,8 +36,8 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameInstalled() {
 	err := cmd.Execute(context.Background(), server)
 
 	suite.Require().NoError(err)
-	suite.FileExists(suite.WorkPath + "/server/run.sh")
-	suite.NoFileExists(suite.WorkPath + "/server/.gamemodinstalled")
+	suite.FileExists(suite.WorkPath + "/server/run.sh")              //nolint:goconst
+	suite.NoFileExists(suite.WorkPath + "/server/.gamemodinstalled") //nolint:goconst
 }
 
 func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameAndModInstalled() {
