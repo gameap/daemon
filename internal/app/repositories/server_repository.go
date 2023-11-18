@@ -129,34 +129,15 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 	return server, nil
 }
 
-func (repo *ServerRepository) Save(ctx context.Context, server *domain.Server) error {
+func (repo *ServerRepository) Save(_ context.Context, server *domain.Server) error {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 
-	dbServer, err := repo.innerRepo.FindByID(ctx, server.ID())
-	if err != nil {
-		return errors.WithMessage(err, "failed to find server before saving")
-	}
-
-	err = repo.innerRepo.Save(ctx, repo.resolveConflicts(server, dbServer))
-	if err != nil {
-		return err
-	}
+	repo.limitScheduler.Put(server)
 
 	server.UnmarkModifiedFlag()
 
 	return nil
-}
-
-func (repo *ServerRepository) resolveConflicts(cacheServer, dbServer *domain.Server) *domain.Server {
-	server := cacheServer
-
-	if !cacheServer.IsValueModified("installationStatus") &&
-		cacheServer.InstallationStatus() != dbServer.InstallationStatus() {
-		server.SetInstallationStatus(dbServer.InstallationStatus())
-	}
-
-	return server
 }
 
 //nolint:maligned
@@ -309,9 +290,23 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 	var server *domain.Server
 	if item, exists := apiRepo.servers.Load(srv.ID); exists {
 		server = item.(*domain.Server)
+
+		installationStatus := server.InstallationStatus()
+		if !server.IsValueModified("installationStatus") &&
+			server.InstallationStatus() != domain.InstallationStatus(srv.InstallStatus) {
+			installationStatus = domain.InstallationStatus(srv.InstallStatus)
+		}
+
+		processActive := server.IsActive()
+		lastStatusCheck := server.LastStatusCheck()
+		if !server.IsValueModified("status") && server.IsActive() != srv.ProcessActive {
+			processActive = srv.ProcessActive
+			lastStatusCheck = lastProcessCheck
+		}
+
 		server.Set(
 			srv.Enabled,
-			domain.InstallationStatus(srv.InstallStatus),
+			installationStatus,
 			srv.Blocked,
 			srv.Name,
 			srv.UUID,
@@ -329,8 +324,8 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 			srv.StopCommand,
 			srv.ForceStopCommand,
 			srv.RestartCommand,
-			srv.ProcessActive,
-			lastProcessCheck,
+			processActive,
+			lastStatusCheck,
 			srv.Vars,
 			settings,
 			updatedAt,
