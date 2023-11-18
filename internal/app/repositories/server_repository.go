@@ -136,8 +136,6 @@ func (repo *ServerRepository) Save(_ context.Context, server *domain.Server) err
 
 	repo.limitScheduler.Put(server)
 
-	server.UnmarkModifiedFlag()
-
 	return nil
 }
 
@@ -397,6 +395,8 @@ func saveStructFromServer(server *domain.Server) serverSaveStruct {
 func (apiRepo *apiServerRepo) Save(ctx context.Context, server *domain.Server) error {
 	serverSaveValues := saveStructFromServer(server)
 
+	server.UnmarkModifiedFlag()
+
 	marshalled, err := json.Marshal(serverSaveValues)
 	if err != nil {
 		return errors.WithMessage(err, "[repositories.apiServerRepo] failed to marshal server")
@@ -428,6 +428,7 @@ func (apiRepo *apiServerRepo) SaveBulk(ctx context.Context, servers []*domain.Se
 	serverSaveValues := make([]serverSaveStruct, 0, len(servers))
 	for i := range servers {
 		serverSaveValues = append(serverSaveValues, saveStructFromServer(servers[i]))
+		servers[i].UnmarkModifiedFlag()
 	}
 
 	marshalled, err := json.Marshal(serverSaveValues)
