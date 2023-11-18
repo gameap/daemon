@@ -88,6 +88,10 @@ func (c *APIClient) request(
 
 	l := logger.Logger(ctx)
 
+	l = l.WithField("method", request.Method)
+
+	start := time.Now()
+
 	switch request.Method {
 	case http.MethodGet:
 		response, err = restyRequest.Get(request.URL)
@@ -105,6 +109,13 @@ func (c *APIClient) request(
 		}
 
 		response, err = restyRequest.Put(request.URL)
+	case http.MethodPatch:
+		body, isBytes := restyRequest.Body.([]byte)
+		if isBytes {
+			l = l.WithField("body", string(body))
+		}
+
+		response, err = restyRequest.Patch(request.URL)
 	default:
 		return nil, errInvalidRequestMethod
 	}
@@ -112,6 +123,7 @@ func (c *APIClient) request(
 	l.WithFields(logrus.Fields{
 		"requestURL":     restyRequest.URL,
 		"responseStatus": response.StatusCode(),
+		"responseTime":   time.Since(start),
 	}).Debug("api request")
 
 	if err != nil {

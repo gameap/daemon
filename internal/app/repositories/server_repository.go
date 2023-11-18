@@ -12,6 +12,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/limiter"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -368,9 +369,9 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 }
 
 type serverSaveStruct struct {
-	InstallationStatus uint8  `json:"installed"`
-	ProcessActive      uint8  `json:"process_active"`
-	LastProcessCheck   string `json:"last_process_check"`
+	ProcessActive      uint8   `json:"process_active"`
+	InstallationStatus *int    `json:"installed,omitempty"`
+	LastProcessCheck   *string `json:"last_process_check,omitempty"`
 }
 
 func saveStructFromServer(server *domain.Server) serverSaveStruct {
@@ -379,7 +380,7 @@ func saveStructFromServer(server *domain.Server) serverSaveStruct {
 	}
 
 	if server.IsValueModified("installationStatus") {
-		saveStruct.InstallationStatus = uint8(server.InstallationStatus())
+		saveStruct.InstallationStatus = lo.ToPtr(int(server.InstallationStatus()))
 	}
 
 	if server.IsActive() && server.IsValueModified("status") {
@@ -387,7 +388,7 @@ func saveStructFromServer(server *domain.Server) serverSaveStruct {
 	}
 
 	if !server.LastStatusCheck().IsZero() && server.IsValueModified("status") {
-		saveStruct.LastProcessCheck = server.LastStatusCheck().UTC().Format("2006-01-02 15:04:05")
+		saveStruct.LastProcessCheck = lo.ToPtr(server.LastStatusCheck().UTC().Format("2006-01-02 15:04:05"))
 	}
 
 	return saveStruct
