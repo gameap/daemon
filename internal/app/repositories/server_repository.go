@@ -367,6 +367,7 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 }
 
 type serverSaveStruct struct {
+	ID                 int     `json:"id"`
 	ProcessActive      uint8   `json:"process_active"`
 	InstallationStatus *int    `json:"installed,omitempty"`
 	LastProcessCheck   *string `json:"last_process_check,omitempty"`
@@ -374,6 +375,7 @@ type serverSaveStruct struct {
 
 func saveStructFromServer(server *domain.Server) serverSaveStruct {
 	saveStruct := serverSaveStruct{
+		ID:            server.ID(),
 		ProcessActive: 0,
 	}
 

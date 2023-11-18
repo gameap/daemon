@@ -169,6 +169,11 @@ func (l *ServersLoop) canSkipped(_ context.Context, server *domain.Server) bool 
 		return false
 	}
 
+	if !l.skipCounter.Exists(server.ID()) {
+		l.skipCounter.Init(server.ID())
+		return false
+	}
+
 	if time.Since(server.LastTaskCompletedAt()) <= 10*time.Minute {
 		if l.skipCounter.Get(server.ID()) >= skipMaxCount10m {
 			l.skipCounter.Reset(server.ID())
@@ -213,7 +218,16 @@ func (sc *skipCounter) Increment(serverID int) {
 }
 
 func (sc *skipCounter) Reset(serverID int) {
-	sc.counter.Delete(serverID)
+	sc.counter.Store(serverID, 0)
+}
+
+func (sc *skipCounter) Init(serverID int) {
+	sc.counter.Store(serverID, 0)
+}
+
+func (sc *skipCounter) Exists(serverID int) bool {
+	_, ok := sc.counter.Load(serverID)
+	return ok
 }
 
 func (sc *skipCounter) Get(serverID int) int {
