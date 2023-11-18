@@ -11,7 +11,7 @@ type LocalStore struct {
 	items sync.Map
 }
 
-func NewLocalStore(cfg *config.Config) (*LocalStore, error) {
+func NewLocalStore(_ *config.Config) (*LocalStore, error) {
 	return &LocalStore{}, nil
 }
 

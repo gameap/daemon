@@ -160,6 +160,75 @@ func (s *Server) ID() int {
 	return s.id
 }
 
+func (s *Server) Set(
+	enabled bool,
+	installStatus InstallationStatus,
+	blocked bool,
+	name string,
+	uuid string,
+	uuidShort string,
+	game Game,
+	gameMod GameMod,
+	ip string,
+	connectPort int,
+	queryPort int,
+	rconPort int,
+	rconPassword string,
+	dir string,
+	user string,
+	startCommand string,
+	stopCommand string,
+	forceStopCommand string,
+	restartCommand string,
+	processActive bool,
+	lastProcessCheck time.Time,
+	vars map[string]string,
+	settings Settings,
+	updatedAt time.Time,
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.enabled = enabled
+	s.installStatus = installStatus
+	s.blocked = blocked
+	s.name = name
+	s.uuid = uuid
+	s.uuidShort = uuidShort
+	s.game = game
+	s.gameMod = gameMod
+	s.ip = ip
+	s.connectPort = connectPort
+	s.queryPort = queryPort
+	s.rconPort = rconPort
+	s.rconPassword = rconPassword
+	s.dir = dir
+	s.user = user
+	s.startCommand = startCommand
+	s.stopCommand = stopCommand
+	s.forceStopCommand = forceStopCommand
+	s.restartCommand = restartCommand
+	s.processActive = processActive
+	s.lastProcessCheck = lastProcessCheck
+	s.vars = vars
+	s.settings = settings
+	s.updatedAt = updatedAt
+}
+
+func (s *Server) Enabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.enabled
+}
+
+func (s *Server) Blocked() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.blocked
+}
+
 func (s *Server) UUID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
