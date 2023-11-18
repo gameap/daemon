@@ -46,17 +46,18 @@ func (s *CallScheduler) Run(ctx context.Context) {
 			}
 
 			if s.q.Len() < s.bulkCallFromNum {
-				err := s.singleCallFunc(context.TODO(), s.q)
+				err := s.singleCallFunc(ctx, s.q)
 				if err != nil {
 					s.logger.Error(err)
 				}
 			} else {
-				err := s.bulkCallFunc(context.TODO(), s.q)
+				err := s.bulkCallFunc(ctx, s.q)
 				if err != nil {
 					s.logger.Error(err)
 				}
 			}
 		case <-ctx.Done():
+			s.logger.Info("Call scheduler stopped")
 			return
 		}
 	}
