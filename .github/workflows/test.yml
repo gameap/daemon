@@ -49,41 +49,6 @@ jobs:
           flag-name: Go-${{ matrix.go }}
           parallel: true
 
-  cross_compile:
-    strategy:
-      matrix:
-        targets:
-          - "linux/amd64"
-    env:
-      go: 1.21.x
-      GOPROXY: https://proxy.golang.org
-
-    runs-on: ubuntu-latest
-
-    name: Cross Compile for ${{ matrix.targets }}
-
-    steps:
-      - name: Set up Go ${{ env.go }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: ${{ env.go }}
-
-      - name: Check out code
-        uses: actions/checkout@v2
-
-      - name: Install gox
-        run: |
-          go get github.com/mitchellh/gox
-      - name: Cross-compile with gox for ${{ matrix.targets }}
-        env:
-          GOFLAGS: "-trimpath"
-          GOX_ARCHS: "${{ matrix.targets }}"
-        run: |
-          mkdir build-output
-          gox -verbose -osarch "$GOX_ARCHS" -output "build-output/{{.Dir}}_{{.OS}}_{{.Arch}}" ./cmd/gameap-daemon
-          gox -verbose -osarch "$GOX_ARCHS" -tags debug -output "build-output/{{.Dir}}_{{.OS}}_{{.Arch}}_debug" ./cmd/gameap-daemon
-
-
   test-cache:
     runs-on: ubuntu-latest
     steps:
