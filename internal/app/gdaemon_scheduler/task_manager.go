@@ -147,7 +147,7 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 	if err != nil {
 		logger.Logger(ctx).WithError(err).Error("task execution failed")
 
-		manager.appendTaskOutput(ctx, task, []byte(err.Error()))
+		go manager.appendTaskOutput(ctx, task, []byte(err.Error()))
 		manager.failTask(ctx, task)
 	}
 
@@ -257,7 +257,7 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask) error {
 	c, ok := manager.commandsInProgress.Load(*task)
 	if !ok {
-		return errors.New("[gdaemon_scheduler.TaskManager] task not exist in working tasks")
+		return errors.New("[gdaemon_scheduler.TaskManager] task doesn't exist in working tasks")
 	}
 
 	cmd := c.(contracts.CommandResultReader)
@@ -275,7 +275,7 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 		}
 	}
 
-	manager.appendTaskOutput(ctx, task, cmd.ReadOutput())
+	go manager.appendTaskOutput(ctx, task, cmd.ReadOutput())
 
 	return nil
 }
@@ -322,12 +322,12 @@ func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
 
 type taskQueue struct {
 	tasks []*domain.GDTask
-	mutex *sync.Mutex
+	mutex sync.RWMutex
 }
 
 func newTaskQueue() *taskQueue {
 	return &taskQueue{
-		mutex: &sync.Mutex{},
+		mutex: sync.RWMutex{},
 	}
 }
 
@@ -344,20 +344,24 @@ func (q *taskQueue) Insert(tasks []*domain.GDTask) {
 }
 
 func (q *taskQueue) Dequeue() *domain.GDTask {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
 	if len(q.tasks) == 0 {
 		return nil
 	}
 
 	task := q.tasks[0]
 
-	q.mutex.Lock()
 	q.tasks = q.tasks[1:]
-	q.mutex.Unlock()
 
 	return task
 }
 
 func (q *taskQueue) Next() *domain.GDTask {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
 	if len(q.tasks) == 0 {
 		return nil
 	}
@@ -369,12 +373,12 @@ func (q *taskQueue) Next() *domain.GDTask {
 }
 
 func (q *taskQueue) Remove(task *domain.GDTask) {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
 	if len(q.tasks) == 0 {
 		return
 	}
-
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
 
 	for i := range q.tasks {
 		if q.tasks[i].ID() == task.ID() {
@@ -385,6 +389,9 @@ func (q *taskQueue) Remove(task *domain.GDTask) {
 }
 
 func (q *taskQueue) FindByID(id int) *domain.GDTask {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
 	for _, task := range q.tasks {
 		if task.ID() == id {
 			return task
@@ -395,6 +402,9 @@ func (q *taskQueue) FindByID(id int) *domain.GDTask {
 }
 
 func (q *taskQueue) WorkingTasks() ([]int, []*domain.GDTask) {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
 	ids := make([]int, 0, len(q.tasks))
 	tasks := make([]*domain.GDTask, 0, len(q.tasks))
 
@@ -409,6 +419,9 @@ func (q *taskQueue) WorkingTasks() ([]int, []*domain.GDTask) {
 }
 
 func (q *taskQueue) Len() int {
+	q.mutex.RLock()
+	defer q.mutex.RUnlock()
+
 	return len(q.tasks)
 }
 
