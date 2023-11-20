@@ -153,6 +153,8 @@ func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) 
 		return errors.WithMessage(err, "failed to execute start command")
 	}
 
+	server.NoticeTaskCompleted()
+
 	return l.checkStatus(ctx, server)
 }
 

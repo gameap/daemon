@@ -94,6 +94,8 @@ func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) {
 		return
 	}
 
+	task.Server().NoticeTaskCompleted()
+
 	result := cmd.Result()
 	if result == gameservercommands.ErrorResult {
 		s.saveFailInfo(ctx, task, string(cmd.ReadOutput()))
