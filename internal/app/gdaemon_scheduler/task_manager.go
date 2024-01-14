@@ -70,18 +70,33 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 		logger.Logger(ctx).Error(err)
 	}
 
+	go manager.RunWorker(ctx)
+
 	for {
 		select {
 		case <-(ctx).Done():
 			return nil
 		default:
-			manager.runNext(ctx)
-
-			time.Sleep(1 * time.Second)
+			time.Sleep(manager.config.TaskManager.UpdatePeriod)
 
 			err = manager.updateTasksIfNeeded(ctx)
 			if err != nil {
 				logger.Logger(ctx).Error(err)
+			}
+		}
+	}
+}
+
+func (manager *TaskManager) RunWorker(ctx context.Context) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if manager.queue.Len() > 0 {
+				manager.runNext(ctx)
 			}
 		}
 	}
@@ -263,14 +278,14 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 	cmd := c.(contracts.CommandResultReader)
 
 	if cmd.IsComplete() {
+		manager.commandsInProgress.Delete(*task)
+
 		if cmd.Result() == gameservercommands.SuccessResult {
-			manager.commandsInProgress.Delete(*task)
 			err := task.SetStatus(domain.GDTaskStatusSuccess)
 			if err != nil {
 				return err
 			}
 		} else {
-			manager.commandsInProgress.Delete(*task)
 			manager.failTask(ctx, task)
 		}
 	}
