@@ -70,10 +70,10 @@ func (s *Status) statusBase(readWriter io.ReadWriter) error {
 	stats := s.gdTaskStatsReader.Stats()
 
 	return response.WriteResponse(readWriter, &infoBaseResponse{
-		time.Since(domain.StartTime).Truncate(1 * time.Second).String(),
-		strconv.Itoa(stats.WorkingCount),
-		strconv.Itoa(stats.WaitingCount),
-		"-",
+		Uptime:        time.Since(domain.StartTime).Truncate(1 * time.Second).String(),
+		WorkingTasks:  strconv.Itoa(stats.WorkingCount),
+		WaitingTasks:  strconv.Itoa(stats.WaitingCount),
+		OnlineServers: "-",
 	})
 }
 

@@ -341,17 +341,19 @@ type taskQueue struct {
 }
 
 func newTaskQueue() *taskQueue {
-	return &taskQueue{
-		mutex: sync.RWMutex{},
-	}
+	return &taskQueue{}
 }
 
 func (q *taskQueue) Insert(tasks []*domain.GDTask) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
+	q.insert(tasks)
+}
+
+func (q *taskQueue) insert(tasks []*domain.GDTask) {
 	for _, t := range tasks {
-		existenceTask := q.FindByID(t.ID())
+		existenceTask := q.findByID(t.ID())
 		if existenceTask == nil {
 			q.tasks = append(q.tasks, t)
 		}
@@ -362,6 +364,10 @@ func (q *taskQueue) Dequeue() *domain.GDTask {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
+	return q.dequeue()
+}
+
+func (q *taskQueue) dequeue() *domain.GDTask {
 	if len(q.tasks) == 0 {
 		return nil
 	}
@@ -381,8 +387,8 @@ func (q *taskQueue) Next() *domain.GDTask {
 		return nil
 	}
 
-	task := q.Dequeue()
-	q.Insert([]*domain.GDTask{task})
+	task := q.dequeue()
+	q.insert([]*domain.GDTask{task})
 
 	return task
 }
@@ -407,6 +413,10 @@ func (q *taskQueue) FindByID(id int) *domain.GDTask {
 	q.mutex.RLock()
 	defer q.mutex.RUnlock()
 
+	return q.findByID(id)
+}
+
+func (q *taskQueue) findByID(id int) *domain.GDTask {
 	for _, task := range q.tasks {
 		if task.ID() == id {
 			return task
