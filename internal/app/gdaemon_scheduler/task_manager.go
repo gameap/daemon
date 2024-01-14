@@ -379,9 +379,10 @@ func (q *taskQueue) dequeue() *domain.GDTask {
 	return task
 }
 
+// Next returns first task and insert it to the end of queue.
 func (q *taskQueue) Next() *domain.GDTask {
-	q.mutex.RLock()
-	defer q.mutex.RUnlock()
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
 
 	if len(q.tasks) == 0 {
 		return nil
@@ -405,6 +406,7 @@ func (q *taskQueue) Remove(task *domain.GDTask) {
 		if q.tasks[i].ID() == task.ID() {
 			q.tasks[i] = q.tasks[len(q.tasks)-1]
 			q.tasks = q.tasks[:len(q.tasks)-1]
+			break
 		}
 	}
 }
