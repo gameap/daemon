@@ -15,6 +15,7 @@ import (
 func Test_Limiter(t *testing.T) {
 	calledSingle := 0
 	calledBulk := 0
+	count := 0
 
 	s := NewAPICallScheduler(
 		10*time.Millisecond,
@@ -22,11 +23,13 @@ func Test_Limiter(t *testing.T) {
 		func(ctx context.Context, q *Queue) error {
 			q.Get()
 			calledSingle++
+			count++
 			return nil
 		},
 		func(ctx context.Context, q *Queue) error {
-			q.GetN(10)
+			n := q.GetN(10)
 			calledBulk++
+			count += len(n)
 			return nil
 		},
 		logger.NewLogger(config.Config{}),
@@ -55,4 +58,5 @@ func Test_Limiter(t *testing.T) {
 
 	assert.Equal(t, 3, calledSingle)
 	assert.Equal(t, 5, calledBulk)
+	assert.Equal(t, 53, count)
 }

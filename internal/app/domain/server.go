@@ -354,6 +354,10 @@ func (s *Server) Setting(key string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.setting(key)
+}
+
+func (s *Server) setting(key string) string {
 	if val, ok := s.settings[key]; ok {
 		return val
 	}
@@ -365,6 +369,10 @@ func (s *Server) SetSetting(key string, value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.setSetting(key, value)
+}
+
+func (s *Server) setSetting(key string, value string) {
 	s.settings[key] = value
 	s.setValueIsChanged("settings")
 
@@ -386,10 +394,14 @@ func (s *Server) AutoStart() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	autostart := s.Setting(autostartCurrentSettingKey)
+	return s.autoStart()
+}
+
+func (s *Server) autoStart() bool {
+	autostart := s.setting(autostartCurrentSettingKey)
 
 	if autostart == "" {
-		autostart = s.Setting(autostartSettingKey)
+		autostart = s.setting(autostartSettingKey)
 	}
 
 	if autostart == "" {
@@ -404,22 +416,22 @@ func (s *Server) AffectInstall() {
 }
 
 func (s *Server) AffectStart() {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	autostart := s.readBoolSetting(s.Setting(autostartSettingKey))
+	autostart := s.readBoolSetting(s.setting(autostartSettingKey))
 	if autostart {
-		s.SetSetting(autostartCurrentSettingKey, "1")
+		s.setSetting(autostartCurrentSettingKey, "1")
 		s.updatedAt = time.Now()
 	}
 }
 
 func (s *Server) AffectStop() {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if s.AutoStart() {
-		s.SetSetting(autostartCurrentSettingKey, "0")
+	if s.autoStart() {
+		s.setSetting(autostartCurrentSettingKey, "0")
 		s.updatedAt = time.Now()
 	}
 }
@@ -428,7 +440,7 @@ func (s *Server) UpdateBeforeStart() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.readBoolSetting(s.Setting(updateBeforeStartSettingKey))
+	return s.readBoolSetting(s.setting(updateBeforeStartSettingKey))
 }
 
 func (s *Server) InstallationStatus() InstallationStatus {
