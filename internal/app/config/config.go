@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"time"
 )
 
 type Scripts struct {
@@ -66,6 +67,12 @@ type Config struct {
 	SteamConfig SteamConfig `yaml:"steam_config"`
 
 	Scripts Scripts
+
+	TaskManager struct {
+		UpdatePeriod  time.Duration `yaml:"update_period"`
+		RunTaskPeriod time.Duration `yaml:"run_task_period"`
+		WorkersCount  int           `yaml:"workers_count"`
+	} `yaml:"task_manager"`
 }
 
 func NewConfig() *Config {
@@ -80,6 +87,14 @@ func NewConfig() *Config {
 func (cfg *Config) Init() error {
 	if cfg.ToolsPath == "" {
 		cfg.ToolsPath = cfg.WorkPath + "/tools"
+	}
+
+	if cfg.TaskManager.UpdatePeriod == 0 {
+		cfg.TaskManager.UpdatePeriod = 1 * time.Second
+	}
+
+	if cfg.TaskManager.RunTaskPeriod == 0 {
+		cfg.TaskManager.RunTaskPeriod = 10 * time.Millisecond
 	}
 
 	return cfg.validate()

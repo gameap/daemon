@@ -57,7 +57,7 @@ func (command *mockCommand) IsComplete() bool {
 	return command.complete
 }
 
-func (command *mockCommand) Execute(ctx context.Context, server *domain.Server) error {
+func (command *mockCommand) Execute(_ context.Context, server *domain.Server) error {
 	command.result = successResult
 	command.complete = true
 

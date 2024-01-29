@@ -12,6 +12,7 @@ func (suite *Suite) TestStartSuccess() {
 
 	suite.RunTaskManagerUntilTasksCompleted([]*domain.GDTask{task})
 
+	//nolint:goconst
 	suite.AssertFileContents(suite.WorkPath+"/server/file.txt", []byte("FILE CONTENTS\n"))
 	suite.AssertGDTaskExist(
 		domain.NewGDTask(

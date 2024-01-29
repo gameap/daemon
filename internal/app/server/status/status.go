@@ -34,7 +34,7 @@ func NewStatus(gdTaskStatsReader domain.GDTaskStatsReader) *Status {
 	return status
 }
 
-func (s *Status) Handle(ctx context.Context, readWriter io.ReadWriter) error {
+func (s *Status) Handle(_ context.Context, readWriter io.ReadWriter) error {
 	var operation Operation
 	decoder := decode.NewDecoder(readWriter)
 	err := decoder.Decode(&operation)
@@ -70,10 +70,10 @@ func (s *Status) statusBase(readWriter io.ReadWriter) error {
 	stats := s.gdTaskStatsReader.Stats()
 
 	return response.WriteResponse(readWriter, &infoBaseResponse{
-		time.Since(domain.StartTime).Truncate(1 * time.Second).String(),
-		strconv.Itoa(stats.WorkingCount),
-		strconv.Itoa(stats.WaitingCount),
-		"-",
+		Uptime:        time.Since(domain.StartTime).Truncate(1 * time.Second).String(),
+		WorkingTasks:  strconv.Itoa(stats.WorkingCount),
+		WaitingTasks:  strconv.Itoa(stats.WaitingCount),
+		OnlineServers: "-",
 	})
 }
 

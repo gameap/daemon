@@ -20,7 +20,7 @@ func NewServerTaskRepository() *ServerTaskRepository {
 	}
 }
 
-func (r *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTask, error) {
+func (r *ServerTaskRepository) Find(_ context.Context) ([]*domain.ServerTask, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -33,7 +33,7 @@ func (r *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTask, 
 	return items, nil
 }
 
-func (r *ServerTaskRepository) FindByID(ctx context.Context, id int) (*domain.ServerTask, error) {
+func (r *ServerTaskRepository) FindByID(_ context.Context, id int) (*domain.ServerTask, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -45,7 +45,7 @@ func (r *ServerTaskRepository) FindByID(ctx context.Context, id int) (*domain.Se
 	return item, nil
 }
 
-func (r *ServerTaskRepository) Save(ctx context.Context, task *domain.ServerTask) error {
+func (r *ServerTaskRepository) Save(_ context.Context, task *domain.ServerTask) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -54,7 +54,7 @@ func (r *ServerTaskRepository) Save(ctx context.Context, task *domain.ServerTask
 	return nil
 }
 
-func (r *ServerTaskRepository) Fail(ctx context.Context, task *domain.ServerTask, output []byte) error {
+func (r *ServerTaskRepository) Fail(_ context.Context, task *domain.ServerTask, output []byte) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 

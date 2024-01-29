@@ -64,6 +64,10 @@ func NewLogger(cfg config.Config) *log.Logger {
 func defineLogLevel(cfg config.Config) log.Level {
 	level := log.DebugLevel
 
+	if cfg.LogLevel == "" {
+		return level
+	}
+
 	switch strings.ToUpper(cfg.LogLevel[:1]) {
 	case "T", "V":
 		level = log.TraceLevel

@@ -10,25 +10,81 @@ import (
 
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/pkg/limiter"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
+	log "github.com/sirupsen/logrus"
 )
 
 const serverCacheTTL = 10 * time.Second
 
+// limit scheduler consts.
+const (
+	schedulerDefaultDuration        = 1 * time.Second
+	schedulerDefaultBulkCallFromNum = 5
+	schedulerDefaultBulkSize        = 100
+)
+
 type ServerRepository struct {
 	innerRepo apiServerRepo
+
+	limitScheduler *limiter.CallScheduler
 
 	mu          sync.Mutex
 	servers     sync.Map // [int]*domain.Server  (serverID => server)
 	lastUpdated sync.Map // [int]time.Time		 (serverID => time)
 }
 
-func NewServerRepository(client contracts.APIRequestMaker) *ServerRepository {
-	return &ServerRepository{
+func NewServerRepository(ctx context.Context, client contracts.APIRequestMaker, logger *log.Logger) *ServerRepository {
+	serverRepo := &ServerRepository{
 		innerRepo: apiServerRepo{
 			client: client,
 		},
 	}
+
+	limitScheduler := limiter.NewAPICallScheduler(
+		schedulerDefaultDuration,
+		schedulerDefaultBulkCallFromNum,
+		func(ctx context.Context, q *limiter.Queue) error {
+			server, ok := q.Get().(*domain.Server)
+			if !ok {
+				return errors.New("failed to get server from queue")
+			}
+
+			err := serverRepo.innerRepo.Save(ctx, server)
+			if err != nil {
+				return errors.WithMessage(err, "failed to save server")
+			}
+
+			return nil
+		},
+		func(ctx context.Context, q *limiter.Queue) error {
+			s := q.GetN(schedulerDefaultBulkSize)
+			servers := make([]*domain.Server, 0, len(s))
+			for i := range s {
+				server, ok := s[i].(*domain.Server)
+				if !ok {
+					return errors.New("failed to get server from queue")
+				}
+
+				servers = append(servers, server)
+			}
+
+			err := serverRepo.innerRepo.SaveBulk(ctx, servers)
+			if err != nil {
+				return errors.WithMessage(err, "failed to save servers")
+			}
+
+			return nil
+		},
+		logger,
+	)
+
+	go limitScheduler.Run(ctx)
+
+	serverRepo.limitScheduler = limitScheduler
+
+	return serverRepo
 }
 
 func (repo *ServerRepository) IDs(ctx context.Context) ([]int, error) {
@@ -74,34 +130,13 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 	return server, nil
 }
 
-func (repo *ServerRepository) Save(ctx context.Context, server *domain.Server) error {
+func (repo *ServerRepository) Save(_ context.Context, server *domain.Server) error {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 
-	dbServer, err := repo.innerRepo.FindByID(ctx, server.ID())
-	if err != nil {
-		return errors.WithMessage(err, "failed to find server before save")
-	}
-
-	err = repo.innerRepo.Save(ctx, repo.resolveConflicts(server, dbServer))
-	if err != nil {
-		return err
-	}
-
-	server.UnmarkModifiedFlag()
+	repo.limitScheduler.Put(server)
 
 	return nil
-}
-
-func (repo *ServerRepository) resolveConflicts(cacheServer, dbServer *domain.Server) *domain.Server {
-	server := cacheServer
-
-	if !cacheServer.IsValueModified("installationStatus") &&
-		cacheServer.InstallationStatus() != dbServer.InstallationStatus() {
-		server.SetInstallationStatus(dbServer.InstallationStatus())
-	}
-
-	return server
 }
 
 //nolint:maligned
@@ -144,6 +179,8 @@ type serverStruct struct {
 
 type apiServerRepo struct {
 	client contracts.APIRequestMaker
+
+	servers sync.Map // [int]*domain.Server  (serverID => server)
 }
 
 func (apiRepo *apiServerRepo) IDs(ctx context.Context) ([]int, error) {
@@ -249,7 +286,54 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 		settings[snameString] = svalueString
 	}
 
-	server := domain.NewServer(
+	var server *domain.Server
+	if item, exists := apiRepo.servers.Load(srv.ID); exists {
+		server = item.(*domain.Server)
+
+		installationStatus := server.InstallationStatus()
+		if !server.IsValueModified("installationStatus") &&
+			server.InstallationStatus() != domain.InstallationStatus(srv.InstallStatus) {
+			installationStatus = domain.InstallationStatus(srv.InstallStatus)
+		}
+
+		processActive := server.IsActive()
+		lastStatusCheck := server.LastStatusCheck()
+		if !server.IsValueModified("status") && server.IsActive() != srv.ProcessActive {
+			processActive = srv.ProcessActive
+			lastStatusCheck = lastProcessCheck
+		}
+
+		server.Set(
+			srv.Enabled,
+			installationStatus,
+			srv.Blocked,
+			srv.Name,
+			srv.UUID,
+			srv.UUIDShort,
+			srv.Game,
+			srv.GameMod,
+			srv.IP,
+			srv.ConnectPort,
+			srv.QueryPort,
+			srv.RconPort,
+			srv.RconPassword,
+			srv.Dir,
+			srv.User,
+			srv.StartCommand,
+			srv.StopCommand,
+			srv.ForceStopCommand,
+			srv.RestartCommand,
+			processActive,
+			lastStatusCheck,
+			srv.Vars,
+			settings,
+			updatedAt,
+		)
+
+		return server, nil
+	}
+
+	server = domain.NewServer(
 		srv.ID,
 		srv.Enabled,
 		domain.InstallationStatus(srv.InstallStatus),
@@ -277,25 +361,43 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 		updatedAt,
 	)
 
+	apiRepo.servers.Store(srv.ID, server)
+
 	return server, nil
 }
 
-func (apiRepo *apiServerRepo) Save(ctx context.Context, server *domain.Server) error {
-	serverSaveValues := map[string]interface{}{
-		"process_active": 0,
+type serverSaveStruct struct {
+	ID                 int     `json:"id"`
+	ProcessActive      uint8   `json:"process_active"`
+	InstallationStatus *int    `json:"installed,omitempty"`
+	LastProcessCheck   *string `json:"last_process_check,omitempty"`
+}
+
+func saveStructFromServer(server *domain.Server) serverSaveStruct {
+	saveStruct := serverSaveStruct{
+		ID:            server.ID(),
+		ProcessActive: 0,
 	}
 
 	if server.IsValueModified("installationStatus") {
-		serverSaveValues["installed"] = uint8(server.InstallationStatus())
+		saveStruct.InstallationStatus = lo.ToPtr(int(server.InstallationStatus()))
 	}
 
 	if server.IsActive() && server.IsValueModified("status") {
-		serverSaveValues["process_active"] = 1
+		saveStruct.ProcessActive = 1
 	}
 
 	if !server.LastStatusCheck().IsZero() && server.IsValueModified("status") {
-		serverSaveValues["last_process_check"] = server.LastStatusCheck().UTC().Format("2006-01-02 15:04:05")
+		saveStruct.LastProcessCheck = lo.ToPtr(server.LastStatusCheck().UTC().Format("2006-01-02 15:04:05"))
 	}
+
+	return saveStruct
+}
+
+func (apiRepo *apiServerRepo) Save(ctx context.Context, server *domain.Server) error {
+	serverSaveValues := saveStructFromServer(server)
+
+	server.UnmarkModifiedFlag()
 
 	marshalled, err := json.Marshal(serverSaveValues)
 	if err != nil {
@@ -318,6 +420,37 @@ func (apiRepo *apiServerRepo) Save(ctx context.Context, server *domain.Server) e
 		return errors.WithMessage(
 			domain.NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
 			"[repositories.apiServerRepo] failed to saving server",
+		)
+	}
+
+	return nil
+}
+
+func (apiRepo *apiServerRepo) SaveBulk(ctx context.Context, servers []*domain.Server) error {
+	serverSaveValues := make([]serverSaveStruct, 0, len(servers))
+	for i := range servers {
+		serverSaveValues = append(serverSaveValues, saveStructFromServer(servers[i]))
+		servers[i].UnmarkModifiedFlag()
+	}
+
+	marshalled, err := json.Marshal(serverSaveValues)
+	if err != nil {
+		return errors.WithMessage(err, "[repositories.apiServerRepo] failed to marshal servers")
+	}
+
+	resp, err := apiRepo.client.Request(ctx, domain.APIRequest{
+		Method: http.MethodPatch,
+		URL:    "/gdaemon_api/servers",
+		Body:   marshalled,
+	})
+	if err != nil {
+		return errors.WithMessage(err, "[repositories.apiServerRepo] failed to bulk saving servers")
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return errors.WithMessage(
+			domain.NewErrInvalidResponseFromAPI(resp.StatusCode(), resp.Body()),
+			"[repositories.apiServerRepo] failed to bulk saving servers",
 		)
 	}
 
