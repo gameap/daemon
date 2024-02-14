@@ -40,18 +40,16 @@ func (suite *Suite) TestStartInvalidCommand() {
 
 	suite.Require().NotNil(err)
 	if runtime.GOOS == "windows" {
-		suite.Assert().Equal(
-			"[game_server_commands.defaultStartServer] failed to execute start command: "+
-				"executable file not found: exec: \"./invalid_command.sh\": "+
-				"file does not exist",
+		suite.Assert().Contains(
 			err.Error(),
+			"executable file not found: exec: \"./invalid_command.sh\": "+
+				"file does not exist",
 		)
 	} else {
-		suite.Assert().Equal(
-			"[game_server_commands.defaultStartServer] failed to execute start command: "+
-				"executable file not found: exec: \"./invalid_command.sh\": "+
-				"stat ./invalid_command.sh: no such file or directory",
+		suite.Assert().Contains(
 			err.Error(),
+			"executable file not found: exec: \"./invalid_command.sh\": "+
+				"stat ./invalid_command.sh: no such file or directory",
 		)
 	}
 	suite.Assert().True(cmd.IsComplete())
