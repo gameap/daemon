@@ -53,7 +53,7 @@ func (suite *Suite) TestStartInvalidCommand() {
 		)
 	}
 	suite.Assert().True(cmd.IsComplete())
-	suite.Assert().Equal(-1, cmd.Result())
+	suite.Assert().Equal(1, cmd.Result())
 }
 
 func (suite *Suite) TestStartFailedCommand() {
