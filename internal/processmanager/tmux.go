@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/user"
+	"strconv"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
@@ -42,7 +43,7 @@ func (pm *Tmux) Start(
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux new-session -d -s %s -x %d "%s"`, server.UUID(), defaultWidth, startCmd),
+		fmt.Sprintf(`tmux new-session -d -s %s -x %d "%s"`, server.UUID(), defaultWidth, strconv.Quote(startCmd)),
 		out,
 		options,
 	)
@@ -155,7 +156,7 @@ func (pm *Tmux) SendInput(
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux send-keys -t %s "%s" ENTER`, server.UUID(), input),
+		fmt.Sprintf(`tmux send-keys -t %s "%s" ENTER`, server.UUID(), strconv.Quote(input)),
 		out,
 		options,
 	)
