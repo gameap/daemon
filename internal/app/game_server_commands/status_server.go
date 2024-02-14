@@ -24,14 +24,8 @@ func newDefaultStatusServer(
 }
 
 func (cmd *statusDefaultServer) Execute(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Status, "")
-
-	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
-		WorkDir:         server.WorkDir(cmd.cfg),
-		FallbackWorkDir: cmd.cfg.WorkPath,
-	})
-
-	cmd.SetResult(result)
+	result, err := cmd.processManager.Status(ctx, server, cmd.output)
+	cmd.SetResult(int(result))
 	cmd.SetComplete()
 
 	return err

@@ -36,8 +36,6 @@ func newDefaultStartServer(
 }
 
 func (cmd *defaultStartServer) Execute(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Start, server.StartCommand())
-
 	if cmd.enableUpdatingBefore && server.UpdateBeforeStart() {
 		updateCmd := cmd.loadServerCommand(domain.Update, server)
 
@@ -54,12 +52,8 @@ func (cmd *defaultStartServer) Execute(ctx context.Context, server *domain.Serve
 		}
 	}
 
-	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.startOutput, contracts.ExecutorOptions{
-		WorkDir:         server.WorkDir(cmd.cfg),
-		FallbackWorkDir: cmd.cfg.WorkPath,
-	})
-
-	cmd.SetResult(result)
+	result, err := cmd.processManager.Start(ctx, server, cmd.startOutput)
+	cmd.SetResult(int(result))
 	cmd.SetComplete()
 
 	if err != nil {

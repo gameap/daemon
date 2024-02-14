@@ -46,13 +46,8 @@ func (cmd *defaultRestartServer) Execute(ctx context.Context, server *domain.Ser
 		return cmd.restartViaStopStart(ctx, server)
 	}
 
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Restart, server.StartCommand())
-
-	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
-		WorkDir:         server.WorkDir(cmd.cfg),
-		FallbackWorkDir: cmd.cfg.WorkDir(),
-	})
-	cmd.SetResult(result)
+	result, err := cmd.processManager.Restart(ctx, server, cmd.output)
+	cmd.SetResult(int(result))
 	cmd.SetComplete()
 
 	return err

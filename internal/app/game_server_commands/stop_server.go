@@ -24,16 +24,10 @@ func newDefaultStopServer(
 }
 
 func (cmd *defaultStopServer) Execute(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Stop, server.StopCommand())
-
 	server.AffectStop()
 
-	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
-		WorkDir:         server.WorkDir(cmd.cfg),
-		FallbackWorkDir: cmd.cfg.WorkDir(),
-	})
-
-	cmd.SetResult(result)
+	result, err := cmd.processManager.Stop(ctx, server, cmd.output)
+	cmd.SetResult(int(result))
 	cmd.SetComplete()
 
 	return err
