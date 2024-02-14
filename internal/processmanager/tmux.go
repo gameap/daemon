@@ -44,9 +44,11 @@ func (pm *Tmux) Start(
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
 	}
 
+	tmuxCmd := fmt.Sprintf(`tmux new-session -d -s %s -x %d %s`, server.UUID(), defaultWidth, startCmd)
+
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux new-session -d -s %s -x %d %s`, server.UUID(), defaultWidth, startCmd),
+		fmt.Sprintf(`sh -c %s`, strconv.Quote(tmuxCmd)),
 		out,
 		options,
 	)
