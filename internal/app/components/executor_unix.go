@@ -31,6 +31,7 @@ func setCMDSysProcCredential(cmd *exec.Cmd, options contracts.ExecutorOptions) (
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+	cmd.SysProcAttr.Noctty = true
 
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "HOME="+u.HomeDir)

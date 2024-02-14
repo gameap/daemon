@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/user"
 	"strconv"
+	"strings"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
@@ -36,6 +37,8 @@ func (pm *Tmux) Start(
 ) (domain.Result, error) {
 	startCmd := domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
 
+	startCmd = strconv.Quote(strings.ReplaceAll(startCmd, `\"`, `"`))
+
 	options, err := pm.executeOptions(server)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
@@ -43,7 +46,7 @@ func (pm *Tmux) Start(
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux new-session -d -s %s -x %d "%s"`, server.UUID(), defaultWidth, strconv.Quote(startCmd)),
+		fmt.Sprintf(`tmux new-session -d -s %s -x %d %s`, server.UUID(), defaultWidth, startCmd),
 		out,
 		options,
 	)
@@ -154,9 +157,11 @@ func (pm *Tmux) SendInput(
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
 	}
 
+	input = strconv.Quote(strings.ReplaceAll(input, `\"`, `"`))
+
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux send-keys -t %s "%s" ENTER`, server.UUID(), strconv.Quote(input)),
+		fmt.Sprintf(`tmux send-keys -t %s %s ENTER`, server.UUID(), input),
 		out,
 		options,
 	)
