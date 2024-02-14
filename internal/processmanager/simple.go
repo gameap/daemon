@@ -91,16 +91,11 @@ func (pm *Simple) SendInput(
 func (pm *Simple) execCommand(
 	ctx context.Context, server *domain.Server, command string, out io.Writer,
 ) (domain.Result, error) {
-	options, err := pm.executeOptions(server)
-	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
-	}
-
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
 		command,
 		out,
-		options,
+		pm.executeOptions(server),
 	)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
@@ -109,9 +104,9 @@ func (pm *Simple) execCommand(
 	return domain.Result(result), nil
 }
 
-func (pm *Simple) executeOptions(server *domain.Server) (contracts.ExecutorOptions, error) {
+func (pm *Simple) executeOptions(server *domain.Server) contracts.ExecutorOptions {
 	return contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(pm.cfg),
 		FallbackWorkDir: pm.cfg.WorkDir(),
-	}, nil
+	}
 }

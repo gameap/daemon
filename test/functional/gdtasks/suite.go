@@ -15,6 +15,7 @@ import (
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	"github.com/gameap/daemon/internal/app/services"
+	"github.com/gameap/daemon/internal/processmanager"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
 )
@@ -28,6 +29,7 @@ type Suite struct {
 	GDTaskRepository *mocks.GDTaskRepository
 	ServerRepository *mocks.ServerRepository
 	Executor         contracts.Executor
+	ProcessManager   contracts.ProcessManager
 	Cache            contracts.Cache
 	Cfg              *config.Config
 
@@ -42,6 +44,7 @@ func (suite *Suite) SetupTest() {
 			suite.Cfg,
 			suite.ServerRepository,
 			suite.Executor,
+			suite.ProcessManager,
 		),
 		suite.Executor,
 		suite.Cfg,
@@ -62,6 +65,7 @@ func (suite *Suite) SetupSuite() {
 	}
 
 	suite.Executor = components.NewDefaultExtendableExecutor(suite.Cfg)
+	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, suite.Executor)
 
 	suite.Cache, err = services.NewLocalCache(suite.Cfg)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/processmanager"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
 )
@@ -19,6 +20,7 @@ type NotInstalledServerSuite struct {
 	Cfg              *config.Config
 	ServerRepository domain.ServerRepository
 	Executor         contracts.Executor
+	ProcessManager   contracts.ProcessManager
 	WorkPath         string
 }
 
@@ -32,8 +34,9 @@ func (suite *NotInstalledServerSuite) SetupSuite() {
 
 	suite.ServerRepository = mocks.NewServerRepository()
 	suite.Executor = components.NewCleanExecutor()
+	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, suite.Executor)
 
-	suite.CommandFactory = gameservercommands.NewFactory(suite.Cfg, suite.ServerRepository, suite.Executor)
+	suite.CommandFactory = gameservercommands.NewFactory(suite.Cfg, suite.ServerRepository, suite.Executor, suite.ProcessManager)
 }
 
 func (suite *NotInstalledServerSuite) SetupTest() {

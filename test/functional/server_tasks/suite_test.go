@@ -12,6 +12,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
+	"github.com/gameap/daemon/internal/processmanager"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
 	"github.com/otiai10/copy"
@@ -25,6 +26,7 @@ type Suite struct {
 	ServerTaskRepository *mocks.ServerTaskRepository
 	ServerRepository     *mocks.ServerRepository
 	Executor             contracts.Executor
+	ProcessManager       contracts.ProcessManager
 	Cfg                  *config.Config
 
 	WorkPath string
@@ -35,16 +37,17 @@ func TestSuite(t *testing.T) {
 }
 
 func (suite *Suite) SetupSuite() {
-	suite.ServerRepository = mocks.NewServerRepository()
-	suite.ServerTaskRepository = mocks.NewServerTaskRepository()
-	suite.Executor = components.NewExecutor()
-
 	suite.Cfg = &config.Config{
 		Scripts: config.Scripts{
 			Start: "{command}",
 			Stop:  "{command}",
 		},
 	}
+
+	suite.ServerRepository = mocks.NewServerRepository()
+	suite.ServerTaskRepository = mocks.NewServerTaskRepository()
+	suite.Executor = components.NewExecutor()
+	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, suite.Executor)
 }
 
 func (suite *Suite) SetupTest() {
@@ -60,6 +63,7 @@ func (suite *Suite) SetupTest() {
 			suite.Cfg,
 			suite.ServerRepository,
 			suite.Executor,
+			suite.ProcessManager,
 		),
 	)
 
