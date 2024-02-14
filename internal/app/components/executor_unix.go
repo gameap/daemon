@@ -30,7 +30,10 @@ func setCMDSysProcCredential(cmd *exec.Cmd, options contracts.ExecutorOptions) (
 		return nil, errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid), NoSetGroups: true}
+	cmd.SysProcAttr.Credential = &syscall.Credential{
+		Uid: uint32(uid),
+		Gid: uint32(gid),
+	}
 
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "HOME="+u.HomeDir)
