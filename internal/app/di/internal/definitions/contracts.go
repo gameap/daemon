@@ -7,8 +7,8 @@ package definitions
 import (
 	"context"
 	"github.com/gameap/daemon/internal/app/config"
-	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/contracts"
+	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -36,6 +36,7 @@ type ServicesContainer interface {
 	ApiCaller(ctx context.Context) contracts.APIRequestMaker
 	Executor(ctx context.Context) contracts.Executor
 	GdTaskManager(ctx context.Context) *gdaemonscheduler.TaskManager
+	ProcessManager(ctx context.Context) contracts.ProcessManager
 }
 
 type RepositoryContainer interface {

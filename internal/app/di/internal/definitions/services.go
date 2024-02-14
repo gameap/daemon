@@ -9,6 +9,7 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	"github.com/gameap/daemon/internal/app/services"
+	"github.com/gameap/daemon/internal/processmanager"
 	"github.com/go-resty/resty/v2"
 )
 
@@ -48,6 +49,13 @@ func CreateServicesApiCaller(ctx context.Context, c Container) contracts.APIRequ
 
 func CreateServicesExecutor(ctx context.Context, c Container) contracts.Executor {
 	return components.NewDefaultExtendableExecutor(c.Cfg(ctx))
+}
+
+func CreateServicesProcessManager(ctx context.Context, c Container) contracts.ProcessManager {
+	return processmanager.NewTmux(
+		c.Cfg(ctx),
+		c.Services().Executor(ctx),
+	)
 }
 
 func CreateServicesGdTaskManager(ctx context.Context, c Container) *gdaemonscheduler.TaskManager {

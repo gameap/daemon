@@ -75,6 +75,7 @@ type installServer struct {
 func newUpdateServer(
 	cfg *config.Config,
 	executor contracts.Executor,
+	processManager contracts.ProcessManager,
 	serverRepo domain.ServerRepository,
 	statusCommand contracts.GameServerCommand,
 	stopCommand contracts.GameServerCommand,
@@ -84,7 +85,7 @@ func newUpdateServer(
 	inst := newUpdater(cfg, executor, buffer)
 
 	return &installServer{
-		baseCommand:   newBaseCommand(cfg, executor),
+		baseCommand:   newBaseCommand(cfg, executor, processManager),
 		installator:   inst,
 		serverRepo:    serverRepo,
 		kind:          updater,
@@ -98,6 +99,7 @@ func newUpdateServer(
 func newInstallServer(
 	cfg *config.Config,
 	executor contracts.Executor,
+	processManager contracts.ProcessManager,
 	serverRepo domain.ServerRepository,
 	statusCommand contracts.GameServerCommand,
 	stopCommand contracts.GameServerCommand,
@@ -107,7 +109,7 @@ func newInstallServer(
 	inst := newInstallator(cfg, executor, buffer)
 
 	return &installServer{
-		baseCommand:   newBaseCommand(cfg, executor),
+		baseCommand:   newBaseCommand(cfg, executor, processManager),
 		installator:   inst,
 		serverRepo:    serverRepo,
 		kind:          installer,

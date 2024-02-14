@@ -23,12 +23,13 @@ type defaultRestartServer struct {
 func newDefaultRestartServer(
 	cfg *config.Config,
 	executor contracts.Executor,
+	processManager contracts.ProcessManager,
 	statusServer contracts.GameServerCommand,
 	stopServer contracts.GameServerCommand,
 	startServer contracts.GameServerCommand,
 ) *defaultRestartServer {
 	cmd := &defaultRestartServer{
-		baseCommand:  newBaseCommand(cfg, executor),
+		baseCommand:  newBaseCommand(cfg, executor, processManager),
 		bufCommand:   bufCommand{output: components.NewSafeBuffer()},
 		statusServer: statusServer,
 		stopServer:   stopServer,

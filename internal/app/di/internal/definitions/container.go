@@ -40,5 +40,6 @@ func CreateServerCommandFactory(ctx context.Context, c Container) *gameservercom
 		c.Cfg(ctx),
 		c.Repositories().ServerRepository(ctx),
 		c.Services().Executor(ctx),
+		c.Services().ProcessManager(ctx),
 	)
 }

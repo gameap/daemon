@@ -53,13 +53,13 @@ type Executor interface {
 	ExecWithWriter(ctx context.Context, command string, out io.Writer, options ExecutorOptions) (int, error)
 }
 
-type GameProcessController interface {
-	Start(ctx context.Context, server *domain.Server) (int, error)
-	Stop(ctx context.Context, server *domain.Server) (int, error)
-	Restart(ctx context.Context, server *domain.Server) (int, error)
-	Status(ctx context.Context, server *domain.Server) (int, error)
-	GetOutput(ctx context.Context, server *domain.Server) (int, error)
-	SendInput(ctx context.Context, server *domain.Server) (int, error)
+type ProcessManager interface {
+	Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
+	Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
+	Restart(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
+	Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
+	GetOutput(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
+	SendInput(ctx context.Context, input string, server *domain.Server, out io.Writer) (domain.Result, error)
 }
 
 type DomainPrimitiveValidator interface {

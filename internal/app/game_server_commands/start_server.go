@@ -25,10 +25,11 @@ type defaultStartServer struct {
 func newDefaultStartServer(
 	cfg *config.Config,
 	executor contracts.Executor,
+	processManager contracts.ProcessManager,
 	loadServerCommand LoadServerCommandFunc,
 ) *defaultStartServer {
 	return &defaultStartServer{
-		baseCommand:       newBaseCommand(cfg, executor),
+		baseCommand:       newBaseCommand(cfg, executor, processManager),
 		startOutput:       components.NewSafeBuffer(),
 		loadServerCommand: loadServerCommand,
 	}

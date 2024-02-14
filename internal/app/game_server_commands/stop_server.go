@@ -14,9 +14,11 @@ type defaultStopServer struct {
 	bufCommand
 }
 
-func newDefaultStopServer(cfg *config.Config, executor contracts.Executor) *defaultStopServer {
+func newDefaultStopServer(
+	cfg *config.Config, executor contracts.Executor, processManager contracts.ProcessManager,
+) *defaultStopServer {
 	return &defaultStopServer{
-		baseCommand: newBaseCommand(cfg, executor),
+		baseCommand: newBaseCommand(cfg, executor, processManager),
 		bufCommand:  bufCommand{output: components.NewSafeBuffer()},
 	}
 }

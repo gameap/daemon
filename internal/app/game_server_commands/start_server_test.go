@@ -10,6 +10,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/processmanager"
 	"github.com/gameap/daemon/test/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,10 +90,13 @@ func TestStartServer_ReadOutput(t *testing.T) {
 func givenCommandFactory(t *testing.T, cfg *config.Config) *gameservercommands.ServerCommandFactory {
 	t.Helper()
 
+	executor := components.NewExecutor()
+
 	return gameservercommands.NewFactory(
 		cfg,
 		mocks.NewServerRepository(),
-		components.NewExecutor(),
+		executor,
+		processmanager.NewSimple(cfg, executor),
 	)
 }
 

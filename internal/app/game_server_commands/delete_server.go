@@ -19,9 +19,11 @@ type defaultDeleteServer struct {
 	bufCommand
 }
 
-func newDefaultDeleteServer(cfg *config.Config, executor contracts.Executor) *defaultDeleteServer {
+func newDefaultDeleteServer(
+	cfg *config.Config, executor contracts.Executor, processManager contracts.ProcessManager,
+) *defaultDeleteServer {
 	return &defaultDeleteServer{
-		baseCommand: newBaseCommand(cfg, executor),
+		baseCommand: newBaseCommand(cfg, executor, processManager),
 		bufCommand:  bufCommand{output: components.NewSafeBuffer()},
 	}
 }

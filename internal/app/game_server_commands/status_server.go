@@ -14,9 +14,11 @@ type statusDefaultServer struct {
 	bufCommand
 }
 
-func newDefaultStatusServer(cfg *config.Config, executor contracts.Executor) *statusDefaultServer {
+func newDefaultStatusServer(
+	cfg *config.Config, executor contracts.Executor, processManager contracts.ProcessManager,
+) *statusDefaultServer {
 	return &statusDefaultServer{
-		baseCommand: newBaseCommand(cfg, executor),
+		baseCommand: newBaseCommand(cfg, executor, processManager),
 		bufCommand:  bufCommand{output: components.NewSafeBuffer()},
 	}
 }

@@ -3,8 +3,6 @@ package gameservercommands
 import (
 	"context"
 	"io"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/gameap/daemon/internal/app/config"
@@ -13,9 +11,9 @@ import (
 )
 
 const (
-	UnknownResult = -1
-	SuccessResult = 0
-	ErrorResult   = 1
+	UnknownResult = int(domain.UnknownResult)
+	SuccessResult = int(domain.SuccessResult)
+	ErrorResult   = int(domain.ErrorResult)
 )
 
 type LoadServerCommandFunc func(cmd domain.ServerCommand, server *domain.Server) contracts.GameServerCommand
@@ -25,20 +23,23 @@ var nilLoadServerCommandFunc = func(_ domain.ServerCommand, _ *domain.Server) co
 }
 
 type ServerCommandFactory struct {
-	cfg        *config.Config
-	serverRepo domain.ServerRepository
-	executor   contracts.Executor
+	cfg            *config.Config
+	serverRepo     domain.ServerRepository
+	executor       contracts.Executor
+	processManager contracts.ProcessManager
 }
 
 func NewFactory(
 	cfg *config.Config,
 	serverRepo domain.ServerRepository,
 	executor contracts.Executor,
+	processManager contracts.ProcessManager,
 ) *ServerCommandFactory {
 	return &ServerCommandFactory{
 		cfg,
 		serverRepo,
 		executor,
+		processManager,
 	}
 }
 
@@ -65,7 +66,7 @@ func (factory *ServerCommandFactory) LoadServerCommand(
 		return factory.makeDeleteCommand(server)
 	case domain.Pause:
 	case domain.Unpause:
-		return newNotImplementedCommand(factory.cfg, factory.executor)
+		return newNotImplementedCommand(factory.cfg, factory.executor, factory.processManager)
 	}
 
 	return nil
@@ -75,17 +76,18 @@ func (factory *ServerCommandFactory) makeStartCommand(
 	_ *domain.Server,
 	lf LoadServerCommandFunc,
 ) contracts.GameServerCommand {
-	return newDefaultStartServer(factory.cfg, factory.executor, lf)
+	return newDefaultStartServer(factory.cfg, factory.executor, factory.processManager, lf)
 }
 
 func (factory *ServerCommandFactory) makeStopCommand(_ *domain.Server) contracts.GameServerCommand {
-	return newDefaultStopServer(factory.cfg, factory.executor)
+	return newDefaultStopServer(factory.cfg, factory.executor, factory.processManager)
 }
 
 func (factory *ServerCommandFactory) makeRestartCommand(server *domain.Server) contracts.GameServerCommand {
 	return newDefaultRestartServer(
 		factory.cfg,
 		factory.executor,
+		factory.processManager,
 		factory.makeStatusCommand(server),
 		factory.makeStopCommand(server),
 		factory.makeStartCommand(server, factory.LoadServerCommand),
@@ -93,13 +95,14 @@ func (factory *ServerCommandFactory) makeRestartCommand(server *domain.Server) c
 }
 
 func (factory *ServerCommandFactory) makeStatusCommand(_ *domain.Server) contracts.GameServerCommand {
-	return newDefaultStatusServer(factory.cfg, factory.executor)
+	return newDefaultStatusServer(factory.cfg, factory.executor, factory.processManager)
 }
 
 func (factory *ServerCommandFactory) makeInstallCommand(server *domain.Server) contracts.GameServerCommand {
 	return newInstallServer(
 		factory.cfg,
 		factory.executor,
+		factory.processManager,
 		factory.serverRepo,
 		factory.makeStatusCommand(server),
 		factory.makeStopCommand(server),
@@ -111,6 +114,7 @@ func (factory *ServerCommandFactory) makeUpdateCommand(server *domain.Server) co
 	return newUpdateServer(
 		factory.cfg,
 		factory.executor,
+		factory.processManager,
 		factory.serverRepo,
 		factory.makeStatusCommand(server),
 		factory.makeStopCommand(server),
@@ -119,11 +123,12 @@ func (factory *ServerCommandFactory) makeUpdateCommand(server *domain.Server) co
 }
 
 func (factory *ServerCommandFactory) makeReinstallCommand(server *domain.Server) contracts.GameServerCommand {
-	return newCommandList(factory.cfg, factory.executor, []contracts.GameServerCommand{
-		newDefaultDeleteServer(factory.cfg, factory.executor),
+	return newCommandList(factory.cfg, factory.executor, factory.processManager, []contracts.GameServerCommand{
+		newDefaultDeleteServer(factory.cfg, factory.executor, factory.processManager),
 		newInstallServer(
 			factory.cfg,
 			factory.executor,
+			factory.processManager,
 			factory.serverRepo,
 			factory.makeStatusCommand(server),
 			factory.makeStopCommand(server),
@@ -133,7 +138,7 @@ func (factory *ServerCommandFactory) makeReinstallCommand(server *domain.Server)
 }
 
 func (factory *ServerCommandFactory) makeDeleteCommand(_ *domain.Server) contracts.GameServerCommand {
-	return newDefaultDeleteServer(factory.cfg, factory.executor)
+	return newDefaultDeleteServer(factory.cfg, factory.executor, factory.processManager)
 }
 
 func makeFullCommand(
@@ -142,54 +147,28 @@ func makeFullCommand(
 	commandTemplate string,
 	serverCommand string,
 ) string {
-	commandTemplate = strings.Replace(commandTemplate, "{command}", serverCommand, 1)
-
-	return replaceShortCodes(commandTemplate, cfg, server)
-}
-
-func replaceShortCodes(commandTemplate string, cfg *config.Config, server *domain.Server) string {
-	command := commandTemplate
-
-	command = strings.ReplaceAll(command, "{dir}", server.WorkDir(cfg))
-	command = strings.ReplaceAll(command, "{uuid}", server.UUID())
-	command = strings.ReplaceAll(command, "{uuid_short}", server.UUIDShort())
-	command = strings.ReplaceAll(command, "{id}", strconv.Itoa(server.ID()))
-
-	command = strings.ReplaceAll(command, "{host}", server.IP())
-	command = strings.ReplaceAll(command, "{ip}", server.IP())
-	command = strings.ReplaceAll(command, "{port}", strconv.Itoa(server.ConnectPort()))
-	command = strings.ReplaceAll(command, "{query_port}", strconv.Itoa(server.QueryPort()))
-	command = strings.ReplaceAll(command, "{rcon_port}", strconv.Itoa(server.RCONPort()))
-	command = strings.ReplaceAll(command, "{rcon_password}", server.RCONPassword())
-
-	command = strings.ReplaceAll(command, "{game}", server.Game().StartCode)
-	command = strings.ReplaceAll(command, "{user}", server.User())
-
-	command = strings.ReplaceAll(command, "{node_work_path}", cfg.WorkPath)
-	command = strings.ReplaceAll(command, "{node_tools_path}", cfg.WorkPath+"/tools")
-
-	for k, v := range server.Vars() {
-		command = strings.ReplaceAll(command, "{"+k+"}", v)
-	}
-
-	return command
+	return domain.MakeFullCommand(cfg, server, commandTemplate, serverCommand)
 }
 
 type baseCommand struct {
-	cfg      *config.Config
-	executor contracts.Executor
-	mutex    *sync.Mutex
-	complete bool
-	result   int
+	cfg            *config.Config
+	executor       contracts.Executor
+	processManager contracts.ProcessManager
+	mutex          *sync.Mutex
+	complete       bool
+	result         int
 }
 
-func newBaseCommand(cfg *config.Config, executor contracts.Executor) baseCommand {
+func newBaseCommand(
+	cfg *config.Config, executor contracts.Executor, processManager contracts.ProcessManager,
+) baseCommand {
 	return baseCommand{
-		cfg:      cfg,
-		executor: executor,
-		complete: false,
-		result:   UnknownResult,
-		mutex:    &sync.Mutex{},
+		cfg:            cfg,
+		executor:       executor,
+		processManager: processManager,
+		complete:       false,
+		result:         UnknownResult,
+		mutex:          &sync.Mutex{},
 	}
 }
 
@@ -242,10 +221,11 @@ type commandList struct {
 func newCommandList(
 	cfg *config.Config,
 	executor contracts.Executor,
+	processManager contracts.ProcessManager,
 	commands []contracts.GameServerCommand,
 ) *commandList {
 	return &commandList{
-		baseCommand: newBaseCommand(cfg, executor),
+		baseCommand: newBaseCommand(cfg, executor, processManager),
 		commands:    commands,
 	}
 }
@@ -296,9 +276,11 @@ func (n *nilCommand) Execute(_ context.Context, _ *domain.Server) error {
 	return nil
 }
 
-func newNotImplementedCommand(cfg *config.Config, executor contracts.Executor) *nilCommand {
+func newNotImplementedCommand(
+	cfg *config.Config, executor contracts.Executor, processManager contracts.ProcessManager,
+) *nilCommand {
 	return &nilCommand{
-		baseCommand: newBaseCommand(cfg, executor),
+		baseCommand: newBaseCommand(cfg, executor, processManager),
 		message:     "not implemented command",
 		resultCode:  ErrorResult,
 	}

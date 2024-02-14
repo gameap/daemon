@@ -11,6 +11,7 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/processmanager"
 	copyPkg "github.com/otiai10/copy"
 	"github.com/stretchr/testify/suite"
 )
@@ -53,7 +54,11 @@ func (suite *deleteSuite) TestDeleteServerByFilesystemSuccess() {
 	}
 	server := givenServerWithStartCommand(suite.T(), "./run.sh")
 	installSimpleServerFiles(suite.T(), cfg, server)
-	deleteServerCommand := newDefaultDeleteServer(cfg, components.NewExecutor())
+	deleteServerCommand := newDefaultDeleteServer(
+		cfg,
+		components.NewExecutor(),
+		processmanager.NewSimple(cfg, components.NewExecutor()),
+	)
 	ctx := context.Background()
 
 	err := deleteServerCommand.Execute(ctx, server)
@@ -81,7 +86,11 @@ func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 	}
 	server := givenServerWithStartCommand(suite.T(), "./run.sh")
 	installSimpleServerFiles(suite.T(), cfg, server)
-	deleteServerCommand := newDefaultDeleteServer(cfg, components.NewExecutor())
+	deleteServerCommand := newDefaultDeleteServer(
+		cfg,
+		components.NewExecutor(),
+		processmanager.NewSimple(cfg, components.NewExecutor()),
+	)
 	ctx := context.Background()
 
 	err := deleteServerCommand.Execute(ctx, server)
@@ -109,7 +118,11 @@ func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 	}
 	server := givenServerWithStartCommand(suite.T(), "")
 	installScripts(suite.T(), cfg)
-	deleteServerCommand := newDefaultDeleteServer(cfg, components.NewCleanExecutor())
+	deleteServerCommand := newDefaultDeleteServer(
+		cfg,
+		components.NewCleanExecutor(),
+		processmanager.NewSimple(cfg, components.NewExecutor()),
+	)
 	ctx := context.Background()
 
 	err := deleteServerCommand.Execute(ctx, server)

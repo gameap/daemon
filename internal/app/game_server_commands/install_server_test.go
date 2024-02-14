@@ -14,6 +14,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/processmanager"
 	"github.com/gameap/daemon/test/mocks"
 	"github.com/gameap/daemon/test/mocks/commandmocks"
 	"github.com/stretchr/testify/assert"
@@ -206,6 +207,7 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 	install := newInstallServer(
 		cfg,
 		components.NewExecutor(),
+		processmanager.NewSimple(cfg, components.NewExecutor()),
 		mocks.NewServerRepository(),
 		commandmocks.LoadServerCommand(domain.Status),
 		commandmocks.LoadServerCommand(domain.Stop),
@@ -236,6 +238,7 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 	install := newInstallServer(
 		cfg,
 		components.NewExecutor(),
+		processmanager.NewSimple(cfg, components.NewExecutor()),
 		mocks.NewServerRepository(),
 		commandmocks.LoadServerCommand(domain.Status),
 		commandmocks.LoadServerCommand(domain.Stop),
@@ -267,6 +270,7 @@ func TestInstallation_RunAfterInstallScript(t *testing.T) {
 	install := newInstallServer(
 		cfg,
 		components.NewExecutor(),
+		processmanager.NewSimple(cfg, components.NewExecutor()),
 		mocks.NewServerRepository(),
 		commandmocks.LoadServerCommand(domain.Status),
 		commandmocks.LoadServerCommand(domain.Stop),
@@ -447,7 +451,9 @@ func (ex *testExecutor) Exec(_ context.Context, command string, _ contracts.Exec
 	return []byte(""), 0, nil
 }
 
-func (ex *testExecutor) ExecWithWriter(_ context.Context, command string, _ io.Writer, _ contracts.ExecutorOptions) (int, error) {
+func (ex *testExecutor) ExecWithWriter(
+	_ context.Context, command string, _ io.Writer, _ contracts.ExecutorOptions,
+) (int, error) {
 	ex.command = command
 
 	return 0, nil

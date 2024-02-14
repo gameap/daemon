@@ -7,8 +7,8 @@ package internal
 import (
 	"context"
 	"github.com/gameap/daemon/internal/app/config"
-	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/contracts"
+	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -54,10 +54,11 @@ func (c *Container) SetError(err error) {
 type ServicesContainer struct {
 	*Container
 
-	resty         *resty.Client
-	apiCaller     contracts.APIRequestMaker
-	executor      contracts.Executor
-	gdTaskManager *gdaemonscheduler.TaskManager
+	resty          *resty.Client
+	apiCaller      contracts.APIRequestMaker
+	executor       contracts.Executor
+	processManager contracts.ProcessManager
+	gdTaskManager  *gdaemonscheduler.TaskManager
 }
 
 type RepositoryContainer struct {
@@ -120,6 +121,14 @@ func (c *ServicesContainer) Executor(ctx context.Context) contracts.Executor {
 		c.executor = definitions.CreateServicesExecutor(ctx, c)
 	}
 	return c.executor
+}
+
+func (c *ServicesContainer) ProcessManager(ctx context.Context) contracts.ProcessManager {
+	if c.processManager == nil && c.err == nil {
+		c.processManager = definitions.CreateServicesProcessManager(ctx, c)
+	}
+
+	return c.processManager
 }
 
 func (c *ServicesContainer) GdTaskManager(ctx context.Context) *gdaemonscheduler.TaskManager {
