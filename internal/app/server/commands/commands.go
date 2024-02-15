@@ -37,6 +37,7 @@ func (c *Commands) Handle(ctx context.Context, readWriter io.ReadWriter) error {
 
 func (c Commands) executeCommand(ctx context.Context, msg commandExec, writer io.Writer) error {
 	logger.WithField(ctx, "command", msg.Command).Debug("Executing command")
+
 	out, exitCode, err := components.Exec(ctx, msg.Command, contracts.ExecutorOptions{
 		WorkDir: msg.WorkDir,
 	})
@@ -49,6 +50,12 @@ func (c Commands) executeCommand(ctx context.Context, msg commandExec, writer io
 			Info: err.Error(),
 		})
 	}
+
+	logger.Logger(ctx).
+		WithField("command", msg.Command).
+		WithField("exitCode", exitCode).
+		WithField("outSize", len(out)).
+		Debug("Command executed")
 
 	return response.WriteResponse(writer, Response{
 		Code:     response.StatusOK,
