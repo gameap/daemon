@@ -52,7 +52,7 @@ func CreateServicesExecutor(ctx context.Context, c Container) contracts.Executor
 }
 
 func CreateServicesProcessManager(ctx context.Context, c Container) contracts.ProcessManager {
-	return processmanager.NewTmux(
+	return processmanager.NewSystemD(
 		c.Cfg(ctx),
 		c.Services().Executor(ctx),
 	)
