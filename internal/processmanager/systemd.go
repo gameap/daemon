@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	systemdFilesDir    = ".systemd-process-manager"
-	systemdServicesDir = "/etc/systemd/user"
+	systemdFilesDir    = ".systemd-services"
+	systemdServicesDir = "/etc/systemd/system"
 
 	// https://www.freedesktop.org/software/systemd/man/latest/systemctl.html#Exit%20status
 	statusIsDeadPidExists  = 1
@@ -42,13 +42,29 @@ func NewSystemD(cfg *config.Config, executor contracts.Executor) *SystemD {
 }
 
 func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	f, err := os.Create(pm.logFile(server))
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to create file")
+	}
+	err = f.Close()
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to close file")
+	}
+
+	if _, err = os.Stat(pm.stdinFile(server)); err == nil {
+		err = os.Remove(pm.stdinFile(server))
+		if err != nil {
+			return domain.ErrorResult, errors.WithMessage(err, "failed to remove file")
+		}
+	}
+
 	return pm.command(ctx, server, "start", out)
 }
 
 func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	_, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl --user stop %s", pm.socketName(server)),
+		fmt.Sprintf("systemctl stop %s", pm.socketName(server)),
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
@@ -60,7 +76,7 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl --user stop %s", pm.serviceName(server)),
+		fmt.Sprintf("systemctl stop %s", pm.serviceName(server)),
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
@@ -80,6 +96,11 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 		logger.WithError(ctx, err).Warn("failed to remove service file")
 	}
 
+	err = pm.daemonReload(ctx)
+	if err != nil {
+		logger.Logger(ctx).WithError(err).Warn("Failed to daemon-reload")
+	}
+
 	return domain.Result(result), nil
 }
 
@@ -90,11 +111,14 @@ func (pm *SystemD) Restart(ctx context.Context, server *domain.Server, out io.Wr
 func (pm *SystemD) command(
 	ctx context.Context, server *domain.Server, command string, out io.Writer,
 ) (domain.Result, error) {
+	created := false
+
 	if _, err := os.Stat(pm.serviceFile(server)); errors.Is(err, os.ErrNotExist) {
 		err := pm.makeService(ctx, server)
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
 		}
+		created = true
 	}
 
 	if _, err := os.Stat(pm.socketFile(server)); errors.Is(err, os.ErrNotExist) {
@@ -102,11 +126,31 @@ func (pm *SystemD) command(
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to make socket")
 		}
+		created = true
+	}
+
+	if created {
+		err := pm.daemonReload(ctx)
+		if err != nil {
+			return domain.ErrorResult, errors.WithMessage(err, "failed to daemon-reload")
+		}
+	}
+
+	_, err := pm.executor.ExecWithWriter(
+		ctx,
+		fmt.Sprintf("systemctl %s %s", command, pm.socketName(server)),
+		out,
+		contracts.ExecutorOptions{
+			WorkDir: pm.cfg.WorkDir(),
+		},
+	)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
 	}
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl --user %s %s", command, pm.serviceName(server)),
+		fmt.Sprintf("systemctl %s %s", command, pm.serviceName(server)),
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
@@ -119,10 +163,21 @@ func (pm *SystemD) command(
 	return domain.Result(result), nil
 }
 
+func (pm *SystemD) daemonReload(ctx context.Context) error {
+	_, _, err := pm.executor.Exec(
+		ctx,
+		"systemctl daemon-reload",
+		contracts.ExecutorOptions{
+			WorkDir: pm.cfg.WorkDir(),
+		},
+	)
+	return err
+}
+
 func (pm *SystemD) Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl --user status %s", pm.serviceName(server)),
+		fmt.Sprintf("systemctl status %s", pm.serviceName(server)),
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
@@ -248,7 +303,12 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	builder.WriteString("Type=simple\n")
 
 	builder.WriteString("ExecStart=")
-	builder.WriteString(domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand()))
+	builder.WriteString(
+		filepath.Join(
+			server.WorkDir(pm.cfg),
+			domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand()),
+		),
+	)
 	builder.WriteString("\n")
 
 	builder.WriteString("Sockets=")
@@ -332,12 +392,10 @@ func (pm *SystemD) buildSocketConfig(server *domain.Server) string {
 	builder.WriteString(pm.stdinFile(server))
 	builder.WriteString("\n")
 
-	builder.WriteString("Service=\n")
+	builder.WriteString("Service=")
 	builder.WriteString("gameap-")
 	builder.WriteString(server.UUID())
 	builder.WriteString(".service\n")
-
-	builder.WriteString("NoDelay=true\n")
 
 	return builder.String()
 }
@@ -397,15 +455,7 @@ func (pm *SystemD) socketName(server *domain.Server) string {
 }
 
 func (pm *SystemD) socketFile(server *domain.Server) string {
-	builder := strings.Builder{}
-	builder.Grow(100)
-
-	builder.WriteString(systemdServicesDir)
-	builder.WriteRune(filepath.Separator)
-	builder.WriteString(server.UUID())
-	builder.WriteString(".socket")
-
-	return builder.String()
+	return filepath.Join(systemdServicesDir, pm.socketName(server))
 }
 
 func (pm *SystemD) user(server *domain.Server) (string, string, error) {
