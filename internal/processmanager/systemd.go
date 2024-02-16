@@ -248,7 +248,7 @@ func (pm *SystemD) SendInput(
 		}
 	}()
 
-	_, err = f.WriteString(input)
+	_, err = f.WriteString(input + "\n")
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to write to file")
 	}
