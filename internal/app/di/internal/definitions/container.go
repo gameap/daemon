@@ -11,7 +11,7 @@ import (
 func CreateProcessRunner(ctx context.Context, c Container) *services.Runner {
 	processRunner, err := services.NewProcessRunner(
 		c.Cfg(ctx),
-		c.Services().Executor(ctx),
+		c.Services().ExtendableExecutor(ctx),
 		c.ServerCommandFactory(ctx),
 		c.Services().APICaller(ctx),
 		c.Services().GdTaskManager(ctx),
