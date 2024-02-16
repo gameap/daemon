@@ -49,5 +49,5 @@ func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ co
 		return int(domain.ErrorResult), errors.WithMessage(err, "[components.GetTool] failed to chmod tool")
 	}
 
-	return int(domain.ErrorResult), nil
+	return int(domain.SuccessResult), nil
 }
