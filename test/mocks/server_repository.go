@@ -32,10 +32,9 @@ func (r *ServerRepository) FindByID(_ context.Context, id int) (*domain.Server, 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	for _, v := range r.items {
-		if v.ID() == id {
-			return v, nil
-		}
+	server, exists := r.items[id]
+	if exists {
+		return server, nil
 	}
 
 	return nil, nil
