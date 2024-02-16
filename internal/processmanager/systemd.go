@@ -111,14 +111,9 @@ func (pm *SystemD) Restart(ctx context.Context, server *domain.Server, out io.Wr
 func (pm *SystemD) command(
 	ctx context.Context, server *domain.Server, command string, out io.Writer,
 ) (domain.Result, error) {
-	created := false
-
-	if _, err := os.Stat(pm.serviceFile(server)); errors.Is(err, os.ErrNotExist) {
-		err := pm.makeService(ctx, server)
-		if err != nil {
-			return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
-		}
-		created = true
+	err := pm.makeService(ctx, server)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
 	}
 
 	if _, err := os.Stat(pm.socketFile(server)); errors.Is(err, os.ErrNotExist) {
@@ -126,17 +121,14 @@ func (pm *SystemD) command(
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to make socket")
 		}
-		created = true
 	}
 
-	if created {
-		err := pm.daemonReload(ctx)
-		if err != nil {
-			return domain.ErrorResult, errors.WithMessage(err, "failed to daemon-reload")
-		}
+	err = pm.daemonReload(ctx)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to daemon-reload")
 	}
 
-	_, err := pm.executor.ExecWithWriter(
+	_, err = pm.executor.ExecWithWriter(
 		ctx,
 		fmt.Sprintf("systemctl %s %s", command, pm.socketName(server)),
 		out,

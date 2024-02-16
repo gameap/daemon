@@ -2,6 +2,7 @@ package customhandlers_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/gameap/daemon/internal/app/components/customhandlers"
@@ -110,7 +111,7 @@ func Test_OutputReader(t *testing.T) {
 			out := new(bytes.Buffer)
 
 			// ACT
-			result, err := or.Handle(nil, test.args, out, contracts.ExecutorOptions{})
+			result, err := or.Handle(context.Background(), test.args, out, contracts.ExecutorOptions{})
 
 			// ASSERT
 			if test.wantErr == "" {
@@ -229,7 +230,7 @@ func Test_CommandSender(t *testing.T) {
 			out := new(bytes.Buffer)
 
 			// ACT
-			result, err := or.Handle(nil, test.args, out, contracts.ExecutorOptions{})
+			result, err := or.Handle(context.Background(), test.args, out, contracts.ExecutorOptions{})
 
 			// ASSERT
 			if test.wantErr == "" {
