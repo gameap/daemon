@@ -59,7 +59,6 @@ func CreateServiceExtendableExecutor(ctx context.Context, c Container) contracts
 	executor.RegisterHandler(
 		"server-output",
 		customhandlers.NewOutputReader(
-			c.Cfg(ctx),
 			c.Services().ProcessManager(ctx),
 			c.Repositories().ServerRepository(ctx),
 		).Handle,
@@ -68,7 +67,6 @@ func CreateServiceExtendableExecutor(ctx context.Context, c Container) contracts
 	executor.RegisterHandler(
 		"server-command",
 		customhandlers.NewCommandSender(
-			c.Cfg(ctx),
 			c.Services().ProcessManager(ctx),
 			c.Repositories().ServerRepository(ctx),
 		).Handle,

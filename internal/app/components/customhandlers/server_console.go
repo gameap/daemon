@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/pkg/errors"
 )
 
+//go:generate go run go.uber.org/mock/mockgen -source=server_console.go -destination=server_console_mock_test.go -package=customhandlers_test
 type outputReader interface {
 	GetOutput(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
 }
@@ -21,18 +21,15 @@ type serverRepo interface {
 }
 
 type OutputReader struct {
-	cfg        *config.Config
 	getter     outputReader
 	serverRepo serverRepo
 }
 
 func NewOutputReader(
-	cfg *config.Config,
 	getter outputReader,
 	serverRepo serverRepo,
 ) *OutputReader {
 	return &OutputReader{
-		cfg:        cfg,
 		getter:     getter,
 		serverRepo: serverRepo,
 	}
@@ -72,18 +69,15 @@ type commandSender interface {
 }
 
 type CommandSender struct {
-	cfg        *config.Config
 	sender     commandSender
 	serverRepo serverRepo
 }
 
 func NewCommandSender(
-	cfg *config.Config,
 	sender commandSender,
 	serverRepo serverRepo,
 ) *CommandSender {
 	return &CommandSender{
-		cfg:        cfg,
 		sender:     sender,
 		serverRepo: serverRepo,
 	}
@@ -110,17 +104,9 @@ func (cs *CommandSender) Handle(
 		return int(domain.ErrorResult), errors.New("server not found")
 	}
 
-	b := strings.Builder{}
-	b.Grow(len(args) * 10)
-
-	for _, arg := range args[1:] {
-		b.WriteString(arg)
-		b.WriteString(" ")
-	}
-
-	result, err := cs.sender.SendInput(ctx, b.String(), server, out)
+	result, err := cs.sender.SendInput(ctx, strings.Join(args[1:], " "), server, out)
 	if err != nil {
-		return int(domain.ErrorResult), errors.WithMessage(err, "failed to send input")
+		return int(domain.ErrorResult), errors.WithMessage(err, "failed to send command")
 	}
 
 	return int(result), nil
