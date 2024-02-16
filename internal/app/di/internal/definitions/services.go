@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
+	"github.com/gameap/daemon/internal/app/components/custom_handlers"
 	"github.com/gameap/daemon/internal/app/contracts"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	"github.com/gameap/daemon/internal/app/services"
@@ -47,8 +48,16 @@ func CreateServicesApiCaller(ctx context.Context, c Container) contracts.APIRequ
 	return client
 }
 
-func CreateServicesExecutor(ctx context.Context, c Container) contracts.Executor {
-	return components.NewDefaultExtendableExecutor(c.Cfg(ctx))
+func CreateServicesExecutor(_ context.Context, _ Container) contracts.Executor {
+	return components.NewExecutor()
+}
+
+func CreateServiceExtendableExecutor(ctx context.Context, c Container) contracts.Executor {
+	executor := components.NewDefaultExtendableExecutor(c.Services().Executor(ctx))
+
+	executor.RegisterHandler("get-tool", custom_handlers.NewGetTool(c.Cfg(ctx)).Handle)
+
+	return executor
 }
 
 func CreateServicesProcessManager(ctx context.Context, c Container) contracts.ProcessManager {
@@ -63,7 +72,7 @@ func CreateServicesGdTaskManager(ctx context.Context, c Container) *gdaemonsched
 		c.Repositories().GdTaskRepository(ctx),
 		c.CacheManager(ctx),
 		c.ServerCommandFactory(ctx),
-		c.Services().Executor(ctx),
+		c.Services().ExtendableExecutor(ctx),
 		c.Cfg(ctx),
 	)
 }

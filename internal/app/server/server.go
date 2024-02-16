@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/et-nik/binngo/decode"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/internal/app/server/commands"
 	"github.com/gameap/daemon/internal/app/server/files"
@@ -43,6 +44,7 @@ type Server struct {
 
 	connTimeout time.Duration
 
+	executor        contracts.Executor
 	taskStatsReader domain.GDTaskStatsReader
 }
 
@@ -56,6 +58,7 @@ func NewServer(
 	certFile string,
 	keyFile string,
 	credConfig CredentialsConfig,
+	executor contracts.Executor,
 	taskStatsReader domain.GDTaskStatsReader,
 ) (*Server, error) {
 	return &Server{
@@ -66,6 +69,7 @@ func NewServer(
 		credConfig:      credConfig,
 		quit:            make(chan struct{}),
 		connTimeout:     5 * time.Second,
+		executor:        executor,
 		taskStatsReader: taskStatsReader,
 	}, nil
 }
@@ -208,7 +212,7 @@ func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) er
 	var handler componentHandler
 	switch m {
 	case ModeCommands:
-		handler = commands.NewCommands()
+		handler = commands.NewCommands(srv.executor)
 	case ModeFiles:
 		handler = files.NewFiles()
 	case ModeStatus:

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/gameap/daemon/internal/app/components"
-	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,10 +21,7 @@ func TestExtendableExecutor_ExecGetTool_ExpectToolDownloaded(t *testing.T) {
 			t.Log(err)
 		}
 	}(tmpDir)
-	cfg := &config.Config{
-		ToolsPath: tmpDir,
-	}
-	executor := components.NewCleanDefaultExtendableExecutor(cfg)
+	executor := components.NewDefaultExtendableExecutor(components.NewCleanExecutor())
 
 	result, code, err := executor.Exec(
 		context.Background(),
@@ -55,7 +51,7 @@ func TestExtendableExecutor_ExecEchoCommand_ExpectCommandExecuted(t *testing.T) 
 			t.Log(err)
 		}
 	}(tmpDir)
-	executor := components.NewCleanDefaultExtendableExecutor(&config.Config{})
+	executor := components.NewDefaultExtendableExecutor(components.NewCleanExecutor())
 
 	result, code, err := executor.Exec(
 		context.Background(),

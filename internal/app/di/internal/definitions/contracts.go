@@ -35,6 +35,7 @@ type ServicesContainer interface {
 	Resty(ctx context.Context) *resty.Client
 	ApiCaller(ctx context.Context) contracts.APIRequestMaker
 	Executor(ctx context.Context) contracts.Executor
+	ExtendableExecutor(ctx context.Context) contracts.Executor
 	GdTaskManager(ctx context.Context) *gdaemonscheduler.TaskManager
 	ProcessManager(ctx context.Context) contracts.ProcessManager
 }

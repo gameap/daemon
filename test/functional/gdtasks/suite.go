@@ -64,7 +64,7 @@ func (suite *Suite) SetupSuite() {
 		},
 	}
 
-	suite.Executor = components.NewDefaultExtendableExecutor(suite.Cfg)
+	suite.Executor = components.NewDefaultExtendableExecutor(components.NewCleanExecutor())
 	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, suite.Executor)
 
 	suite.Cache, err = services.NewLocalCache(suite.Cfg)

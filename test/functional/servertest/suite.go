@@ -8,6 +8,8 @@ import (
 
 	"github.com/et-nik/binngo"
 	"github.com/et-nik/binngo/decode"
+	"github.com/gameap/daemon/internal/app/components"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/response"
 	"github.com/gameap/daemon/test/mocks"
@@ -31,6 +33,7 @@ type Suite struct {
 	Server *server.Server
 	Client *tls.Conn
 
+	Executor        contracts.Executor
 	TaskStatsReader *mocks.TasksStatsReader
 }
 
@@ -38,6 +41,7 @@ func (suite *Suite) SetupSuite() {
 	var err error
 
 	suite.TaskStatsReader = &mocks.TasksStatsReader{}
+	suite.Executor = components.NewCleanExecutor()
 
 	suite.Server, err = server.NewServer(
 		"127.0.0.1",
@@ -49,6 +53,7 @@ func (suite *Suite) SetupSuite() {
 			Login:                  "login",
 			Password:               "password",
 		},
+		suite.Executor,
 		suite.TaskStatsReader,
 	)
 	if err != nil {

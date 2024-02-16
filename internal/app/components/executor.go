@@ -26,10 +26,14 @@ type Executor struct {
 	appendCommandAndExitCode bool
 }
 
+// NewExecutor returns a new executor.
+// This configuration of executor will append command and exit code to the output.
 func NewExecutor() *Executor {
 	return &Executor{appendCommandAndExitCode: true}
 }
 
+// NewCleanExecutor returns a new executor.
+// This configuration of executor will not append command and exit code to the output.
 func NewCleanExecutor() *Executor {
 	return &Executor{appendCommandAndExitCode: false}
 }
@@ -73,7 +77,9 @@ func Exec(ctx context.Context, command string, options contracts.ExecutorOptions
 }
 
 //nolint:lll,funlen
-func ExecWithWriter(ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions) (int, error) {
+func ExecWithWriter(
+	ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions,
+) (int, error) {
 	if command == "" {
 		return invalidResult, ErrEmptyCommand
 	}

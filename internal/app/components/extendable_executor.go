@@ -3,14 +3,10 @@ package components
 import (
 	"context"
 	"io"
-	"os"
-	"path/filepath"
+	"sync"
 
-	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gopherclass/go-shellquote"
-	"github.com/hashicorp/go-getter"
-	"github.com/pkg/errors"
 )
 
 type CommandHandler func(
@@ -23,30 +19,24 @@ type CommandHandler func(
 type CommandsHandlers map[string]CommandHandler
 
 type ExtendableExecutor struct {
-	handlers      CommandsHandlers
 	innerExecutor contracts.Executor
+
+	mu       sync.RWMutex
+	handlers CommandsHandlers
 }
 
-func NewDefaultExtendableExecutor(cfg *config.Config) *ExtendableExecutor {
-	getTool := &GetTool{cfg: cfg}
-
+func NewDefaultExtendableExecutor(executor contracts.Executor) *ExtendableExecutor {
 	return &ExtendableExecutor{
-		handlers: CommandsHandlers{
-			"get-tool": getTool.Handle,
-		},
-		innerExecutor: NewExecutor(),
+		handlers:      make(CommandsHandlers),
+		innerExecutor: executor,
 	}
 }
 
-func NewCleanDefaultExtendableExecutor(cfg *config.Config) *ExtendableExecutor {
-	getTool := &GetTool{cfg: cfg}
+func (executor *ExtendableExecutor) RegisterHandler(command string, handler CommandHandler) {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
 
-	return &ExtendableExecutor{
-		handlers: CommandsHandlers{
-			"get-tool": getTool.Handle,
-		},
-		innerExecutor: NewCleanExecutor(),
-	}
+	executor.handlers[command] = handler
 }
 
 func (executor *ExtendableExecutor) Exec(
@@ -90,41 +80,13 @@ func (executor *ExtendableExecutor) ExecWithWriter(
 
 	handleCommand := args[0]
 
+	executor.mu.RLock()
 	handler, exists := executor.handlers[handleCommand]
+	executor.mu.RUnlock()
+
 	if !exists {
 		return executor.innerExecutor.ExecWithWriter(ctx, command, out, options)
 	}
 
 	return handler(ctx, args[1:], out, options)
-}
-
-type GetTool struct {
-	cfg *config.Config
-}
-
-func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ contracts.ExecutorOptions) (int, error) {
-	source := args[0]
-	fileName := filepath.Base(source)
-	destination := filepath.Join(g.cfg.ToolsPath, fileName)
-
-	c := getter.Client{
-		Ctx:  ctx,
-		Src:  args[0],
-		Dst:  destination,
-		Mode: getter.ClientModeFile,
-	}
-
-	_, _ = out.Write([]byte("Getting tool from " + source + " to " + destination + " ..."))
-	err := c.Get()
-	if err != nil {
-		return errorResult, errors.WithMessage(err, "[components.GetTool] failed to get tool")
-	}
-
-	err = os.Chmod(destination, 0700)
-	if err != nil {
-		_, _ = out.Write([]byte("Failed to chmod tool"))
-		return errorResult, errors.WithMessage(err, "[components.GetTool] failed to chmod tool")
-	}
-
-	return successResult, nil
 }

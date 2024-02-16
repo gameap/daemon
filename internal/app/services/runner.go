@@ -19,6 +19,7 @@ import (
 type Runner struct {
 	cfg *config.Config
 
+	executor             contracts.Executor
 	commandFactory       *gameservercommands.ServerCommandFactory
 	apiClient            contracts.APIRequestMaker
 	gdTaskManager        *gdaemonscheduler.TaskManager
@@ -28,6 +29,7 @@ type Runner struct {
 
 func NewProcessRunner(
 	cfg *config.Config,
+	executor contracts.Executor,
 	commandFactory *gameservercommands.ServerCommandFactory,
 	apiClient contracts.APIRequestMaker,
 	gdTaskManager *gdaemonscheduler.TaskManager,
@@ -36,6 +38,7 @@ func NewProcessRunner(
 ) (*Runner, error) {
 	return &Runner{
 		cfg:                  cfg,
+		executor:             executor,
 		commandFactory:       commandFactory,
 		apiClient:            apiClient,
 		gdTaskManager:        gdTaskManager,
@@ -70,6 +73,7 @@ func (r *Runner) RunGDaemonServer(ctx context.Context, cfg *config.Config) func(
 				Login:                  cfg.DaemonLogin,
 				Password:               cfg.DaemonPassword,
 			},
+			r.executor,
 			r.gdTaskManager,
 		)
 		if err != nil {
