@@ -41,7 +41,8 @@ func (c *Container) Error() error {
 	return c.err
 }
 
-// SetError sets the first error into container. The error is used in the public container to return an initialization error.
+// SetError sets the first error into container.
+// The error is used in the public container to return an initialization error.
 func (c *Container) SetError(err error) {
 	if err != nil && c.err == nil {
 		c.err = err
@@ -66,11 +67,11 @@ type RepositoryContainer struct {
 	serverTaskRepository domain.ServerTaskRepository
 }
 
-func (c *Container) Cfg(ctx context.Context) *config.Config {
+func (c *Container) Cfg(_ context.Context) *config.Config {
 	return c.cfg
 }
 
-func (c *Container) Logger(ctx context.Context) *logrus.Logger {
+func (c *Container) Logger(_ context.Context) *logrus.Logger {
 	return c.logger
 }
 
@@ -106,9 +107,9 @@ func (c *ServicesContainer) Resty(ctx context.Context) *resty.Client {
 	return c.resty
 }
 
-func (c *ServicesContainer) ApiCaller(ctx context.Context) contracts.APIRequestMaker {
+func (c *ServicesContainer) APICaller(ctx context.Context) contracts.APIRequestMaker {
 	if c.apiCaller == nil && c.err == nil {
-		c.apiCaller = definitions.CreateServicesApiCaller(ctx, c)
+		c.apiCaller = definitions.CreateServicesAPICaller(ctx, c)
 	}
 	return c.apiCaller
 }
@@ -175,7 +176,7 @@ func (c *Container) SetLogger(s *logrus.Logger) {
 	c.logger = s
 }
 
-func (c *ServicesContainer) SetApiCaller(s contracts.APIRequestMaker) {
+func (c *ServicesContainer) SetAPICaller(s contracts.APIRequestMaker) {
 	c.apiCaller = s
 }
 

@@ -9,15 +9,15 @@ import (
 
 func CreateRepositoriesGdTaskRepository(ctx context.Context, c Container) domain.GDTaskRepository {
 	return repositories.NewGDTaskRepository(
-		c.Services().ApiCaller(ctx),
+		c.Services().APICaller(ctx),
 		c.Repositories().ServerRepository(ctx),
 	)
 }
 
 func CreateRepositoriesServerRepository(ctx context.Context, c Container) domain.ServerRepository {
-	return repositories.NewServerRepository(ctx, c.Services().ApiCaller(ctx), c.Logger(ctx))
+	return repositories.NewServerRepository(ctx, c.Services().APICaller(ctx), c.Logger(ctx))
 }
 
 func CreateRepositoriesServerTaskRepository(ctx context.Context, c Container) domain.ServerTaskRepository {
-	return repositories.NewServerTaskRepository(c.Services().ApiCaller(ctx), c.Repositories().ServerRepository(ctx))
+	return repositories.NewServerTaskRepository(c.Services().APICaller(ctx), c.Repositories().ServerRepository(ctx))
 }

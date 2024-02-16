@@ -1,4 +1,4 @@
-package custom_handlers
+package customhandlers
 
 import (
 	"context"

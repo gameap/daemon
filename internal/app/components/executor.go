@@ -19,8 +19,6 @@ var ErrEmptyCommand = errors.New("empty command")
 var ErrInvalidCommand = errors.New("invalid command")
 
 var invalidResult = -1
-var successResult = 0
-var errorResult = 1
 
 type Executor struct {
 	appendCommandAndExitCode bool
@@ -76,7 +74,7 @@ func Exec(ctx context.Context, command string, options contracts.ExecutorOptions
 	return out, exitCode, nil
 }
 
-//nolint:lll,funlen
+//nolint:funlen
 func ExecWithWriter(
 	ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions,
 ) (int, error) {

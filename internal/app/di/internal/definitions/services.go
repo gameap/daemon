@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
-	"github.com/gameap/daemon/internal/app/components/custom_handlers"
+	"github.com/gameap/daemon/internal/app/components/customhandlers"
 	"github.com/gameap/daemon/internal/app/contracts"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	"github.com/gameap/daemon/internal/app/services"
@@ -33,7 +33,7 @@ func CreateServicesResty(ctx context.Context, c Container) *resty.Client {
 	return restyClient
 }
 
-func CreateServicesApiCaller(ctx context.Context, c Container) contracts.APIRequestMaker {
+func CreateServicesAPICaller(ctx context.Context, c Container) contracts.APIRequestMaker {
 	client, err := services.NewAPICaller(
 		ctx,
 		c.Cfg(ctx),
@@ -55,7 +55,7 @@ func CreateServicesExecutor(_ context.Context, _ Container) contracts.Executor {
 func CreateServiceExtendableExecutor(ctx context.Context, c Container) contracts.Executor {
 	executor := components.NewDefaultExtendableExecutor(c.Services().Executor(ctx))
 
-	executor.RegisterHandler("get-tool", custom_handlers.NewGetTool(c.Cfg(ctx)).Handle)
+	executor.RegisterHandler("get-tool", customhandlers.NewGetTool(c.Cfg(ctx)).Handle)
 
 	return executor
 }
