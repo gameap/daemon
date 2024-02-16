@@ -22,6 +22,10 @@ func NewGetTool(cfg *config.Config) *GetTool {
 }
 
 func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ contracts.ExecutorOptions) (int, error) {
+	if len(args) < 1 {
+		return int(domain.ErrorResult), errors.New("no source provided")
+	}
+
 	source := args[0]
 	fileName := filepath.Base(source)
 	destination := filepath.Join(g.cfg.ToolsPath, fileName)

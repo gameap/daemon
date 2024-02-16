@@ -56,12 +56,29 @@ func CreateServiceExtendableExecutor(ctx context.Context, c Container) contracts
 	executor := components.NewDefaultExtendableExecutor(c.Services().Executor(ctx))
 
 	executor.RegisterHandler("get-tool", customhandlers.NewGetTool(c.Cfg(ctx)).Handle)
+	executor.RegisterHandler(
+		"server-output",
+		customhandlers.NewOutputReader(
+			c.Cfg(ctx),
+			c.Services().ProcessManager(ctx),
+			c.Repositories().ServerRepository(ctx),
+		).Handle,
+	)
+
+	executor.RegisterHandler(
+		"server-command",
+		customhandlers.NewCommandSender(
+			c.Cfg(ctx),
+			c.Services().ProcessManager(ctx),
+			c.Repositories().ServerRepository(ctx),
+		).Handle,
+	)
 
 	return executor
 }
 
 func CreateServicesProcessManager(ctx context.Context, c Container) contracts.ProcessManager {
-	return processmanager.NewTmux(
+	return processmanager.NewSystemD(
 		c.Cfg(ctx),
 		c.Services().Executor(ctx),
 	)
