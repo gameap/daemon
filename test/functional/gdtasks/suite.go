@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
+	"github.com/gameap/daemon/internal/app/components/customhandlers"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
@@ -64,8 +65,11 @@ func (suite *Suite) SetupSuite() {
 		},
 	}
 
-	suite.Executor = components.NewDefaultExtendableExecutor(components.NewCleanExecutor())
+	executor := components.NewDefaultExtendableExecutor(components.NewCleanExecutor())
 	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, suite.Executor)
+
+	executor.RegisterHandler("get-tool", customhandlers.NewGetTool(suite.Cfg).Handle)
+	suite.Executor = executor
 
 	suite.Cache, err = services.NewLocalCache(suite.Cfg)
 	if err != nil {
