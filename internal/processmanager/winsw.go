@@ -5,10 +5,12 @@ package processmanager
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -79,6 +81,11 @@ func (pm *WinSW) runWinSWCommand(ctx context.Context, command string, server *do
 func (pm *WinSW) command(
 	ctx context.Context, server *domain.Server, command string, out io.Writer,
 ) (domain.Result, error) {
+	err := checkUser(server.User())
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to check user")
+	}
+
 	createdNewService, err := pm.makeService(ctx, server)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
@@ -141,6 +148,19 @@ func (pm *WinSW) SendInput(
 	ctx context.Context, input string, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
 	return domain.ErrorResult, errors.New("input is not supported")
+}
+
+func checkUser(name string) error {
+	if name == "" {
+		return ErrEmptyUser
+	}
+
+	_, err := user.Lookup(name)
+	if err != nil {
+		return errors.WithMessage(err, "failed to lookup user")
+	}
+
+	return nil
 }
 
 func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, error) {
@@ -222,6 +242,31 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 		},
 		ResetFailure: "1 hour",
 	}
+
+	rawPw, exists := pm.cfg.Users[server.User()]
+	if !exists {
+		return "", ErrUserNotFound
+	}
+
+	if rawPw == "" {
+		return "", ErrInvalidUserPassword
+	}
+
+	var password string
+
+	switch {
+	case strings.HasPrefix(rawPw, "base64:"):
+		pw, err := base64.StdEncoding.DecodeString(rawPw[7:])
+		if err != nil {
+			return "", errors.WithMessage(err, "failed to decode base64 password")
+		}
+		password = string(pw)
+	default:
+		password = rawPw
+	}
+
+	serviceConfig.ServiceAccount.Username = server.User()
+	serviceConfig.ServiceAccount.Password = password
 
 	out, err := xml.Marshal(struct {
 		WinSWServiceConfig

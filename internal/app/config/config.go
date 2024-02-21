@@ -79,6 +79,8 @@ type Config struct {
 		Name   string            `yaml:"name"`
 		Config map[string]string `yaml:"config"`
 	} `yaml:"process_manager"`
+
+	Users map[string]string `yaml:"users"`
 }
 
 func NewConfig() *Config {
