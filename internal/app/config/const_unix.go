@@ -3,16 +3,16 @@
 
 package config
 
-const SteamCMDExecutableFile = "steamcmd.sh"
+const (
+	SteamCMDExecutableFile           = "steamcmd.sh"
+	DefaultGameServerScriptStart     = "{command}"
+	DefaultGameServerScriptStop      = "{command}"
+	DefaultGameServerScriptRestart   = "{command}"
+	DefaultGameServerScriptStatus    = "{command}"
+	DefaultGameServerScriptGetOutput = "{command}"
+	DefaultGameServerScriptSendInput = "{command}"
+)
 
-const DefaultGameServerScriptStart = "{command}"
-
-const DefaultGameServerScriptStop = "{command}"
-
-const DefaultGameServerScriptRestart = "{command}"
-
-const DefaultGameServerScriptStatus = "{command}"
-
-const DefaultGameServerScriptGetOutput = "{command}"
-
-const DefaultGameServerScriptSendInput = "{command}"
+const (
+	defaultProcessManager = "tmux"
+)

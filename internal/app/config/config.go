@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/gameap/daemon/internal/processmanager"
 )
 
 type Scripts struct {
@@ -105,7 +103,7 @@ func (cfg *Config) Init() error {
 		cfg.TaskManager.RunTaskPeriod = 10 * time.Millisecond
 	}
 
-	cfg.ProcessManager.Name = processmanager.Default
+	cfg.ProcessManager.Name = defaultProcessManager
 
 	return cfg.validate()
 }

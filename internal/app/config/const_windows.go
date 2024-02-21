@@ -3,11 +3,16 @@
 
 package config
 
-const SteamCMDExecutableFile = "steamcmd.exe"
+const (
+	SteamCMDExecutableFile           = "steamcmd.exe"
+	DefaultGameServerScriptStart     = ""
+	DefaultGameServerScriptStop      = ""
+	DefaultGameServerScriptRestart   = ""
+	DefaultGameServerScriptStatus    = ""
+	DefaultGameServerScriptGetOutput = ""
+	DefaultGameServerScriptSendInput = ""
+)
 
-const DefaultGameServerScriptStart = ""
-const DefaultGameServerScriptStop = ""
-const DefaultGameServerScriptRestart = ""
-const DefaultGameServerScriptStatus = ""
-const DefaultGameServerScriptGetOutput = ""
-const DefaultGameServerScriptSendInput = ""
+const (
+	defaultProcessManager = "winsw"
+)

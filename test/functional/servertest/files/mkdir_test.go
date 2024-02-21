@@ -14,7 +14,7 @@ import (
 
 func (suite *Suite) TestMakeDirSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir := filepath.Join(os.TempDir(), "files_test_", strconv.Itoa(int(time.Now().UnixNano()))) //nolint:goconst
+	tempDir := filepath.Join(os.TempDir(), "files_test_", strconv.Itoa(int(time.Now().UnixNano())))
 	defer os.RemoveAll(tempDir)
 	msg := []interface{}{files.MakeDir, tempDir}
 

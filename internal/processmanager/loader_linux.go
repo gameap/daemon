@@ -8,10 +8,6 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 )
 
-const (
-	Default = "tmux"
-)
-
 func Load(name string, cfg *config.Config, executor contracts.Executor) (contracts.ProcessManager, error) {
 	switch name {
 	case "tmux":

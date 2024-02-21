@@ -70,7 +70,6 @@ func (suite *Suite) TestCopyDirectorySuccess() {
 	suite.Auth(server.ModeFiles)
 	tempDirSource, _ := os.MkdirTemp("", "files_test_source_")
 	defer os.RemoveAll(tempDirSource)
-	//nolint:goconst
 	tempDirDestination := filepath.Join(os.TempDir(), "files_test_destination", strconv.Itoa(int(time.Now().UnixNano())))
 	defer os.RemoveAll(tempDirDestination)
 	tempFile, _ := os.CreateTemp(tempDirSource, "file")
