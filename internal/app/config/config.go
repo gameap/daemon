@@ -2,7 +2,10 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"time"
+
+	"github.com/gameap/daemon/internal/processmanager"
 )
 
 type Scripts struct {
@@ -73,6 +76,11 @@ type Config struct {
 		RunTaskPeriod time.Duration `yaml:"run_task_period"`
 		WorkersCount  int           `yaml:"workers_count"`
 	} `yaml:"task_manager"`
+
+	ProcessManager struct {
+		Name   string            `yaml:"name"`
+		Config map[string]string `yaml:"config"`
+	} `yaml:"process_manager"`
 }
 
 func NewConfig() *Config {
@@ -86,7 +94,7 @@ func NewConfig() *Config {
 
 func (cfg *Config) Init() error {
 	if cfg.ToolsPath == "" {
-		cfg.ToolsPath = cfg.WorkPath + "/tools"
+		cfg.ToolsPath = filepath.Join(cfg.WorkPath, "tools")
 	}
 
 	if cfg.TaskManager.UpdatePeriod == 0 {
@@ -96,6 +104,8 @@ func (cfg *Config) Init() error {
 	if cfg.TaskManager.RunTaskPeriod == 0 {
 		cfg.TaskManager.RunTaskPeriod = 10 * time.Millisecond
 	}
+
+	cfg.ProcessManager.Name = processmanager.Default
 
 	return cfg.validate()
 }

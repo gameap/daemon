@@ -3,6 +3,7 @@ package components_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"testing"
@@ -37,7 +38,7 @@ func TestExtendableExecutor_ExecGetTool_ExpectToolDownloaded(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, code)
 	require.NotEmpty(t, result)
-	path := tmpDir + "/fastdl.sh"
+	path := filepath.Join(tmpDir, "/fastdl.sh")
 	assert.FileExists(t, path)
 	assertFileIsExecutableByOwner(t, path)
 }

@@ -2,6 +2,7 @@ package files
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 
 func (suite *Suite) TestMakeDirSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir := os.TempDir() + "/files_test_" + strconv.Itoa(int(time.Now().UnixNano())) //nolint:goconst
+	tempDir := filepath.Join(os.TempDir(), "files_test_", strconv.Itoa(int(time.Now().UnixNano()))) //nolint:goconst
 	defer os.RemoveAll(tempDir)
 	msg := []interface{}{files.MakeDir, tempDir}
 
@@ -25,9 +26,9 @@ func (suite *Suite) TestMakeDirSuccess() {
 
 func (suite *Suite) TestMakeDir_WhenThreeMessage_ExpectSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir1 := os.TempDir() + "/files_test_" + strconv.Itoa(int(time.Now().UnixNano()))
-	tempDir2 := os.TempDir() + "/files_test_" + strconv.Itoa(int(time.Now().UnixNano()))
-	tempDir3 := os.TempDir() + "/files_test_" + strconv.Itoa(int(time.Now().UnixNano()))
+	tempDir1 := filepath.Join(os.TempDir(), "files_test", strconv.Itoa(int(time.Now().UnixNano())))
+	tempDir2 := filepath.Join(os.TempDir(), "files_test", strconv.Itoa(int(time.Now().UnixNano())))
+	tempDir3 := filepath.Join(os.TempDir(), "files_test", strconv.Itoa(int(time.Now().UnixNano())))
 	defer os.RemoveAll(tempDir1)
 	defer os.RemoveAll(tempDir2)
 	defer os.RemoveAll(tempDir3)

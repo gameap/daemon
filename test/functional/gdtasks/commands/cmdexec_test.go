@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"path/filepath"
+
 	"github.com/gameap/daemon/internal/app/domain"
 )
 
@@ -37,5 +39,5 @@ func (suite *Suite) TestExecuteGetToolSuccess() {
 			domain.GDTaskStatusSuccess,
 		),
 	)
-	suite.Assert().FileExists(suite.Cfg.ToolsPath + "/fastdl.sh")
+	suite.Assert().FileExists(filepath.Join(suite.Cfg.ToolsPath, "/fastdl.sh"))
 }

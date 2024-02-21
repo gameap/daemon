@@ -22,6 +22,7 @@ import (
 const (
 	systemdFilesDir    = ".systemd-services"
 	systemdServicesDir = "/etc/systemd/system"
+	servicePrefix      = "gameap-server-"
 
 	// https://www.freedesktop.org/software/systemd/man/latest/systemctl.html#Exit%20status
 	statusIsDeadPidExists  = 1
@@ -388,7 +389,7 @@ func (pm *SystemD) buildSocketConfig(server *domain.Server) string {
 	builder.WriteString("\n")
 
 	builder.WriteString("Service=")
-	builder.WriteString("gameap-")
+	builder.WriteString(servicePrefix)
 	builder.WriteString(server.UUID())
 	builder.WriteString(".service\n")
 
@@ -427,7 +428,7 @@ func (pm *SystemD) serviceName(server *domain.Server) string {
 	builder := strings.Builder{}
 	builder.Grow(50)
 
-	builder.WriteString("gameap-")
+	builder.WriteString(servicePrefix)
 	builder.WriteString(server.UUID())
 	builder.WriteString(".service")
 
@@ -442,7 +443,7 @@ func (pm *SystemD) socketName(server *domain.Server) string {
 	builder := strings.Builder{}
 	builder.Grow(50)
 
-	builder.WriteString("gameap-")
+	builder.WriteString(servicePrefix)
 	builder.WriteString(server.UUID())
 	builder.WriteString(".socket")
 

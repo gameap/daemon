@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"path/filepath"
 	"runtime"
 
 	"github.com/gameap/daemon/internal/app/domain"
@@ -32,7 +33,7 @@ func (suite *Suite) TestStartScriptReturnFailError() {
 
 	suite.RunTaskManagerUntilTasksCompleted([]*domain.GDTask{task})
 
-	suite.Assert().FileExists(suite.WorkPath + "/server/fail_executed.txt")
+	suite.Assert().FileExists(filepath.Join(suite.WorkPath, "server", "fail_executed.txt"))
 	suite.AssertGDTaskExist(
 		domain.NewGDTask(
 			1,
@@ -88,6 +89,6 @@ func (suite *Suite) TestRaceTasks() {
 
 	suite.RunTaskManagerUntilTasksCompleted(tasks)
 
-	suite.FileExists(suite.WorkPath + "/server/sleep_and_check.txt")
-	suite.NoFileExists(suite.WorkPath + "/server/sleep_and_check_fail.txt")
+	suite.FileExists(filepath.Join(suite.WorkPath, "server", "sleep_ and_check_fail.txt"))
+	suite.NoFileExists(filepath.Join(suite.WorkPath, "server", "sleep_and_check_fail.txt"))
 }

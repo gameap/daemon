@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
@@ -36,8 +37,8 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameInstalled() {
 	err := cmd.Execute(context.Background(), server)
 
 	suite.Require().NoError(err)
-	suite.FileExists(suite.WorkPath + "/server/run.sh")              //nolint:goconst
-	suite.NoFileExists(suite.WorkPath + "/server/.gamemodinstalled") //nolint:goconst
+	suite.FileExists(filepath.Join(suite.WorkPath, "server", "run.sh"))
+	suite.NoFileExists(filepath.Join(suite.WorkPath, "server", ".gamemodinstalled"))
 }
 
 func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameAndModInstalled() {
@@ -57,8 +58,8 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameAndModInstalled(
 	err := cmd.Execute(context.Background(), server)
 
 	suite.Require().NoError(err)
-	suite.FileExists(suite.WorkPath + "/server/run.sh")
-	suite.FileExists(suite.WorkPath + "/server/.gamemodinstalled")
+	suite.FileExists(filepath.Join(suite.WorkPath, "server", "run.sh"))
+	suite.FileExists(filepath.Join(suite.WorkPath, "server", ".gamemodinstalled"))
 }
 
 func (suite *Suite) TestInstall_InstallFromLocalRepository_GameAndModInstalledFromLocalRepository() {
@@ -66,12 +67,12 @@ func (suite *Suite) TestInstall_InstallFromLocalRepository_GameAndModInstalledFr
 		domain.Game{
 			StartCode:        "cstrike",
 			RemoteRepository: "https://files.gameap.ru/test/test.tar.xz",
-			LocalRepository:  suite.WorkPath + "/repository/game.tar.gz",
+			LocalRepository:  filepath.Join(suite.WorkPath, "repository", "game.tar.gz"),
 		},
 		domain.GameMod{
 			Name:             "public",
 			RemoteRepository: "https://files.gameap.ru/mod-game.tar.gz",
-			LocalRepository:  suite.WorkPath + "/repository/game_mod.tar.gz",
+			LocalRepository:  filepath.Join(suite.WorkPath, "repository", "game_mod.tar.gz"),
 		},
 	)
 	server.SetInstallationStatus(domain.ServerNotInstalled)
@@ -80,8 +81,8 @@ func (suite *Suite) TestInstall_InstallFromLocalRepository_GameAndModInstalledFr
 	err := cmd.Execute(context.Background(), server)
 
 	suite.Require().NoError(err)
-	suite.FileExists(suite.WorkPath + "/server/game_file_from_tar_gz")
-	suite.FileExists(suite.WorkPath + "/server/game_mod_file_from_tar_gz")
-	suite.NoFileExists(suite.WorkPath + "/server/run.sh")
-	suite.NoFileExists(suite.WorkPath + "/server/.gamemodinstalled")
+	suite.FileExists(filepath.Join(suite.WorkPath, "server", "game_file_from_tar_gz"))
+	suite.FileExists(filepath.Join(suite.WorkPath, "server", "game_mod_file_from_tar_gz"))
+	suite.NoFileExists(filepath.Join(suite.WorkPath, "server", "run.sh"))
+	suite.NoFileExists(filepath.Join(suite.WorkPath, "server", ".gamemodinstalled"))
 }

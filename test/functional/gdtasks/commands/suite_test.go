@@ -2,6 +2,7 @@ package commands
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gameap/daemon/test/functional/gdtasks"
@@ -38,7 +39,7 @@ func (suite *Suite) SetupTest() {
 	}
 
 	suite.Cfg.WorkPath = suite.WorkPath
-	suite.Cfg.ToolsPath = suite.WorkPath + "/tools"
+	suite.Cfg.ToolsPath = filepath.Join(suite.WorkPath, "tools")
 }
 
 func (suite *Suite) TearDownTest() {

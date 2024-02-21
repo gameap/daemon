@@ -97,6 +97,8 @@ func loadIni(path string) (*Config, error) {
 	cfg.PrivateKeyPassword = c.Section("").Key("private_key_password").String()
 	cfg.DHFile = c.Section("").Key("dh_file").String()
 
+	cfg.ProcessManager.Name = c.Section("").Key("process_manager").String()
+
 	cfg.LogLevel = c.Section("").Key("log_level").MustString("debug")
 	cfg.OutputLog = c.Section("").Key("output_log").MustString("")
 

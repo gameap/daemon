@@ -76,10 +76,17 @@ func CreateServiceExtendableExecutor(ctx context.Context, c Container) contracts
 }
 
 func CreateServicesProcessManager(ctx context.Context, c Container) contracts.ProcessManager {
-	return processmanager.NewSystemD(
+	pm, err := processmanager.Load(
+		c.Cfg(ctx).ProcessManager.Name,
 		c.Cfg(ctx),
 		c.Services().Executor(ctx),
 	)
+	if err != nil {
+		c.SetError(err)
+		return nil
+	}
+
+	return pm
 }
 
 func CreateServicesGdTaskManager(ctx context.Context, c Container) *gdaemonscheduler.TaskManager {

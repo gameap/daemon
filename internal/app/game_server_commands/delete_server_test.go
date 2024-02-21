@@ -98,8 +98,8 @@ func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 	suite.Require().Nil(err)
 	suite.Assert().Equal(SuccessResult, deleteServerCommand.Result())
 	suite.Assert().NoFileExists(server.WorkDir(cfg))
-	suite.Assert().NoFileExists(server.WorkDir(cfg) + "/" + "run.sh")
-	suite.Assert().NoFileExists(server.WorkDir(cfg) + "/" + "run2.sh")
+	suite.Assert().NoFileExists(filepath.Join(server.WorkDir(cfg), "run.sh"))
+	suite.Assert().NoFileExists(filepath.Join(server.WorkDir(cfg), "run2.sh"))
 }
 
 func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {

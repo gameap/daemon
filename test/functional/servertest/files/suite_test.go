@@ -2,6 +2,7 @@ package files
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"testing"
@@ -27,8 +28,8 @@ func TestSuite(t *testing.T) {
 func (suite *Suite) SetupTest() {
 	suite.Suite.SetupTest()
 
-	tempDirDestination := os.TempDir() + "/files_test_destination_" + strconv.Itoa(int(time.Now().UnixNano()))
-	suite.tempFileDestination = tempDirDestination + "/file"
+	tempDirDestination := filepath.Join(os.TempDir(), "files_test_destination_", strconv.Itoa(int(time.Now().UnixNano())))
+	suite.tempFileDestination = filepath.Join(tempDirDestination, "file")
 }
 
 func (suite *Suite) TearDownSuite() {
