@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -64,8 +65,32 @@ func (pm *WinSW) Restart(ctx context.Context, server *domain.Server, out io.Writ
 	return pm.command(ctx, server, "restart", out)
 }
 
+const (
+	exitCodeStatusNotActive = 0
+	exitCodeStatusActive    = 1
+)
+
 func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	return pm.command(ctx, server, "status", out)
+	var exitErr *exec.ExitError
+	_, err := pm.runWinSWCommand(ctx, "status", server)
+	if err != nil && !errors.As(err, &exitErr) {
+		return domain.ErrorResult, errors.Wrap(err, "failed to get daemon status")
+	}
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+	}
+
+	if exitErr != nil {
+		if exitErr.ExitCode() == exitCodeStatusNotActive {
+			return domain.ErrorResult, nil
+		}
+
+		if exitErr.ExitCode() != exitCodeStatusActive {
+			return domain.SuccessResult, nil
+		}
+	}
+
+	return domain.SuccessResult, nil
 }
 
 func (pm *WinSW) runWinSWCommand(ctx context.Context, command string, server *domain.Server) (domain.Result, error) {
