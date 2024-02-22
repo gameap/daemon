@@ -47,9 +47,14 @@ func (pm *WinSW) Start(ctx context.Context, server *domain.Server, out io.Writer
 }
 
 func (pm *WinSW) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	result, err := pm.runWinSWCommand(ctx, "stop", server, out)
+	_, err := pm.runWinSWCommand(ctx, "stop", server, out)
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+		return domain.ErrorResult, errors.WithMessage(err, "failed to run stop command")
+	}
+
+	_, err = pm.runWinSWCommand(ctx, "uninstall", server, out)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to run uninstall command")
 	}
 
 	err = os.Remove(pm.serviceFile(server))
@@ -57,7 +62,7 @@ func (pm *WinSW) Stop(ctx context.Context, server *domain.Server, out io.Writer)
 		logger.WithError(ctx, err).Warn("failed to remove service file")
 	}
 
-	return result, nil
+	return domain.SuccessResult, nil
 }
 
 func (pm *WinSW) Restart(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
@@ -127,7 +132,13 @@ func (pm *WinSW) command(
 	} else {
 		_, err = pm.runWinSWCommand(ctx, "refresh", server, out)
 		if err != nil {
-			return domain.ErrorResult, errors.WithMessage(err, "failed to refresh service config")
+			logger.Warn(ctx, errors.WithMessage(err, "failed to refresh service config"))
+
+			// try to install, maybe service wasn't installed
+			_, err = pm.runWinSWCommand(ctx, "install", server, out)
+			if err != nil {
+				return domain.ErrorResult, errors.WithMessage(err, "failed to refresh and install service")
+			}
 		}
 	}
 
@@ -204,7 +215,6 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, 
 	createdNew := false
 	flag := os.O_TRUNC | os.O_WRONLY
 	if _, err := os.Stat(serviceFile); errors.Is(err, os.ErrNotExist) {
-		logger.Debug(ctx, "service file not found", err)
 		// It means that service file does not exist.
 		// We will create new service.
 		// If file exists, we will update it.
