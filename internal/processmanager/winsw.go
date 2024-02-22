@@ -72,11 +72,13 @@ const (
 
 func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	if _, err := os.Stat(pm.serviceFile(server)); err != nil {
+		logger.Debug(ctx, "Service file not found")
 		return domain.ErrorResult, nil
 	}
 
 	var exitErr *exec.ExitError
 	_, err := pm.runWinSWCommand(ctx, "status", server)
+	logger.Debug(ctx, "Status result: ", err)
 	if err != nil && !errors.As(err, &exitErr) {
 		return domain.ErrorResult, errors.Wrap(err, "failed to get daemon status")
 	}
@@ -203,14 +205,16 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, 
 	}
 
 	createdNew := false
+	flag := os.O_TRUNC | os.O_WRONLY
 	if _, err := os.Stat(serviceFile); errors.Is(err, os.ErrNotExist) {
 		// It means that service file does not exist.
 		// We will create new service.
 		// If file exists, we will update it.
 		createdNew = true
+		flag = os.O_CREATE | os.O_WRONLY
 	}
 
-	f, err := os.OpenFile(serviceFile, os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(serviceFile, flag, 0644)
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to open file")
 	}
