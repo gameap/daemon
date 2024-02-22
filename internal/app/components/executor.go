@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gopherclass/go-shellquote"
@@ -80,6 +82,14 @@ func ExecWithWriter(
 ) (int, error) {
 	if command == "" {
 		return invalidResult, ErrEmptyCommand
+	}
+
+	// Escape backslashes on Windows
+	// Without it shellquote.Split will split command without backslashes
+	// C:\gameap\steamcmd\steamcmd.exe -> ["C:gameapsteamcmdsteamcmd.exe"]
+	// Should be ["C:\\gameap\\steamcmd\\steamcmd.exe"]
+	if runtime.GOOS == "windows" {
+		command = strings.ReplaceAll(command, "\\", "\\\\")
 	}
 
 	args, err := shellquote.Split(command)
