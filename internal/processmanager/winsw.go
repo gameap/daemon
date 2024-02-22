@@ -94,8 +94,15 @@ func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Write
 		}
 	}
 
-	// winsw exist status 0 means that service is not active,
-	// we need to return domain.ErrorResult in this case.
+	if result == exitCodeStatusNotActive {
+		return domain.ErrorResult, nil
+	}
+
+	if result == exitCodeStatusActive {
+		return domain.SuccessResult, nil
+	}
+
+	// If we are here, it means that we have unexpected result
 	return domain.ErrorResult, nil
 }
 
