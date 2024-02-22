@@ -71,6 +71,10 @@ const (
 )
 
 func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	if _, err := os.Stat(pm.serviceFile(server)); err != nil {
+		return domain.ErrorResult, nil
+	}
+
 	var exitErr *exec.ExitError
 	_, err := pm.runWinSWCommand(ctx, "status", server)
 	if err != nil && !errors.As(err, &exitErr) {

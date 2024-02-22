@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -521,8 +522,6 @@ func (in *installator) installFromSteam(
 
 	in.writeOutput(ctx, "Installing from steam ...")
 
-	var installTries uint8
-
 	executorOptions := contracts.ExecutorOptions{
 		WorkDir: cfg.WorkPath,
 	}
@@ -539,17 +538,22 @@ func (in *installator) installFromSteam(
 		executorOptions.GID = systemUser.Gid
 	}
 
+	installTries := maxSteamCMDInstallTries
 	var result int
 	var err error
-	for installTries < maxSteamCMDInstallTries {
+	for installTries > 0 {
 		result, err = in.executor.ExecWithWriter(
 			ctx,
 			execCmd,
 			output,
 			executorOptions,
 		)
-		if err != nil {
-			return err
+		var exitErr *exec.ExitError
+		if err != nil && !errors.As(err, &exitErr) {
+			return errors.WithMessage(err, "failed to execute steamcmd")
+		}
+		if exitErr != nil {
+			result = exitErr.ExitCode()
 		}
 
 		if result == SuccessResult {
@@ -560,7 +564,7 @@ func (in *installator) installFromSteam(
 			break
 		}
 
-		installTries++
+		installTries--
 	}
 
 	if result != SuccessResult {
