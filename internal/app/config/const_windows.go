@@ -5,12 +5,12 @@ package config
 
 const (
 	SteamCMDExecutableFile           = "steamcmd.exe"
-	DefaultGameServerScriptStart     = ""
-	DefaultGameServerScriptStop      = ""
-	DefaultGameServerScriptRestart   = ""
-	DefaultGameServerScriptStatus    = ""
-	DefaultGameServerScriptGetOutput = ""
-	DefaultGameServerScriptSendInput = ""
+	DefaultGameServerScriptStart     = "{command}"
+	DefaultGameServerScriptStop      = "{command}"
+	DefaultGameServerScriptRestart   = "{command}"
+	DefaultGameServerScriptStatus    = "{command}"
+	DefaultGameServerScriptGetOutput = "{command}"
+	DefaultGameServerScriptSendInput = "{command}"
 )
 
 const (
