@@ -124,25 +124,35 @@ func (pm *WinSW) command(
 		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
 	}
 
+	var result domain.Result
+
 	if createdNewService {
-		_, err = pm.runWinSWCommand(ctx, "install", server, out)
+		result, err = pm.runWinSWCommand(ctx, "install", server, out)
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to install service")
 		}
+		if result != domain.SuccessResult {
+			return domain.ErrorResult, errors.New("failed to install service")
+		}
 	} else {
-		_, err = pm.runWinSWCommand(ctx, "refresh", server, out)
+		result, err = pm.runWinSWCommand(ctx, "refresh", server, out)
 		if err != nil {
-			logger.Warn(ctx, errors.WithMessage(err, "failed to refresh service config"))
+			return domain.ErrorResult, errors.WithMessage(err, "failed to refresh service")
+		}
+		if result != domain.SuccessResult {
+			logger.Warn(ctx, "failed to refresh service config, trying to install service")
 
-			// try to install, maybe service wasn't installed
-			_, err = pm.runWinSWCommand(ctx, "install", server, out)
+			result, err = pm.runWinSWCommand(ctx, "install", server, out)
 			if err != nil {
-				return domain.ErrorResult, errors.WithMessage(err, "failed to refresh and install service")
+				return domain.ErrorResult, errors.WithMessage(err, "failed to install service")
+			}
+			if result != domain.SuccessResult {
+				return domain.ErrorResult, errors.New("failed to refresh and install service")
 			}
 		}
 	}
 
-	result, err := pm.runWinSWCommand(ctx, command, server, out)
+	result, err = pm.runWinSWCommand(ctx, command, server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
 	}
