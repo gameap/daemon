@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -76,22 +75,9 @@ func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Write
 		return domain.ErrorResult, nil
 	}
 
-	var exitErr *exec.ExitError
 	result, err := pm.runWinSWCommand(ctx, "status", server)
-	logger.Debug(ctx, "Status result: ", result)
-	logger.Debug(ctx, "Status err: ", err)
-	if err != nil && !errors.As(err, &exitErr) {
+	if err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to get daemon status")
-	}
-
-	if exitErr != nil {
-		if exitErr.ExitCode() == exitCodeStatusNotActive {
-			return domain.ErrorResult, nil
-		}
-
-		if exitErr.ExitCode() != exitCodeStatusActive {
-			return domain.SuccessResult, nil
-		}
 	}
 
 	if result == exitCodeStatusNotActive {

@@ -12,7 +12,6 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 var ErrEmptyCommand = errors.New("empty command")
@@ -128,14 +127,13 @@ func ExecWithWriter(
 		}
 	}
 
+	var exitError *exec.ExitError
 	err = cmd.Run()
-	if err != nil {
-		_, ok := err.(*exec.ExitError)
-		if !ok {
-			log.Warning(err)
-
-			return invalidResult, err
-		}
+	if err != nil && !errors.As(err, &exitError) {
+		return cmd.ProcessState.ExitCode(), errors.Wrap(err, "failed to execute command")
+	}
+	if exitError != nil {
+		return exitError.ExitCode(), nil
 	}
 
 	return cmd.ProcessState.ExitCode(), nil
