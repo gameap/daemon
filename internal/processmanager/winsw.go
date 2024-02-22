@@ -204,6 +204,7 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, 
 	createdNew := false
 	flag := os.O_TRUNC | os.O_WRONLY
 	if _, err := os.Stat(serviceFile); errors.Is(err, os.ErrNotExist) {
+		logger.Debug(ctx, "service file not found", err)
 		// It means that service file does not exist.
 		// We will create new service.
 		// If file exists, we will update it.
