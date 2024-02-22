@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gameap/daemon/internal/app/config"
@@ -292,17 +293,17 @@ func (pm *WinSW) serviceName(server *domain.Server) string {
 	builder.Grow(50)
 
 	builder.WriteString(servicePrefix)
-	builder.WriteString(server.UUID())
+	builder.WriteString(strconv.Itoa(server.ID()))
 
 	return builder.String()
 }
 
 func (pm *WinSW) serviceFile(server *domain.Server) string {
-	return filepath.Join(servicesConfigPath, server.UUID()+".xml")
+	return filepath.Join(servicesConfigPath, strconv.Itoa(server.ID())+".xml")
 }
 
 func (pm *WinSW) logPath(server *domain.Server) string {
-	return filepath.Join(servicesConfigPath, server.UUID()+".log")
+	return filepath.Join(servicesConfigPath, strconv.Itoa(server.ID())+".log")
 }
 
 type WinSWServiceConfig struct {
