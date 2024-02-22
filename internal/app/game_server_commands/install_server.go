@@ -573,9 +573,7 @@ func (in *installator) installFromSteam(
 func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) string {
 	execCmd := strings.Builder{}
 
-	execCmd.WriteString(in.cfg.SteamCMDPath)
-	execCmd.WriteString("/")
-	execCmd.WriteString(config.SteamCMDExecutableFile)
+	execCmd.WriteString(filepath.Join(in.cfg.SteamCMDPath, config.SteamCMDExecutableFile))
 
 	execCmd.WriteString(" +force_install_dir \"")
 	execCmd.WriteString(server.WorkDir(in.cfg))
