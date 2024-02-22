@@ -77,8 +77,9 @@ func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Write
 	}
 
 	var exitErr *exec.ExitError
-	_, err := pm.runWinSWCommand(ctx, "status", server)
-	logger.Debug(ctx, "Status result: ", err)
+	result, err := pm.runWinSWCommand(ctx, "status", server)
+	logger.Debug(ctx, "Status result: ", result)
+	logger.Debug(ctx, "Status err: ", err)
 	if err != nil && !errors.As(err, &exitErr) {
 		return domain.ErrorResult, errors.Wrap(err, "failed to get daemon status")
 	}
