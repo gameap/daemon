@@ -560,7 +560,7 @@ func (in *installator) installFromSteam(
 			break
 		}
 
-		if !repeatableSteamCMDInstallResults.Contains(int8(result)) {
+		if !repeatableSteamCMDInstallResults.Contains(result) {
 			break
 		}
 
