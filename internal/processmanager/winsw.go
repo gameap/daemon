@@ -47,7 +47,7 @@ func (pm *WinSW) Start(ctx context.Context, server *domain.Server, out io.Writer
 }
 
 func (pm *WinSW) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	result, err := pm.runWinSWCommand(ctx, "stop", server)
+	result, err := pm.runWinSWCommand(ctx, "stop", server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
 	}
@@ -75,7 +75,7 @@ func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Write
 		return domain.ErrorResult, nil
 	}
 
-	result, err := pm.runWinSWCommand(ctx, "status", server)
+	result, err := pm.runWinSWCommand(ctx, "status", server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to get daemon status")
 	}
@@ -92,10 +92,13 @@ func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Write
 	return domain.ErrorResult, nil
 }
 
-func (pm *WinSW) runWinSWCommand(ctx context.Context, command string, server *domain.Server) (domain.Result, error) {
-	_, result, err := pm.executor.Exec(
+func (pm *WinSW) runWinSWCommand(
+	ctx context.Context, command string, server *domain.Server, out io.Writer,
+) (domain.Result, error) {
+	result, err := pm.executor.ExecWithWriter(
 		ctx,
 		fmt.Sprintf("winsw %s %s ", command, pm.serviceFile(server)),
+		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
 		},
@@ -117,18 +120,18 @@ func (pm *WinSW) command(
 	}
 
 	if createdNewService {
-		_, err = pm.runWinSWCommand(ctx, "install", server)
+		_, err = pm.runWinSWCommand(ctx, "install", server, out)
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to install service")
 		}
 	} else {
-		_, err = pm.runWinSWCommand(ctx, "refresh", server)
+		_, err = pm.runWinSWCommand(ctx, "refresh", server, out)
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to refresh service config")
 		}
 	}
 
-	result, err := pm.runWinSWCommand(ctx, command, server)
+	result, err := pm.runWinSWCommand(ctx, command, server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
 	}
