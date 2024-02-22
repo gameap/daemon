@@ -25,7 +25,7 @@ import (
 
 const (
 	servicesConfigPath = "C:\\gameap\\services"
-	servicePrefix      = "gameap-server-"
+	servicePrefix      = "gameapServer"
 
 	outputSizeLimit = 10000
 )
