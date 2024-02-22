@@ -239,7 +239,6 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 		Executable:       executable,
 		Arguments:        arguments,
 		WorkingDirectory: server.WorkDir(pm.cfg),
-		Logpath:          pm.logPath(server),
 		Log: log{
 			Mode: "reset",
 		},
@@ -299,11 +298,11 @@ func (pm *WinSW) serviceName(server *domain.Server) string {
 }
 
 func (pm *WinSW) serviceFile(server *domain.Server) string {
-	return filepath.Join(servicesConfigPath, strconv.Itoa(server.ID())+".xml")
+	return filepath.Join(servicesConfigPath, pm.serviceName(server)+".xml")
 }
 
 func (pm *WinSW) logPath(server *domain.Server) string {
-	return filepath.Join(servicesConfigPath, strconv.Itoa(server.ID())+".log")
+	return filepath.Join(servicesConfigPath, pm.serviceName(server)+".out.log")
 }
 
 type WinSWServiceConfig struct {
