@@ -276,10 +276,10 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 	serviceConfig.ServiceAccount.Username = server.User()
 	serviceConfig.ServiceAccount.Password = password
 
-	out, err := xml.Marshal(struct {
+	out, err := xml.MarshalIndent(struct {
 		WinSWServiceConfig
 		XMLName struct{} `xml:"service"`
-	}{WinSWServiceConfig: serviceConfig})
+	}{WinSWServiceConfig: serviceConfig}, "", "  ")
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to marshal xml")
 	}
