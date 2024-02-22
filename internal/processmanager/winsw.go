@@ -76,9 +76,6 @@ func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Write
 	if err != nil && !errors.As(err, &exitErr) {
 		return domain.ErrorResult, errors.Wrap(err, "failed to get daemon status")
 	}
-	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
-	}
 
 	if exitErr != nil {
 		if exitErr.ExitCode() == exitCodeStatusNotActive {
