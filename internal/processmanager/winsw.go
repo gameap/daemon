@@ -18,7 +18,7 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
-	"github.com/gopherclass/go-shellquote"
+	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
 )
 
@@ -213,13 +213,21 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 		server.StartCommand(),
 	)
 
+	if cmd == "" {
+		return "", ErrEmptyCommand
+	}
+
 	cmdArr, err := shellquote.Split(cmd)
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to split command")
 	}
 
 	executable := cmdArr[0]
-	arguments := strings.Join(cmdArr[1:], " ")
+	var arguments string
+
+	if len(cmdArr) > 1 {
+		arguments = strings.Join(cmdArr[1:], " ")
+	}
 
 	executable = filepath.Join(server.WorkDir(pm.cfg), executable)
 

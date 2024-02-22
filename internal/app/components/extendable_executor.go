@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/gameap/daemon/internal/app/contracts"
-	"github.com/gopherclass/go-shellquote"
+	"github.com/gameap/daemon/pkg/shellquote"
 )
 
 type CommandHandler func(
