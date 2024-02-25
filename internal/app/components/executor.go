@@ -112,6 +112,7 @@ func ExecWithWriter(
 		if err != nil {
 			return invalidResult, errors.Wrap(err, "executable file not found")
 		}
+		name = args[0]
 	} else if err != nil {
 		return invalidResult, errors.Wrap(err, "executable file not found")
 	}
