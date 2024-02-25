@@ -123,7 +123,7 @@ func ExecWithWriter(
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, name, filteredArgs...) //nolint:gosec
+	cmd := exec.CommandContext(ctx, name, filteredArgs...)
 	cmd.Dir = workDir
 	cmd.Stdout = out
 	cmd.Stderr = out
