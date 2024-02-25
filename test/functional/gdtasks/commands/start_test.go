@@ -89,6 +89,6 @@ func (suite *Suite) TestRaceTasks() {
 
 	suite.RunTaskManagerUntilTasksCompleted(tasks)
 
-	suite.FileExists(filepath.Join(suite.WorkPath, "server", "sleep_ and_check_fail.txt"))
+	suite.FileExists(filepath.Join(suite.WorkPath, "server", "sleep_and_check.txt"))
 	suite.NoFileExists(filepath.Join(suite.WorkPath, "server", "sleep_and_check_fail.txt"))
 }
