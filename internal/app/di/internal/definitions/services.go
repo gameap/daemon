@@ -53,7 +53,7 @@ func CreateServicesExecutor(_ context.Context, _ Container) contracts.Executor {
 }
 
 func CreateServiceExtendableExecutor(ctx context.Context, c Container) contracts.Executor {
-	executor := components.NewDefaultExtendableExecutor(c.Services().Executor(ctx))
+	executor := components.NewDefaultExtendableExecutor(components.NewExecutor())
 
 	executor.RegisterHandler("get-tool", customhandlers.NewGetTool(c.Cfg(ctx)).Handle)
 	executor.RegisterHandler(
