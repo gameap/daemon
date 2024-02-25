@@ -21,7 +21,7 @@ import (
 
 const (
 	defaultWidth        = 200
-	defaultHistoryLimit = 1000
+	defaultHistoryLimit = 30000
 )
 
 type Tmux struct {

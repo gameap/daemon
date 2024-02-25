@@ -27,7 +27,7 @@ const (
 	servicesConfigPath = "C:\\gameap\\services"
 	servicePrefix      = "gameapServer"
 
-	outputSizeLimit = 10000
+	outputSizeLimit = 30000
 )
 
 type WinSW struct {

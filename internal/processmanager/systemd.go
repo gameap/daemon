@@ -30,7 +30,7 @@ const (
 	statusNotRunning       = 3
 	statusServiceUnknown   = 4
 
-	outputSizeLimit = 10000
+	outputSizeLimit = 30000
 )
 
 type SystemD struct {

@@ -49,7 +49,7 @@ func CreateServicesAPICaller(ctx context.Context, c Container) contracts.APIRequ
 }
 
 func CreateServicesExecutor(_ context.Context, _ Container) contracts.Executor {
-	return components.NewExecutor()
+	return components.NewCleanExecutor()
 }
 
 func CreateServiceExtendableExecutor(ctx context.Context, c Container) contracts.Executor {
