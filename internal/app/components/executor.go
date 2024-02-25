@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/pkg/shellquote"
@@ -115,7 +116,14 @@ func ExecWithWriter(
 		return invalidResult, errors.Wrap(err, "executable file not found")
 	}
 
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec
+	filteredArgs := make([]string, 0, len(args))
+	for _, arg := range args[1:] {
+		if arg != "" {
+			filteredArgs = append(filteredArgs, strings.TrimSpace(arg))
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, name, filteredArgs...) //nolint:gosec
 	cmd.Dir = workDir
 	cmd.Stdout = out
 	cmd.Stderr = out
