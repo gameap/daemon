@@ -298,9 +298,9 @@ func TestUpdateBySteam_SteamCommandWithoutValidate(t *testing.T) {
 
 	require.Nil(t, err)
 	if runtime.GOOS == "windows" {
-		executor.AssertCommand(t, "/steamcmd.exe +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
+		executor.AssertCommand(t, "steamcmd.exe +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
 	} else {
-		executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
+		executor.AssertCommand(t, "steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 +quit")
 	}
 }
 
@@ -318,7 +318,7 @@ func TestUpdateBySteam_SteamCommandWithSetConfig(t *testing.T) {
 	err := updater.Install(context.Background(), server, rules)
 
 	require.Nil(t, err)
-	executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/work-path/test-server\" +login anonymous +app_update 90 mod czero +quit")
+	executor.AssertCommand(t, "steamcmd.sh +force_install_dir \"/work-path/test-server\" +login anonymous +app_update 90 mod czero +quit")
 }
 
 func TestInstallBySteam_SteamCommandWithValidate(t *testing.T) {
@@ -336,9 +336,9 @@ func TestInstallBySteam_SteamCommandWithValidate(t *testing.T) {
 
 	require.Nil(t, err)
 	if runtime.GOOS == "windows" {
-		executor.AssertCommand(t, "/steamcmd.exe +force_install_dir \"/test-server\" +login anonymous +app_update 90 validate +quit")
+		executor.AssertCommand(t, "steamcmd.exe +force_install_dir \"/test-server\" +login anonymous +app_update 90 validate +quit")
 	} else {
-		executor.AssertCommand(t, "/steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 validate +quit")
+		executor.AssertCommand(t, "steamcmd.sh +force_install_dir \"/test-server\" +login anonymous +app_update 90 validate +quit")
 	}
 }
 
