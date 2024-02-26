@@ -57,7 +57,7 @@ func (suite *deleteSuite) TestDeleteServerByFilesystemSuccess() {
 	deleteServerCommand := newDefaultDeleteServer(
 		cfg,
 		components.NewExecutor(),
-		processmanager.NewSimple(cfg, components.NewExecutor()),
+		processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
 	)
 	ctx := context.Background()
 
@@ -89,7 +89,7 @@ func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 	deleteServerCommand := newDefaultDeleteServer(
 		cfg,
 		components.NewExecutor(),
-		processmanager.NewSimple(cfg, components.NewExecutor()),
+		processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
 	)
 	ctx := context.Background()
 
@@ -121,7 +121,7 @@ func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 	deleteServerCommand := newDefaultDeleteServer(
 		cfg,
 		components.NewCleanExecutor(),
-		processmanager.NewSimple(cfg, components.NewExecutor()),
+		processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
 	)
 	ctx := context.Background()
 

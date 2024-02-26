@@ -47,7 +47,7 @@ func (suite *Suite) SetupSuite() {
 	suite.ServerRepository = mocks.NewServerRepository()
 	suite.ServerTaskRepository = mocks.NewServerTaskRepository()
 	suite.Executor = components.NewExecutor()
-	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, suite.Executor)
+	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, suite.Executor, suite.Executor)
 }
 
 func (suite *Suite) SetupTest() {

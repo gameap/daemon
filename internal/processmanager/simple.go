@@ -11,14 +11,16 @@ import (
 )
 
 type Simple struct {
-	cfg      *config.Config
-	executor contracts.Executor
+	cfg              *config.Config
+	executor         contracts.Executor
+	detailedExecutor contracts.Executor
 }
 
-func NewSimple(cfg *config.Config, executor contracts.Executor) *Simple {
+func NewSimple(cfg *config.Config, executor, detailedExecutor contracts.Executor) *Simple {
 	return &Simple{
-		cfg:      cfg,
-		executor: executor,
+		cfg:              cfg,
+		executor:         executor,
+		detailedExecutor: detailedExecutor,
 	}
 }
 
@@ -69,12 +71,17 @@ func (pm *Simple) Status(
 func (pm *Simple) GetOutput(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	return pm.execCommand(
+	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		server,
 		domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.GetConsole, ""),
 		out,
+		pm.executeOptions(server),
 	)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+	}
+
+	return domain.Result(result), nil
 }
 
 func (pm *Simple) SendInput(
@@ -91,7 +98,7 @@ func (pm *Simple) SendInput(
 func (pm *Simple) execCommand(
 	ctx context.Context, server *domain.Server, command string, out io.Writer,
 ) (domain.Result, error) {
-	result, err := pm.executor.ExecWithWriter(
+	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
 		command,
 		out,

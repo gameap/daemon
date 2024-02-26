@@ -66,7 +66,7 @@ func (suite *Suite) SetupSuite() {
 	}
 
 	executor := components.NewDefaultExtendableExecutor(components.NewCleanExecutor())
-	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, executor)
+	suite.ProcessManager = processmanager.NewSimple(suite.Cfg, executor, executor)
 
 	executor.RegisterHandler("get-tool", customhandlers.NewGetTool(suite.Cfg).Handle)
 	suite.Executor = executor

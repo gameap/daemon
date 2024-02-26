@@ -207,7 +207,7 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 	install := newInstallServer(
 		cfg,
 		components.NewExecutor(),
-		processmanager.NewSimple(cfg, components.NewExecutor()),
+		processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
 		mocks.NewServerRepository(),
 		commandmocks.LoadServerCommand(domain.Status),
 		commandmocks.LoadServerCommand(domain.Stop),
@@ -238,7 +238,7 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 	install := newInstallServer(
 		cfg,
 		components.NewExecutor(),
-		processmanager.NewSimple(cfg, components.NewExecutor()),
+		processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
 		mocks.NewServerRepository(),
 		commandmocks.LoadServerCommand(domain.Status),
 		commandmocks.LoadServerCommand(domain.Stop),
@@ -270,7 +270,7 @@ func TestInstallation_RunAfterInstallScript(t *testing.T) {
 	install := newInstallServer(
 		cfg,
 		components.NewExecutor(),
-		processmanager.NewSimple(cfg, components.NewExecutor()),
+		processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
 		mocks.NewServerRepository(),
 		commandmocks.LoadServerCommand(domain.Status),
 		commandmocks.LoadServerCommand(domain.Stop),

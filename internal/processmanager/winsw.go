@@ -35,10 +35,10 @@ type WinSW struct {
 	executor contracts.Executor
 }
 
-func NewWinSW(cfg *config.Config, executor contracts.Executor) *WinSW {
+func NewWinSW(cfg *config.Config, _, detailedExecutor contracts.Executor) *WinSW {
 	return &WinSW{
 		cfg:      cfg,
-		executor: executor,
+		executor: detailedExecutor,
 	}
 }
 

@@ -96,7 +96,7 @@ func givenCommandFactory(t *testing.T, cfg *config.Config) *gameservercommands.S
 		cfg,
 		mocks.NewServerRepository(),
 		executor,
-		processmanager.NewSimple(cfg, executor),
+		processmanager.NewSimple(cfg, executor, executor),
 	)
 }
 

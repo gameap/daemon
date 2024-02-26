@@ -80,6 +80,7 @@ func CreateServicesProcessManager(ctx context.Context, c Container) contracts.Pr
 		c.Cfg(ctx).ProcessManager.Name,
 		c.Cfg(ctx),
 		c.Services().Executor(ctx),
+		components.NewExecutor(),
 	)
 	if err != nil {
 		c.SetError(err)

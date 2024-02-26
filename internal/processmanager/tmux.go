@@ -25,14 +25,16 @@ const (
 )
 
 type Tmux struct {
-	cfg      *config.Config
-	executor contracts.Executor
+	cfg              *config.Config
+	executor         contracts.Executor
+	detailedExecutor contracts.Executor
 }
 
-func NewTmux(cfg *config.Config, executor contracts.Executor) *Tmux {
+func NewTmux(cfg *config.Config, executor, detailedExecutor contracts.Executor) *Tmux {
 	return &Tmux{
-		cfg:      cfg,
-		executor: executor,
+		cfg:              cfg,
+		executor:         executor,
+		detailedExecutor: detailedExecutor,
 	}
 }
 
@@ -53,7 +55,7 @@ func (pm *Tmux) Start(
 		return domain.ErrorResult, errors.WithMessage(err, "failed to create initial tmux session")
 	}
 
-	result, err := pm.executor.ExecWithWriter(
+	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
 		fmt.Sprintf(`tmux new-session -d -s %s -x %d %s`, server.UUID(), defaultWidth, startCmd),
 		out,
@@ -64,7 +66,7 @@ func (pm *Tmux) Start(
 	}
 
 	// Ignore result because it is not important for us
-	_, err = pm.executor.ExecWithWriter(
+	_, err = pm.detailedExecutor.ExecWithWriter(
 		ctx,
 		fmt.Sprintf(`tmux set-option -g history-limit %d`, defaultHistoryLimit),
 		out,
@@ -85,7 +87,7 @@ func (pm *Tmux) Stop(
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
 	}
 
-	result, err := pm.executor.ExecWithWriter(
+	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
 		fmt.Sprintf(`tmux kill-session -t %s`, server.UUID()),
 		out,
@@ -124,7 +126,7 @@ func (pm *Tmux) Status(
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
 	}
 
-	result, err := pm.executor.ExecWithWriter(
+	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
 		fmt.Sprintf(`tmux has-session -t %s`, server.UUID()),
 		out,
@@ -168,7 +170,7 @@ func (pm *Tmux) SendInput(
 
 	input = strconv.Quote(strings.ReplaceAll(input, `\"`, `"`))
 
-	result, err := pm.executor.ExecWithWriter(
+	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
 		fmt.Sprintf(`tmux send-keys -t %s %s ENTER`, server.UUID(), input),
 		out,
@@ -187,7 +189,7 @@ func (pm *Tmux) makeTmuxInitialSession(ctx context.Context, server *domain.Serve
 		return errors.WithMessage(err, "invalid server configuration")
 	}
 
-	_, result, err := pm.executor.Exec(
+	_, result, err := pm.detailedExecutor.Exec(
 		ctx,
 		"tmux has-session -t gameap",
 		defaultOptions,
@@ -210,7 +212,7 @@ func (pm *Tmux) makeTmuxInitialSession(ctx context.Context, server *domain.Serve
 		runAsUser = currentUser.Username
 	}
 
-	result, err = pm.executor.ExecWithWriter(
+	result, err = pm.detailedExecutor.ExecWithWriter(
 		ctx,
 		fmt.Sprintf("su %s -c %s", runAsUser, strconv.Quote("tmux new -d -s gameap")),
 		out,
