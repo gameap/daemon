@@ -34,9 +34,8 @@ const (
 )
 
 type SystemD struct {
-	cfg              *config.Config
-	executor         contracts.Executor
-	detailedExecutor contracts.Executor
+	cfg      *config.Config
+	executor contracts.Executor
 }
 
 func NewSystemD(cfg *config.Config, _, detailedExecutor contracts.Executor) *SystemD {
