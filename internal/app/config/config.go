@@ -105,7 +105,9 @@ func (cfg *Config) Init() error {
 		cfg.TaskManager.RunTaskPeriod = 10 * time.Millisecond
 	}
 
-	cfg.ProcessManager.Name = defaultProcessManager
+	if cfg.ProcessManager.Name == "" {
+		cfg.ProcessManager.Name = defaultProcessManager
+	}
 
 	return cfg.validate()
 }
