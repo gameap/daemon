@@ -28,6 +28,8 @@ const (
 	servicePrefix      = "gameapServer"
 
 	outputSizeLimit = 30000
+
+	errorCodeCannotStart = 1053
 )
 
 type WinSW struct {
@@ -154,21 +156,17 @@ func (pm *WinSW) command(
 
 	result, err = pm.runWinSWCommand(ctx, command, server, out)
 	if err != nil {
-		if command == "start" {
-			logger.Warn(ctx, errors.WithMessage(err, "failed to run command"))
-			result, err = pm.tryFixReinstallService(ctx, server, out)
-			if err != nil {
-				return domain.ErrorResult, errors.WithMessage(err, "failed to try fix by reinstalling service")
-			}
-			if result != domain.SuccessResult {
-				return domain.ErrorResult, errors.New("failed to try fix by reinstalling service")
-			}
+		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+	}
 
-			result, err = pm.runWinSWCommand(ctx, command, server, out)
-			if err != nil {
-				return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
-			}
-		} else {
+	if result == errorCodeCannotStart && command == "start" {
+		_, err = pm.tryFixReinstallService(ctx, server, out)
+		if err != nil {
+			return domain.ErrorResult, errors.WithMessage(err, "failed to try fix by reinstalling service")
+		}
+
+		result, err = pm.runWinSWCommand(ctx, command, server, out)
+		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
 		}
 	}
