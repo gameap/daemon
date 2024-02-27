@@ -154,7 +154,23 @@ func (pm *WinSW) command(
 
 	result, err = pm.runWinSWCommand(ctx, command, server, out)
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+		if command == "start" {
+			logger.Warn(ctx, errors.WithMessage(err, "failed to run command"))
+			result, err = pm.tryFixReinstallService(ctx, server, out)
+			if err != nil {
+				return domain.ErrorResult, errors.WithMessage(err, "failed to try fix by reinstalling service")
+			}
+			if result != domain.SuccessResult {
+				return domain.ErrorResult, errors.New("failed to try fix by reinstalling service")
+			}
+
+			result, err = pm.runWinSWCommand(ctx, command, server, out)
+			if err != nil {
+				return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+			}
+		} else {
+			return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+		}
 	}
 
 	return result, nil
@@ -197,6 +213,26 @@ func (pm *WinSW) SendInput(
 	ctx context.Context, input string, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
 	return domain.ErrorResult, errors.New("input is not supported on Windows")
+}
+
+func (pm *WinSW) tryFixReinstallService(
+	ctx context.Context, server *domain.Server, out io.Writer,
+) (domain.Result, error) {
+	result, err := pm.runWinSWCommand(ctx, "uninstall", server, out)
+	if err != nil {
+		logger.Warn(ctx, errors.WithMessage(err, "failed to uninstall service"))
+	}
+
+	result, err = pm.runWinSWCommand(ctx, "install", server, out)
+	if err != nil {
+		logger.Warn(ctx, errors.WithMessage(err, "failed to install service"))
+	}
+
+	if result != domain.SuccessResult {
+		return domain.ErrorResult, errors.New("failed to install service")
+	}
+
+	return domain.SuccessResult, nil
 }
 
 func checkUser(name string) error {
