@@ -196,7 +196,7 @@ func (pm *WinSW) GetOutput(ctx context.Context, server *domain.Server, out io.Wr
 func (pm *WinSW) SendInput(
 	ctx context.Context, input string, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	return domain.ErrorResult, errors.New("input is not supported")
+	return domain.ErrorResult, errors.New("input is not supported on Windows")
 }
 
 func checkUser(name string) error {
