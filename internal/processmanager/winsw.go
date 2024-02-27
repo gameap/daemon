@@ -313,7 +313,7 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 
 	if filepath.Ext(executable) == ".bat" {
 		executable = "cmd.exe"
-		argArr = append(argArr, "/c", executable)
+		argArr = append(argArr, "/c", cmdArr[0])
 	}
 
 	argArr = append(argArr, cmdArr[1:]...)
