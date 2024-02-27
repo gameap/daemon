@@ -274,13 +274,21 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 	}
 
 	executable := cmdArr[0]
+
+	argArr := make([]string, 0, len(cmdArr)*2)
+
+	if filepath.Ext(executable) == ".bat" {
+		executable = "cmd.exe"
+		argArr = append(argArr, "/c", cmd)
+	}
+
+	argArr = append(argArr, cmdArr[1:]...)
+
 	var arguments string
 
 	if len(cmdArr) > 1 {
-		arguments = strings.Join(cmdArr[1:], " ")
+		arguments = strings.Join(argArr, " ")
 	}
-
-	executable = filepath.Join(server.WorkDir(pm.cfg), executable)
 
 	serviceName := pm.serviceName(server)
 	serviceConfig := WinSWServiceConfig{
