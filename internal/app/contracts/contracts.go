@@ -54,6 +54,9 @@ type Executor interface {
 }
 
 type ProcessManager interface {
+	Install(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
+	Uninstall(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
+
 	Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
 	Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
 	Restart(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)

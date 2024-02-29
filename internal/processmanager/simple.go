@@ -24,6 +24,16 @@ func NewSimple(cfg *config.Config, executor, detailedExecutor contracts.Executor
 	}
 }
 
+func (pm *Simple) Install(_ context.Context, _ *domain.Server, _ io.Writer) (domain.Result, error) {
+	// Nothing to do here
+	return domain.SuccessResult, nil
+}
+
+func (pm *Simple) Uninstall(_ context.Context, _ *domain.Server, _ io.Writer) (domain.Result, error) {
+	// Nothing to do here
+	return domain.SuccessResult, nil
+}
+
 func (pm *Simple) Start(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {

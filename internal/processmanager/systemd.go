@@ -45,6 +45,20 @@ func NewSystemD(cfg *config.Config, _, detailedExecutor contracts.Executor) *Sys
 	}
 }
 
+func (pm *SystemD) Install(
+	_ context.Context, _ *domain.Server, _ io.Writer,
+) (domain.Result, error) {
+	// Nothing to do here
+	return domain.SuccessResult, nil
+}
+
+func (pm *SystemD) Uninstall(
+	_ context.Context, _ *domain.Server, _ io.Writer,
+) (domain.Result, error) {
+	// Nothing to do here
+	return domain.SuccessResult, nil
+}
+
 func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	f, err := os.Create(pm.logFile(server))
 	if err != nil {

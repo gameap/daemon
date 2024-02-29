@@ -33,6 +33,13 @@ func (cmd *defaultDeleteServer) Execute(ctx context.Context, server *domain.Serv
 		cmd.SetComplete()
 	}()
 
+	_, err := cmd.processManager.Uninstall(ctx, server, cmd.output)
+	if err != nil {
+		cmd.SetResult(ErrorResult)
+		_, _ = cmd.output.Write([]byte(err.Error()))
+		return errors.WithMessage(err, "failed to execute process manager uninstall")
+	}
+
 	if cmd.cfg.Scripts.Delete != "" {
 		return cmd.removeByScript(ctx, server)
 	}

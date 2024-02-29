@@ -146,6 +146,12 @@ func (cmd *installServer) Execute(ctx context.Context, server *domain.Server) er
 		return errors.WithMessage(err, "[game_server_commands.installServer] failed to install game server")
 	}
 
+	_, err = cmd.processManager.Install(ctx, server, cmd.installOutput)
+	if err != nil {
+		cmd.SetResult(ErrorResult)
+		return errors.WithMessage(err, "failed to execute process manager install")
+	}
+
 	return cmd.startServerIfNeeded(ctx, server)
 }
 

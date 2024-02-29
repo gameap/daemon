@@ -30,6 +30,14 @@ const (
 	outputSizeLimit = 30000
 
 	errorCodeCannotStart = 1053
+
+	commandInstall   = "install"
+	commandRefresh   = "refresh"
+	commandUninstall = "uninstall"
+	commandStart     = "start"
+	commandStop      = "stop"
+	commandRestart   = "restart"
+	commandStatus    = "status"
 )
 
 type WinSW struct {
@@ -44,17 +52,34 @@ func NewWinSW(cfg *config.Config, _, detailedExecutor contracts.Executor) *WinSW
 	}
 }
 
-func (pm *WinSW) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	return pm.command(ctx, server, "start", out)
-}
-
-func (pm *WinSW) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	_, err := pm.runWinSWCommand(ctx, "stop", server, out)
+func (pm *WinSW) Install(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	createdNewService, err := pm.makeService(ctx, server)
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to run stop command")
+		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
 	}
 
-	_, err = pm.runWinSWCommand(ctx, "uninstall", server, out)
+	var result domain.Result
+
+	if createdNewService {
+		result, err = pm.runWinSWCommand(ctx, commandInstall, server, out)
+		if err != nil {
+			return domain.ErrorResult, errors.WithMessage(err, "failed to install service")
+		}
+		if result != domain.SuccessResult {
+			return domain.ErrorResult, errors.New("failed to install service")
+		}
+	} else {
+		result, err = pm.runWinSWCommand(ctx, commandRefresh, server, out)
+		if err != nil {
+			return domain.ErrorResult, errors.WithMessage(err, "failed to refresh service")
+		}
+	}
+
+	return domain.SuccessResult, nil
+}
+
+func (pm *WinSW) Uninstall(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	_, err := pm.runWinSWCommand(ctx, commandUninstall, server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to run uninstall command")
 	}
@@ -67,8 +92,21 @@ func (pm *WinSW) Stop(ctx context.Context, server *domain.Server, out io.Writer)
 	return domain.SuccessResult, nil
 }
 
+func (pm *WinSW) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	return pm.command(ctx, server, commandStart, out)
+}
+
+func (pm *WinSW) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	_, err := pm.runWinSWCommand(ctx, commandStop, server, out)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to run stop command")
+	}
+
+	return domain.SuccessResult, nil
+}
+
 func (pm *WinSW) Restart(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	return pm.command(ctx, server, "restart", out)
+	return pm.command(ctx, server, commandRestart, out)
 }
 
 const (
@@ -82,7 +120,7 @@ func (pm *WinSW) Status(ctx context.Context, server *domain.Server, out io.Write
 		return domain.ErrorResult, nil
 	}
 
-	result, err := pm.runWinSWCommand(ctx, "status", server, out)
+	result, err := pm.runWinSWCommand(ctx, commandStatus, server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to get daemon status")
 	}
@@ -129,7 +167,7 @@ func (pm *WinSW) command(
 	var result domain.Result
 
 	if createdNewService {
-		result, err = pm.runWinSWCommand(ctx, "install", server, out)
+		result, err = pm.runWinSWCommand(ctx, commandInstall, server, out)
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to install service")
 		}
@@ -137,14 +175,14 @@ func (pm *WinSW) command(
 			return domain.ErrorResult, errors.New("failed to install service")
 		}
 	} else {
-		result, err = pm.runWinSWCommand(ctx, "refresh", server, out)
+		result, err = pm.runWinSWCommand(ctx, commandRefresh, server, out)
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to refresh service")
 		}
 		if result != domain.SuccessResult {
 			logger.Warn(ctx, "failed to refresh service config, trying to install service")
 
-			result, err = pm.runWinSWCommand(ctx, "install", server, out)
+			result, err = pm.runWinSWCommand(ctx, commandInstall, server, out)
 			if err != nil {
 				return domain.ErrorResult, errors.WithMessage(err, "failed to install service")
 			}
@@ -159,7 +197,7 @@ func (pm *WinSW) command(
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
 	}
 
-	if result == errorCodeCannotStart && command == "start" {
+	if result == errorCodeCannotStart && command == commandStart {
 		_, err = pm.tryFixReinstallService(ctx, server, out)
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to try fix by reinstalling service")
@@ -216,12 +254,12 @@ func (pm *WinSW) SendInput(
 func (pm *WinSW) tryFixReinstallService(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	result, err := pm.runWinSWCommand(ctx, "uninstall", server, out)
+	result, err := pm.runWinSWCommand(ctx, commandUninstall, server, out)
 	if err != nil {
 		logger.Warn(ctx, errors.WithMessage(err, "failed to uninstall service"))
 	}
 
-	result, err = pm.runWinSWCommand(ctx, "install", server, out)
+	result, err = pm.runWinSWCommand(ctx, commandInstall, server, out)
 	if err != nil {
 		logger.Warn(ctx, errors.WithMessage(err, "failed to install service"))
 	}
@@ -256,13 +294,35 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, 
 		}
 	}
 
-	createdNew := false
+	serviceFileNotExist := false
+
+	_, err := os.Stat(serviceFile)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, errors.WithMessage(err, "failed to check file")
+	}
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		serviceFileNotExist = true
+	}
+
+	serviceConfig, err := pm.buildServiceConfig(server)
+	if err != nil {
+		return false, errors.WithMessage(err, "failed to build service config")
+	}
+
+	// If service file exists, check if it's the same
+	if !serviceFileNotExist {
+		oldServiceConfig, err := os.ReadFile(serviceFile)
+		if err != nil {
+			return false, errors.WithMessage(err, "failed to read file")
+		}
+
+		if string(oldServiceConfig) == serviceConfig {
+			return false, nil
+		}
+	}
+
 	flag := os.O_TRUNC | os.O_WRONLY
-	if _, err := os.Stat(serviceFile); errors.Is(err, os.ErrNotExist) {
-		// It means that service file does not exist.
-		// We will create new service.
-		// If file exists, we will update it.
-		createdNew = true
+	if serviceFileNotExist {
 		flag = os.O_CREATE | os.O_WRONLY
 	}
 
@@ -277,17 +337,12 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, 
 		}
 	}()
 
-	c, err := pm.buildServiceConfig(server)
-	if err != nil {
-		return false, errors.WithMessage(err, "failed to build service config")
-	}
-
-	_, err = f.WriteString(c)
+	_, err = f.WriteString(serviceConfig)
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to write to file")
 	}
 
-	return createdNew, nil
+	return serviceFileNotExist, nil
 }
 
 func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
