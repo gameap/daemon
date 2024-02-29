@@ -411,9 +411,8 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 			{Action: "restart", Delay: "5 sec"},
 			{Action: "restart", Delay: "5 sec"},
 		},
-		Startmode:        "Automatic",
-		DelayedAutoStart: "true",
-		ResetFailure:     "1 hour",
+		ResetFailure: "1 hour",
+		AutoRefresh:  "false",
 	}
 
 	rawPw, exists := pm.cfg.Users[server.User()]
@@ -484,8 +483,7 @@ type WinSWServiceConfig struct {
 	OnFailure    []onFailure `xml:"onfailure,omitempty"`
 	ResetFailure string      `xml:"resetfailure,omitempty"`
 
-	Startmode        string `xml:"startmode"`
-	DelayedAutoStart string `xml:"delayedAutoStart"`
+	AutoRefresh string `xml:"autoRefresh,omitempty"`
 
 	Logpath string `xml:"logpath,omitempty"`
 	Log     log    `xml:"log,omitempty"`
