@@ -29,7 +29,8 @@ const (
 
 	outputSizeLimit = 30000
 
-	errorCodeCannotStart = 1053
+	errorCodeCannotStart     = 1053
+	errorCodeServiceNotExist = 1060
 
 	commandInstall   = "install"
 	commandRefresh   = "refresh"
@@ -53,7 +54,7 @@ func NewWinSW(cfg *config.Config, _, detailedExecutor contracts.Executor) *WinSW
 }
 
 func (pm *WinSW) Install(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	createdNewService, err := pm.makeService(ctx, server)
+	createdNewService, err := pm.makeService(ctx, server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
 	}
@@ -159,7 +160,7 @@ func (pm *WinSW) command(
 		return domain.ErrorResult, errors.WithMessage(err, "failed to check user")
 	}
 
-	createdNewService, err := pm.makeService(ctx, server)
+	createdNewService, err := pm.makeService(ctx, server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
 	}
@@ -179,7 +180,7 @@ func (pm *WinSW) command(
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to refresh service")
 		}
-		if result != domain.SuccessResult {
+		if result == errorCodeServiceNotExist {
 			logger.Warn(ctx, "failed to refresh service config, trying to install service")
 
 			result, err = pm.runWinSWCommand(ctx, commandInstall, server, out)
@@ -189,6 +190,8 @@ func (pm *WinSW) command(
 			if result != domain.SuccessResult {
 				return domain.ErrorResult, errors.New("failed to refresh and install service")
 			}
+		} else if result != domain.SuccessResult {
+			return domain.ErrorResult, errors.New("failed to refresh service")
 		}
 	}
 
@@ -284,10 +287,11 @@ func checkUser(name string) error {
 	return nil
 }
 
-func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, error) {
+func (pm *WinSW) makeService(ctx context.Context, server *domain.Server, out io.Writer) (bool, error) {
 	serviceFile := pm.serviceFile(server)
 
 	if _, err := os.Stat(servicesConfigPath); errors.Is(err, os.ErrNotExist) {
+		_, _ = out.Write([]byte("Creating directory " + servicesConfigPath + "\n"))
 		err := os.MkdirAll(servicesConfigPath, 0755)
 		if err != nil {
 			return false, errors.WithMessage(err, "failed to create directory")
@@ -301,6 +305,7 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, 
 		return false, errors.WithMessage(err, "failed to check file")
 	}
 	if err != nil && errors.Is(err, os.ErrNotExist) {
+		_, _ = out.Write([]byte("Service file not found\n"))
 		serviceFileNotExist = true
 	}
 
@@ -311,14 +316,20 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, 
 
 	// If service file exists, check if it's the same
 	if !serviceFileNotExist {
+		_, _ = out.Write([]byte("Service file exists\n"))
+		_, _ = out.Write([]byte("Checking if service configuration wasn't changed\n"))
+
 		oldServiceConfig, err := os.ReadFile(serviceFile)
 		if err != nil {
 			return false, errors.WithMessage(err, "failed to read file")
 		}
 
 		if string(oldServiceConfig) == serviceConfig {
+			_, _ = out.Write([]byte("Service configuration wasn't changed\n"))
 			return false, nil
 		}
+
+		_, _ = out.Write([]byte("Service configuration was changed\n"))
 	}
 
 	flag := os.O_TRUNC | os.O_WRONLY
@@ -340,6 +351,11 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server) (bool, 
 	_, err = f.WriteString(serviceConfig)
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to write to file")
+	}
+
+	err = f.Sync()
+	if err != nil {
+		return false, errors.WithMessage(err, "failed to sync file")
 	}
 
 	return serviceFileNotExist, nil
