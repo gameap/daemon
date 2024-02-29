@@ -482,6 +482,9 @@ type WinSWServiceConfig struct {
 	OnFailure    []onFailure `xml:"onfailure,omitempty"`
 	ResetFailure string      `xml:"resetfailure,omitempty"`
 
+	Startmode        string `xml:"startmode,default=Automatic"`
+	DelayedAutoStart string `xml:"delayedAutoStart,default=true"`
+
 	Logpath string `xml:"logpath,omitempty"`
 	Log     log    `xml:"log,omitempty"`
 
