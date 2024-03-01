@@ -53,14 +53,36 @@ func (pm *SystemD) Install(
 }
 
 func (pm *SystemD) Uninstall(
-	_ context.Context, _ *domain.Server, _ io.Writer,
+	ctx context.Context, server *domain.Server, _ io.Writer,
 ) (domain.Result, error) {
-	// Nothing to do here
+	err := os.Remove(pm.socketFile(server))
+	if err != nil {
+		logger.WithError(ctx, err).Warn("failed to remove socket file")
+	}
+
+	err = os.Remove(pm.serviceFile(server))
+	if err != nil {
+		logger.WithError(ctx, err).Warn("failed to remove service file")
+	}
+
+	err = pm.daemonReload(ctx)
+	if err != nil {
+		logger.Logger(ctx).WithError(err).Warn("Failed to daemon-reload")
+	}
+
 	return domain.SuccessResult, nil
 }
 
 func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	f, err := os.Create(pm.logFile(server))
+	logFile := pm.logFile(server)
+	if _, err := os.Stat(logFile); errors.Is(err, os.ErrNotExist) {
+		err = os.MkdirAll(filepath.Dir(logFile), 0755)
+		if err != nil {
+			return domain.ErrorResult, errors.WithMessage(err, "failed to create directory")
+		}
+	}
+
+	f, err := os.Create(logFile)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to create file")
 	}
@@ -104,21 +126,6 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
 	}
 
-	err = os.Remove(pm.socketFile(server))
-	if err != nil {
-		logger.WithError(ctx, err).Warn("failed to remove socket file")
-	}
-
-	err = os.Remove(pm.serviceFile(server))
-	if err != nil {
-		logger.WithError(ctx, err).Warn("failed to remove service file")
-	}
-
-	err = pm.daemonReload(ctx)
-	if err != nil {
-		logger.Logger(ctx).WithError(err).Warn("Failed to daemon-reload")
-	}
-
 	return domain.Result(result), nil
 }
 
@@ -146,16 +153,18 @@ func (pm *SystemD) command(
 		return domain.ErrorResult, errors.WithMessage(err, "failed to daemon-reload")
 	}
 
-	_, err = pm.executor.ExecWithWriter(
-		ctx,
-		fmt.Sprintf("systemctl %s %s", command, pm.socketName(server)),
-		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
-	)
-	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+	if command != "restart" {
+		_, err = pm.executor.ExecWithWriter(
+			ctx,
+			fmt.Sprintf("systemctl %s %s", command, pm.socketName(server)),
+			out,
+			contracts.ExecutorOptions{
+				WorkDir: pm.cfg.WorkDir(),
+			},
+		)
+		if err != nil {
+			return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+		}
 	}
 
 	result, err := pm.executor.ExecWithWriter(
