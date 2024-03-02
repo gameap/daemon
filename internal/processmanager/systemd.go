@@ -153,10 +153,18 @@ func (pm *SystemD) command(
 		return domain.ErrorResult, errors.WithMessage(err, "failed to daemon-reload")
 	}
 
-	if command != "restart" {
+	serviceName := pm.serviceName(server)
+	socketName := pm.socketName(server)
+
+	s, err := pm.status(ctx, socketName, out)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to get status")
+	}
+
+	if s != domain.SuccessResult {
 		_, err = pm.executor.ExecWithWriter(
 			ctx,
-			fmt.Sprintf("systemctl %s %s", command, pm.socketName(server)),
+			fmt.Sprintf("systemctl start %s", socketName),
 			out,
 			contracts.ExecutorOptions{
 				WorkDir: pm.cfg.WorkDir(),
@@ -169,7 +177,7 @@ func (pm *SystemD) command(
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl %s %s", command, pm.serviceName(server)),
+		fmt.Sprintf("systemctl %s %s", command, serviceName),
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
@@ -194,9 +202,13 @@ func (pm *SystemD) daemonReload(ctx context.Context) error {
 }
 
 func (pm *SystemD) Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	return pm.status(ctx, pm.serviceName(server), out)
+}
+
+func (pm *SystemD) status(ctx context.Context, name string, out io.Writer) (domain.Result, error) {
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl status %s", pm.serviceName(server)),
+		fmt.Sprintf("systemctl status %s", name),
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
