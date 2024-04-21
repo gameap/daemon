@@ -20,13 +20,13 @@ func Test_Limiter(t *testing.T) {
 	s := NewAPICallScheduler(
 		10*time.Millisecond,
 		5,
-		func(ctx context.Context, q *Queue) error {
+		func(_ context.Context, q *Queue) error {
 			q.Get()
 			calledSingle++
 			count++
 			return nil
 		},
-		func(ctx context.Context, q *Queue) error {
+		func(_ context.Context, q *Queue) error {
 			n := q.GetN(10)
 			calledBulk++
 			count += len(n)

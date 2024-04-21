@@ -9,9 +9,9 @@ import (
 var errInvalidCommandExecMessage = errors.New("unknown binn value, cannot be presented as execute command message")
 
 type commandExec struct {
-	Kind    uint8
 	Command string
 	WorkDir string
+	Kind    uint8
 }
 
 func (s *commandExec) UnmarshalBINN(bytes []byte) error {

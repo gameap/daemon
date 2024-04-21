@@ -60,3 +60,12 @@ issues:
         - funlen
         - revive
         - stylecheck
+
+linters-settings:
+  gosimple:
+    checks: [ "all" ]
+  gofmt:
+    simplify: true
+  govet:
+    enable:
+      - fieldalignment

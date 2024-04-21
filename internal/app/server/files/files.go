@@ -162,7 +162,7 @@ func moveCopy(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error
 			message.Source,
 			message.Destination,
 			copy.Options{
-				OnSymlink: func(src string) copy.SymlinkAction {
+				OnSymlink: func(_ string) copy.SymlinkAction {
 					return copy.Shallow
 				},
 			},

@@ -105,7 +105,7 @@ func (manager *TaskManager) RunWorker(ctx context.Context) {
 func (manager *TaskManager) Stats() domain.GDTaskStats {
 	stats := domain.GDTaskStats{}
 
-	manager.commandsInProgress.Range(func(key, value interface{}) bool {
+	manager.commandsInProgress.Range(func(_, _ interface{}) bool {
 		stats.WorkingCount++
 		return true
 	})
