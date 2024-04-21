@@ -33,15 +33,15 @@ type ServerTaskRepository interface {
 }
 
 type ServerTask struct {
+	executeDate  time.Time
+	server       *Server
+	mutex        *sync.Mutex
+	command      ServerTaskCommand
 	id           int
 	status       ServerTaskStatus
-	command      ServerTaskCommand
-	server       *Server
 	repeat       int
 	repeatPeriod time.Duration
 	counter      int
-	executeDate  time.Time
-	mutex        *sync.Mutex
 }
 
 func NewServerTask(
@@ -54,15 +54,15 @@ func NewServerTask(
 	executeDate time.Time,
 ) *ServerTask {
 	return &ServerTask{
-		id,
-		ServerTaskStatusWaiting,
-		command,
-		server,
-		repeat,
-		repeatPeriod,
-		counter,
-		executeDate,
-		&sync.Mutex{},
+		id:           id,
+		status:       ServerTaskStatusWaiting,
+		command:      command,
+		server:       server,
+		repeat:       repeat,
+		repeatPeriod: repeatPeriod,
+		counter:      counter,
+		executeDate:  executeDate,
+		mutex:        &sync.Mutex{},
 	}
 }
 
@@ -71,13 +71,13 @@ func (s ServerTask) MarshalJSON() ([]byte, error) {
 	defer s.mutex.Unlock()
 
 	return json.Marshal(struct {
+		ExecuteDate           string `json:"execute_date"`
 		Repeat                int    `json:"repeat"`
 		RepeatPeriodInSeconds int    `json:"repeat_period"`
-		ExecuteDate           string `json:"execute_date"`
 	}{
+		ExecuteDate:           s.executeDate.Format("2006-01-02 15:04:05"),
 		Repeat:                s.repeat,
 		RepeatPeriodInSeconds: int(s.repeatPeriod.Seconds()),
-		ExecuteDate:           s.executeDate.Format("2006-01-02 15:04:05"),
 	})
 }
 

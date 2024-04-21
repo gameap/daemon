@@ -58,13 +58,13 @@ func (fi fileInfoResponse) MarshalBINN() ([]byte, error) {
 //nolint:maligned
 type fileDetailsResponse struct {
 	Name             string
+	Mime             string
 	Size             uint64
-	Type             uint8
 	ModificationTime uint64
 	AccessTime       uint64
 	CreateTime       uint64
 	Perm             uint32
-	Mime             string
+	Type             uint8
 }
 
 func createfileDetailsResponse(path string) (*fileDetailsResponse, error) {

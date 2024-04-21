@@ -12,9 +12,9 @@ import (
 var errUnknownBinn = errors.New("unknown binn value, cannot be presented as status")
 
 type Response struct {
-	Code Code
-	Info string
 	Data interface{}
+	Info string
+	Code Code
 }
 
 type Code uint8

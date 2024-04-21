@@ -27,6 +27,7 @@ type SteamConfig struct {
 	Password string `yaml:"password"`
 }
 
+//nolint:govet
 type Config struct {
 	NodeID uint `yaml:"ds_id"`
 

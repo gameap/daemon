@@ -12,13 +12,10 @@ import (
 )
 
 type defaultStartServer struct {
-	baseCommand
-
-	startOutput io.ReadWriter
-
+	startOutput       io.ReadWriter
+	updateCommand     contracts.GameServerCommand
 	loadServerCommand LoadServerCommandFunc
-
-	updateCommand        contracts.GameServerCommand
+	baseCommand
 	enableUpdatingBefore bool
 }
 

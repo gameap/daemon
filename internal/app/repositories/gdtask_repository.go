@@ -19,12 +19,12 @@ type GDTaskRepository struct {
 }
 
 type task struct {
-	ID         int    `json:"id"`
-	RunAfterID int    `json:"run_after_id"`
-	Server     int    `json:"server_id"`
 	Task       string `json:"task"`
 	Cmd        string `json:"cmd"`
 	Status     string `json:"status"`
+	ID         int    `json:"id"`
+	RunAfterID int    `json:"run_after_id"`
+	Server     int    `json:"server_id"`
 }
 
 func NewGDTaskRepository(

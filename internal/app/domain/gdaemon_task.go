@@ -47,14 +47,13 @@ type GDTaskRepository interface {
 }
 
 type GDTask struct {
-	id         int
-	runAfterID int
-	server     *Server
-	task       GDTaskCommand
-	cmd        string
-
+	server      *Server
 	statusMutex *sync.Mutex
 	status      GDTaskStatus
+	task        GDTaskCommand
+	cmd         string
+	id          int
+	runAfterID  int
 }
 
 func NewGDTask(
@@ -66,13 +65,13 @@ func NewGDTask(
 	status GDTaskStatus,
 ) *GDTask {
 	return &GDTask{
-		id,
-		runAfterID,
-		server,
-		task,
-		cmd,
-		&sync.Mutex{},
-		status,
+		id:          id,
+		runAfterID:  runAfterID,
+		server:      server,
+		task:        task,
+		cmd:         cmd,
+		statusMutex: &sync.Mutex{},
+		status:      status,
 	}
 }
 

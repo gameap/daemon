@@ -52,6 +52,7 @@ issues:
         - dupl
         - gosec
         - scopelint
+        - govet
     - path: internal/app/di
       linters:
         - govet

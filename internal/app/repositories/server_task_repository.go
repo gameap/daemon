@@ -28,13 +28,13 @@ func NewServerTaskRepository(
 }
 
 type serverTask struct {
-	ID           int    `json:"id"`
 	Command      string `json:"command"`
+	ExecuteDate  string `json:"execute_date"`
+	ID           int    `json:"id"`
 	ServerID     int    `json:"server_id"`
 	Repeat       int    `json:"repeat"`
 	RepeatPeriod int    `json:"repeat_period"`
 	Counter      int    `json:"counter"`
-	ExecuteDate  string `json:"execute_date"`
 }
 
 func (repo *ServerTaskRepository) Find(ctx context.Context) ([]*domain.ServerTask, error) {

@@ -60,17 +60,15 @@ type installationRule struct {
 }
 
 type installServer struct {
+	serverRepo    domain.ServerRepository
+	installOutput io.ReadWriter
+	statusCommand contracts.GameServerCommand
+	stopCommand   contracts.GameServerCommand
+	startCommand  contracts.GameServerCommand
+	installator   *installator
 	baseCommand
-
-	installator *installator
-	serverRepo  domain.ServerRepository
-	kind        installatorKind
-
-	installOutput                     io.ReadWriter
+	kind                              installatorKind
 	serverWasActiveBeforeInstallation bool
-	statusCommand                     contracts.GameServerCommand
-	stopCommand                       contracts.GameServerCommand
-	startCommand                      contracts.GameServerCommand
 }
 
 func newUpdateServer(

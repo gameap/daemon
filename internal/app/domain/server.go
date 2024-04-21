@@ -53,45 +53,34 @@ type Settings map[string]string
 
 //nolint:maligned
 type Server struct {
-	id            int
-	enabled       bool
-	installStatus InstallationStatus
-	blocked       bool
-
-	name      string
-	uuid      string
-	uuidShort string
-
-	game    Game
-	gameMod GameMod
-
-	ip           string
-	connectPort  int
-	queryPort    int
-	rconPort     int
-	rconPassword string
-
-	dir  string
-	user string
-
-	startCommand     string
-	stopCommand      string
-	forceStopCommand string
-	restartCommand   string
-
-	processActive    bool
-	lastProcessCheck time.Time
-
-	vars map[string]string
-
-	settings Settings
-
-	updatedAt           time.Time
+	lastProcessCheck    time.Time
 	lastTaskCompletedAt time.Time
-
-	changeset *hashset.Set
-
-	mu *sync.RWMutex
+	updatedAt           time.Time
+	mu                  *sync.RWMutex
+	changeset           *hashset.Set
+	settings            Settings
+	vars                map[string]string
+	restartCommand      string
+	uuid                string
+	forceStopCommand    string
+	uuidShort           string
+	stopCommand         string
+	ip                  string
+	rconPassword        string
+	dir                 string
+	user                string
+	startCommand        string
+	name                string
+	game                Game
+	gameMod             GameMod
+	id                  int
+	connectPort         int
+	queryPort           int
+	installStatus       InstallationStatus
+	rconPort            int
+	processActive       bool
+	enabled             bool
+	blocked             bool
 }
 
 func NewServer(

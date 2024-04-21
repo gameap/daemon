@@ -25,27 +25,25 @@ import (
 var errInvalidMode = errors.New("invalid server mode")
 
 type CredentialsConfig struct {
-	PasswordAuthentication bool
 	Login                  string
 	Password               string
+	PasswordAuthentication bool
 }
 
 type Server struct {
-	ip   string
-	port int
-
-	certFile   string
-	keyFile    string
-	credConfig CredentialsConfig
-
-	listener net.Listener
-	quit     chan struct{}
-	wg       sync.WaitGroup
-
-	connTimeout time.Duration
-
+	listener        net.Listener
 	executor        contracts.Executor
 	taskStatsReader domain.GDTaskStatsReader
+
+	quit chan struct{}
+
+	ip          string
+	certFile    string
+	keyFile     string
+	credConfig  CredentialsConfig
+	wg          sync.WaitGroup
+	port        int
+	connTimeout time.Duration
 }
 
 type componentHandler interface {

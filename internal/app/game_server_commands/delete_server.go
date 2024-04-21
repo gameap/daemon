@@ -15,8 +15,8 @@ import (
 var errForbiddenWorkDirectoryPath = errors.New("forbidden game server work directory path")
 
 type defaultDeleteServer struct {
-	baseCommand
 	bufCommand
+	baseCommand
 }
 
 func newDefaultDeleteServer(

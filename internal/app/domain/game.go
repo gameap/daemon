@@ -41,10 +41,10 @@ type Game struct {
 	Name              string     `json:"name"`
 	Engine            string     `json:"engine"`
 	EngineVersion     string     `json:"engine_version"`
-	SteamAppID        SteamAppID `json:"steam_app_id"`
 	SteamAppSetConfig string     `json:"steam_app_set_config"`
 	RemoteRepository  string     `json:"remote_repository"`
 	LocalRepository   string     `json:"local_repository"`
+	SteamAppID        SteamAppID `json:"steam_app_id"`
 }
 
 type SteamSettings struct {
@@ -92,13 +92,11 @@ func (g *GameModVarTemplate) UnmarshalJSON(bytes []byte) error {
 }
 
 type GameMod struct {
-	ID               int    `json:"id"`
-	Name             string `json:"name"`
-	RemoteRepository string `json:"remote_repository"`
-	LocalRepository  string `json:"local_repository"`
-
-	Vars []GameModVarTemplate `json:"vars"`
-
-	DefaultStartCMDLinux   string `json:"default_start_cmd_linux"`
-	DefaultStartCMDWindows string `json:"default_start_cmd_windows"`
+	Name                   string               `json:"name"`
+	RemoteRepository       string               `json:"remote_repository"`
+	LocalRepository        string               `json:"local_repository"`
+	DefaultStartCMDLinux   string               `json:"default_start_cmd_linux"`
+	DefaultStartCMDWindows string               `json:"default_start_cmd_windows"`
+	Vars                   []GameModVarTemplate `json:"vars"`
+	ID                     int                  `json:"id"`
 }

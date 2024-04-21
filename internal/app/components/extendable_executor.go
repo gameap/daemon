@@ -20,9 +20,9 @@ type CommandsHandlers map[string]CommandHandler
 
 type ExtendableExecutor struct {
 	innerExecutor contracts.Executor
+	handlers      CommandsHandlers
 
-	mu       sync.RWMutex
-	handlers CommandsHandlers
+	mu sync.RWMutex
 }
 
 func NewDefaultExtendableExecutor(executor contracts.Executor) *ExtendableExecutor {

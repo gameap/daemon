@@ -12,12 +12,11 @@ import (
 )
 
 type defaultRestartServer struct {
-	baseCommand
 	bufCommand
-
 	statusServer contracts.GameServerCommand
 	stopServer   contracts.GameServerCommand
 	startServer  contracts.GameServerCommand
+	baseCommand
 }
 
 func newDefaultRestartServer(

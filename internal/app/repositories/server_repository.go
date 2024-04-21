@@ -26,13 +26,11 @@ const (
 )
 
 type ServerRepository struct {
-	innerRepo apiServerRepo
-
 	limitScheduler *limiter.CallScheduler
-
-	mu          sync.Mutex
-	servers     sync.Map // [int]*domain.Server  (serverID => server)
-	lastUpdated sync.Map // [int]time.Time		 (serverID => time)
+	innerRepo      apiServerRepo
+	servers        sync.Map
+	lastUpdated    sync.Map
+	mu             sync.Mutex
 }
 
 func NewServerRepository(ctx context.Context, client contracts.APIRequestMaker, logger *log.Logger) *ServerRepository {
@@ -141,40 +139,31 @@ func (repo *ServerRepository) Save(_ context.Context, server *domain.Server) err
 
 //nolint:maligned
 type serverStruct struct {
-	ID            int  `json:"id"`
-	Enabled       bool `json:"enabled"`
-	InstallStatus int  `json:"installed"`
-	Blocked       bool `json:"blocked"`
-
-	Name      string `json:"name"`
-	UUID      string `json:"uuid"`
-	UUIDShort string `json:"uuid_short"`
-
-	Game    domain.Game    `json:"game"`
-	GameMod domain.GameMod `json:"game_mod"`
-
-	IP           string `json:"server_ip"`
-	ConnectPort  int    `json:"server_port"`
-	QueryPort    int    `json:"query_port"`
-	RconPort     int    `json:"rcon_port"`
-	RconPassword string `json:"rcon"`
-
-	Dir  string `json:"dir"`
-	User string `json:"su_user"`
-
-	StartCommand     string `json:"start_command"`
-	StopCommand      string `json:"stop_command"`
-	ForceStopCommand string `json:"force_stop_command"`
-	RestartCommand   string `json:"restart_command"`
-
-	ProcessActive    bool   `json:"process_active"`
-	LastProcessCheck string `json:"last_process_check"`
-
-	Vars map[string]string `json:"vars"`
-
-	Settings []map[string]interface{} `json:"settings"`
-
-	UpdatedAt string `json:"updated_at"`
+	Vars             map[string]string        `json:"vars"`
+	ForceStopCommand string                   `json:"force_stop_command"`
+	Dir              string                   `json:"dir"`
+	LastProcessCheck string                   `json:"last_process_check"`
+	Name             string                   `json:"name"`
+	UUID             string                   `json:"uuid"`
+	UUIDShort        string                   `json:"uuid_short"`
+	RestartCommand   string                   `json:"restart_command"`
+	StopCommand      string                   `json:"stop_command"`
+	IP               string                   `json:"server_ip"`
+	StartCommand     string                   `json:"start_command"`
+	UpdatedAt        string                   `json:"updated_at"`
+	RconPassword     string                   `json:"rcon"`
+	User             string                   `json:"su_user"`
+	Game             domain.Game              `json:"game"`
+	Settings         []map[string]interface{} `json:"settings"`
+	GameMod          domain.GameMod           `json:"game_mod"`
+	ConnectPort      int                      `json:"server_port"`
+	ID               int                      `json:"id"`
+	InstallStatus    int                      `json:"installed"`
+	RconPort         int                      `json:"rcon_port"`
+	QueryPort        int                      `json:"query_port"`
+	Enabled          bool                     `json:"enabled"`
+	ProcessActive    bool                     `json:"process_active"`
+	Blocked          bool                     `json:"blocked"`
 }
 
 type apiServerRepo struct {
@@ -367,10 +356,10 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 }
 
 type serverSaveStruct struct {
-	ID                 int     `json:"id"`
-	ProcessActive      uint8   `json:"process_active"`
 	InstallationStatus *int    `json:"installed,omitempty"`
 	LastProcessCheck   *string `json:"last_process_check,omitempty"`
+	ID                 int     `json:"id"`
+	ProcessActive      uint8   `json:"process_active"`
 }
 
 func saveStructFromServer(server *domain.Server) serverSaveStruct {

@@ -10,8 +10,8 @@ import (
 )
 
 type statusDefaultServer struct {
-	baseCommand
 	bufCommand
+	baseCommand
 }
 
 func newDefaultStatusServer(

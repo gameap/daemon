@@ -6,8 +6,8 @@ import (
 )
 
 type ErrInvalidResponseFromAPI struct {
-	code int
 	body []byte
+	code int
 }
 
 func NewErrInvalidResponseFromAPI(code int, response []byte) ErrInvalidResponseFromAPI {

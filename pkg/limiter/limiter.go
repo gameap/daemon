@@ -11,11 +11,11 @@ import (
 
 type CallScheduler struct {
 	q               *Queue
-	duration        time.Duration
-	bulkCallFromNum int
 	singleCallFunc  func(ctx context.Context, q *Queue) error
 	bulkCallFunc    func(ctx context.Context, q *Queue) error
 	logger          *log.Logger
+	duration        time.Duration
+	bulkCallFromNum int
 }
 
 func NewAPICallScheduler(
@@ -69,13 +69,12 @@ func (s *CallScheduler) Put(server *domain.Server) {
 
 type Queue struct {
 	q     []any
-	mutex *sync.Mutex
+	mutex sync.Mutex
 }
 
 func NewQueue() *Queue {
 	return &Queue{
-		q:     make([]any, 0),
-		mutex: &sync.Mutex{},
+		q: make([]any, 0),
 	}
 }
 

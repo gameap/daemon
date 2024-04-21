@@ -10,11 +10,11 @@ import (
 // SafeBuffer is a goroutine safe bytes.Buffer.
 type SafeBuffer struct {
 	buffer bytes.Buffer
-	mu     *sync.Mutex
+	mu     sync.Mutex
 }
 
 func NewSafeBuffer() *SafeBuffer {
-	return &SafeBuffer{bytes.Buffer{}, &sync.Mutex{}}
+	return &SafeBuffer{buffer: bytes.Buffer{}}
 }
 
 // Write appends the contents of p to the buffer, growing the buffer as needed. It returns

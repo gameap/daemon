@@ -31,17 +31,15 @@ var taskServerCommandMap = map[domain.GDTaskCommand]domain.ServerCommand{
 }
 
 type TaskManager struct {
-	config               *config.Config
+	lastUpdated          time.Time
 	repository           domain.GDTaskRepository
 	executor             contracts.Executor
+	cache                contracts.Cache
+	config               *config.Config
 	serverCommandFactory *gameservercommands.ServerCommandFactory
-
-	// Runtime
-	mutex              *sync.Mutex
-	lastUpdated        time.Time
-	commandsInProgress sync.Map // map[domain.GDTask]contracts.CommandResultReader
-	queue              *taskQueue
-	cache              contracts.Cache
+	mutex                *sync.Mutex
+	queue                *taskQueue
+	commandsInProgress   sync.Map
 }
 
 func NewTaskManager(
@@ -453,13 +451,12 @@ func (q *taskQueue) Len() int {
 }
 
 type executeCommand struct {
-	config   *config.Config
 	output   io.ReadWriter
-	mu       *sync.Mutex
-	complete bool
-	result   int
-
 	executor contracts.Executor
+	config   *config.Config
+	mu       *sync.Mutex
+	result   int
+	complete bool
 }
 
 func newExecuteCommand(config *config.Config, executor contracts.Executor) *executeCommand {

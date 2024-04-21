@@ -10,8 +10,8 @@ import (
 )
 
 type defaultStopServer struct {
-	baseCommand
 	bufCommand
+	baseCommand
 }
 
 func newDefaultStopServer(

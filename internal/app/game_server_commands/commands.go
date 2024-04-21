@@ -260,10 +260,9 @@ func (c *commandList) Execute(ctx context.Context, server *domain.Server) error 
 }
 
 type nilCommand struct {
-	baseCommand
 	bufCommand
-
-	message    string
+	message string
+	baseCommand
 	resultCode int
 }
 

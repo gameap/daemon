@@ -70,9 +70,9 @@ type DomainPrimitiveValidator interface {
 }
 
 type ExecutorOptions struct {
+	Env             map[string]string
 	WorkDir         string
 	FallbackWorkDir string
 	UID             string
 	GID             string
-	Env             map[string]string
 }
