@@ -288,7 +288,7 @@ func (pm *SystemD) SendInput(
 }
 
 func (pm *SystemD) makeService(ctx context.Context, server *domain.Server) error {
-	f, err := os.OpenFile(pm.serviceFile(server), os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(pm.serviceFile(server), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return errors.WithMessage(err, "failed to open file")
 	}
@@ -350,11 +350,11 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 
 	logFile := pm.logFile(server)
 
-	builder.WriteString("StandardOutput=file:")
+	builder.WriteString("StandardOutput=append:")
 	builder.WriteString(logFile)
 	builder.WriteString("\n")
 
-	builder.WriteString("StandardError=file:")
+	builder.WriteString("StandardError=append:")
 	builder.WriteString(logFile)
 	builder.WriteString("\n")
 
@@ -431,6 +431,7 @@ func (pm *SystemD) buildSocketConfig(server *domain.Server) string {
 	return builder.String()
 }
 
+// Full path to log file
 func (pm *SystemD) logFile(server *domain.Server) string {
 	builder := strings.Builder{}
 	builder.Grow(100)
@@ -445,6 +446,7 @@ func (pm *SystemD) logFile(server *domain.Server) string {
 	return builder.String()
 }
 
+// Full path to stdin file
 func (pm *SystemD) stdinFile(server *domain.Server) string {
 	builder := strings.Builder{}
 	builder.Grow(100)
