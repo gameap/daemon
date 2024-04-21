@@ -431,7 +431,7 @@ func (pm *SystemD) buildSocketConfig(server *domain.Server) string {
 	return builder.String()
 }
 
-// Full path to log file
+// Full path to log file.
 func (pm *SystemD) logFile(server *domain.Server) string {
 	builder := strings.Builder{}
 	builder.Grow(100)
@@ -446,7 +446,7 @@ func (pm *SystemD) logFile(server *domain.Server) string {
 	return builder.String()
 }
 
-// Full path to stdin file
+// Full path to stdin file.
 func (pm *SystemD) stdinFile(server *domain.Server) string {
 	builder := strings.Builder{}
 	builder.Grow(100)
