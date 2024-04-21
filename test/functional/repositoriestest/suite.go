@@ -1,7 +1,6 @@
 package repositoriestest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -208,7 +207,7 @@ func (suite *Suite) AssertAPICalled(method string, url string, body []byte) {
 
 	equalFound := false
 	for _, v := range urlCalled {
-		if bytes.Equal(v, body) {
+		if suite.JSONEq(string(v), string(body)) {
 			equalFound = true
 		}
 	}
