@@ -18,3 +18,7 @@ func Split(input string) (words []string, err error) {
 
 	return shellquote.Split(input)
 }
+
+func Join(words ...string) string {
+	return shellquote.Join(words...)
+}

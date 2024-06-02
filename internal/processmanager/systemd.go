@@ -1,6 +1,3 @@
-//go:build linux
-// +build linux
-
 package processmanager
 
 import (
@@ -8,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -16,6 +14,7 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
+	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
 )
 
@@ -333,13 +332,12 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 
 	builder.WriteString("Type=simple\n")
 
+	cmd, err := pm.makeStartCommand(server)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to make command")
+	}
 	builder.WriteString("ExecStart=")
-	builder.WriteString(
-		filepath.Join(
-			server.WorkDir(pm.cfg),
-			domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand()),
-		),
-	)
+	builder.WriteString(cmd)
 	builder.WriteString("\n")
 
 	builder.WriteString("Sockets=")
@@ -383,6 +381,41 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	builder.WriteString("WantedBy=multi-user.target\n")
 
 	return builder.String(), nil
+}
+
+func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
+	startCMD := server.StartCommand()
+
+	parts, err := shellquote.Split(startCMD)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to split command")
+	}
+
+	cmd := parts[0]
+	args := parts[1:]
+
+	var foundPath string
+
+	if !filepath.IsAbs(cmd) {
+		foundPath, err = exec.LookPath(filepath.Join(server.WorkDir(pm.cfg), cmd))
+		if err != nil {
+			foundPath, err = exec.LookPath(cmd)
+			if err != nil {
+				return "", errors.WithMessagef(err, "failed to find command '%s'", cmd)
+			}
+		}
+	}
+
+	if filepath.IsAbs(cmd) {
+		foundPath, err = exec.LookPath(cmd)
+		if err != nil {
+			return "", errors.WithMessagef(err, "failed to find command '%s'", cmd)
+		}
+	}
+
+	startCommand := shellquote.Join(append([]string{foundPath}, args...)...)
+
+	return domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, startCommand), nil
 }
 
 func (pm *SystemD) makeSocket(ctx context.Context, server *domain.Server) error {
