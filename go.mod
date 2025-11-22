@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/dgraph-io/ristretto v0.1.0
 	github.com/emirpasic/gods v1.12.0
-	github.com/et-nik/binngo v0.2.4
+	github.com/et-nik/binngo v0.3.0
 	github.com/gabriel-vasile/mimetype v1.3.0
 	github.com/go-resty/resty/v2 v2.10.0
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485
@@ -31,7 +31,7 @@ require (
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d // indirect
-	github.com/cstockton/go-conv v0.0.0-20170524002450-66a2b2ba36e1 // indirect
+	github.com/cstockton/go-conv v1.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b // indirect
