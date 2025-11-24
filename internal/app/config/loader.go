@@ -7,10 +7,10 @@ import (
 	"os/user"
 	"path/filepath"
 
+	"github.com/goccy/go-yaml"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/ini.v1"
-	"gopkg.in/yaml.v3"
 )
 
 func Load(path string) (*Config, error) {
