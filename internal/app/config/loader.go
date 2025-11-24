@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"path/filepath"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/ini.v1"
 	"gopkg.in/yaml.v3"
@@ -32,12 +33,14 @@ func Load(path string) (*Config, error) {
 	case ".cfg", ".ini":
 		cfg, err = loadIni(path)
 	}
+	if err != nil {
+		return nil, errors.WithMessage(err, "load config file")
+	}
+	if cfg == nil {
+		return nil, ErrUnsupportedConfigFormat
+	}
 
 	cfg = updatePaths(path, cfg)
-
-	if err != nil {
-		return nil, err
-	}
 
 	err = cfg.Init()
 	if err != nil {
@@ -125,6 +128,10 @@ func loadIni(path string) (*Config, error) {
 }
 
 func updatePaths(cfgPath string, cfg *Config) *Config {
+	if cfg == nil {
+		return nil
+	}
+
 	if !filepath.IsAbs(cfgPath) {
 		cfgPath, _ = filepath.Abs(cfgPath)
 	}
