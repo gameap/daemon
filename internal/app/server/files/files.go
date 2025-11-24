@@ -109,7 +109,6 @@ func readDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error 
 				"directory": message.Directory,
 			},
 		).Debug(
-			ctx,
 			"Directory does not exist",
 		)
 
