@@ -3,20 +3,20 @@ module github.com/gameap/daemon
 go 1.24
 
 require (
-	github.com/dgraph-io/ristretto v0.1.0
-	github.com/emirpasic/gods v1.12.0
+	github.com/dgraph-io/ristretto/v2 v2.3.0
+	github.com/emirpasic/gods v1.18.1
 	github.com/et-nik/binngo v0.3.0
 	github.com/gabriel-vasile/mimetype v1.4.11
-	github.com/go-resty/resty/v2 v2.10.0
+	github.com/go-resty/resty/v2 v2.17.0
 	github.com/goccy/go-yaml v1.18.0
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485
 	github.com/gorilla/mux v1.8.1
 	github.com/hashicorp/go-getter v1.8.3
-	github.com/otiai10/copy v1.14.0
+	github.com/otiai10/copy v1.14.1
 	github.com/pkg/errors v0.9.1
-	github.com/samber/lo v1.38.1
-	github.com/sirupsen/logrus v1.8.0
-	github.com/stretchr/testify v1.8.1
+	github.com/samber/lo v1.52.0
+	github.com/sirupsen/logrus v1.9.3
+	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.3.0
 	github.com/viney-shih/go-lock v1.1.1
 	go.uber.org/mock v0.4.0
@@ -48,12 +48,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.20 // indirect
 	github.com/aws/smithy-go v1.22.3 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
-	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d // indirect
 	github.com/cstockton/go-conv v1.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/golang/glog v1.1.0 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -64,14 +63,13 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-version v1.6.0 // indirect
 	github.com/klauspost/compress v1.15.11 // indirect
-	github.com/magefile/mage v1.10.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/otiai10/mint v1.6.3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/russross/blackfriday/v2 v2.0.1 // indirect
 	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect

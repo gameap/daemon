@@ -4,16 +4,16 @@ import (
 	"context"
 	"time"
 
-	"github.com/dgraph-io/ristretto"
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/gameap/daemon/internal/app/config"
 )
 
 type LocalCache struct {
-	cacheStore *ristretto.Cache
+	cacheStore *ristretto.Cache[string, any]
 }
 
 func NewLocalCache(_ *config.Config) (*LocalCache, error) {
-	cache, err := ristretto.NewCache(&ristretto.Config{
+	cache, err := ristretto.NewCache[string, any](&ristretto.Config[string, any]{
 		NumCounters: 1e7,
 		MaxCost:     100 << 20, // 100 Mb
 		BufferItems: 64,
