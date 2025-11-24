@@ -95,7 +95,7 @@ func writeError(readWriter io.Writer, message string) error {
 	})
 }
 
-func readDir(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func readDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createReadDirMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -103,6 +103,16 @@ func readDir(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
 
 	dir, err := os.ReadDir(message.Directory)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
+		logger.Logger(ctx).WithFields(
+			log.Fields{
+				"operation": "readDir",
+				"directory": message.Directory,
+			},
+		).Debug(
+			ctx,
+			"Directory does not exist",
+		)
+
 		return writeError(readWriter, "Directory does not exist")
 	}
 	if err != nil {

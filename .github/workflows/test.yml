@@ -10,7 +10,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.21.x]
+        go-version: [1.25.x]
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -27,9 +27,10 @@ jobs:
         run: go mod download
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.57.2
+          version: v2.6.2
+          args: --timeout=10m
 
       - name: Unit Tests
         run: go test -race -v $(go list ./... | grep -v /test/) -coverprofile=unit.out
@@ -55,11 +56,11 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.21.x
+          go-version: 1.25.x
 
       - name: Checkout code
         uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - uses: actions/cache@v4
         with:
           # In order:
           # * Module download cache

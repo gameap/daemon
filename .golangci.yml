@@ -1,73 +1,86 @@
+version: "2"
+
+# There are some disabled linters that can be enabled later. I disabled it after migrating to golangci-lint v2.
+
 linters:
+  disable:
+    - govet
+    - staticcheck
   enable:
     - asciicheck
     - bodyclose
     - dogsled
     - dupl
-    - errcheck
-    - exportloopref
-    - govet
+    - err113
     - forbidigo
-    - funlen
+    #- funlen
     - gochecknoinits
     - gocognit
-    - goconst
+    #- goconst
     - gocritic
     - gocyclo
-    - godot
+    #- godot
     - godox
-    - goerr113
-    - gofmt
-    - goimports
     - gomodguard
     - goprintffuncname
     - gosec
-    - gosimple
-    - govet
-    - ineffassign
     - lll
     - makezero
     - misspell
     - nakedret
-    - nestif
-    - noctx
-    - nolintlint
+    #- nestif
+    #- noctx
+    #- nolintlint
     - prealloc
-    - revive
+    #- revive
     - rowserrcheck
-    - staticcheck
-    - stylecheck
+    #- staticcheck
     - thelper
-    - typecheck
     - unconvert
     - unparam
-    - unused
     - whitespace
-issues:
-  exclude-rules:
-    - path: _test\.go|test
-      linters:
-        - funlen
-        - lll
-        - dupl
-        - gosec
-        - scopelint
-        - govet
-        - gocognit
-    - path: internal/app/di
-      linters:
-        - govet
-    - path: internal/app/di/internal/definitions
-      linters:
-        - funlen
-        - revive
-        - stylecheck
-
-linters-settings:
-  gosimple:
-    checks: [ "all" ]
-  gofmt:
-    simplify: true
-  govet:
-    enable:
-      - fieldalignment
+  settings:
+    gosec:
+      excludes:
+        - G115
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - dupl
+          - funlen
+          - gosec
+          - govet
+          - lll
+          - scopelint
+        path: test
+      - linters:
+          - govet
+        path: internal/app/di
+      - linters:
+          - funlen
+          - revive
+          - staticcheck
+        path: internal/app/di/internal/definitions
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

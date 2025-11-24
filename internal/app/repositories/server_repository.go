@@ -239,14 +239,23 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 		if err != nil {
 			lastProcessCheck, err = time.Parse(time.RFC3339, srv.LastProcessCheck)
 			if err != nil {
-				return nil, err
+				return nil, errors.WithMessage(
+					err,
+					"[repositories.apiServerRepo] failed to parse last process check time",
+				)
 			}
 		}
 	}
 
-	updatedAt, err := time.Parse(time.RFC3339, srv.UpdatedAt)
-	if err != nil {
-		return nil, err
+	var updatedAt time.Time
+	if srv.UpdatedAt != "" {
+		updatedAt, err = time.Parse(time.RFC3339, srv.UpdatedAt)
+		if err != nil {
+			return nil, errors.WithMessage(
+				err,
+				"[repositories.apiServerRepo] failed to parse updated at time",
+			)
+		}
 	}
 
 	settings := domain.Settings{}
