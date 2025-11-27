@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package processmanager
 
@@ -387,7 +386,7 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 }
 
 func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
-	startCMD := server.StartCommand()
+	startCMD := domain.ReplaceShortCodes(server.StartCommand(), pm.cfg, server)
 
 	parts, err := shellquote.Split(startCMD)
 	if err != nil {
