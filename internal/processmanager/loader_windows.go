@@ -1,5 +1,4 @@
 //go:build windows
-// +build windows
 
 package processmanager
 
@@ -14,6 +13,8 @@ func Load(
 	switch name {
 	case "winsw":
 		return NewWinSW(cfg, executor, detailedExecutor), nil
+	case "shawl":
+		return NewShawl(cfg, executor, detailedExecutor), nil
 	case "simple":
 		return NewSimple(cfg, executor, detailedExecutor), nil
 	default:

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -82,6 +83,13 @@ type Config struct {
 	} `yaml:"process_manager"`
 
 	Users map[string]string `yaml:"users"`
+
+	// Windows specific settings
+
+	// If true, the daemon will run servers under the "NT AUTHORITY\NETWORK SERVICE" user.
+	// This user has limited permissions and is suitable for running game servers securely.
+	// If false, servers will run under the user specified in the "users" section of the config.
+	UseNetworkServiceUser bool `yaml:"use_network_service_user"`
 }
 
 func NewConfig() *Config {
@@ -143,4 +151,36 @@ func (cfg *Config) validate() error {
 
 func (cfg *Config) WorkDir() string {
 	return cfg.WorkPath
+}
+
+func UpdateEnvPath(cfg *Config) error {
+	if cfg.ToolsPath == "" {
+		return nil
+	}
+
+	currentPath := os.Getenv("PATH")
+	pathSeparator := string(os.PathListSeparator)
+
+	var pathsToAdd []string
+
+	if info, err := os.Stat(cfg.ToolsPath); err == nil && info.IsDir() {
+		pathsToAdd = append(pathsToAdd, cfg.ToolsPath)
+
+		entries, err := os.ReadDir(cfg.ToolsPath)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					subdir := filepath.Join(cfg.ToolsPath, entry.Name())
+					pathsToAdd = append(pathsToAdd, subdir)
+				}
+			}
+		}
+	}
+
+	if len(pathsToAdd) == 0 {
+		return nil
+	}
+
+	newPath := strings.Join(pathsToAdd, pathSeparator) + pathSeparator + currentPath
+	return os.Setenv("PATH", newPath)
 }

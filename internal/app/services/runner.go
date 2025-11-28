@@ -53,6 +53,10 @@ func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
+	if err := config.UpdateEnvPath(cfg); err != nil {
+		log.WithError(err).Warn("Failed to update PATH with tools directories")
+	}
+
 	return nil
 }
 
