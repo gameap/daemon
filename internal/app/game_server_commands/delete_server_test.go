@@ -130,9 +130,9 @@ func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 	suite.Require().Nil(err)
 	suite.Assert().Equal(ErrorResult, deleteServerCommand.Result())
 	if runtime.GOOS == "windows" {
-		suite.Assert().Equal("command failed\r\n", string(deleteServerCommand.ReadOutput()))
+		suite.Assert().Equal("Removing server by script...\ncommand failed\r\n", string(deleteServerCommand.ReadOutput()))
 	} else {
-		suite.Assert().Equal("command failed\n", string(deleteServerCommand.ReadOutput()))
+		suite.Assert().Equal("Removing server by script...\ncommand failed\n", string(deleteServerCommand.ReadOutput()))
 	}
 }
 
