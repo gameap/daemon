@@ -62,6 +62,7 @@ func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
 
 func (r *Runner) initNodeConfigFromAPI(ctx context.Context, cfg *config.Config) error {
 	cfgInitializer := config.NewNodeConfigInitializer(r.apiClient)
+
 	return cfgInitializer.Initialize(ctx, cfg)
 }
 

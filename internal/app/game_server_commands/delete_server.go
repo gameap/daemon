@@ -41,8 +41,12 @@ func (cmd *defaultDeleteServer) Execute(ctx context.Context, server *domain.Serv
 	}
 
 	if cmd.cfg.Scripts.Delete != "" {
+		_, _ = cmd.output.Write([]byte("Removing server by script...\n"))
+
 		return cmd.removeByScript(ctx, server)
 	}
+
+	_, _ = cmd.output.Write([]byte("Removing server by filesystem...\n"))
 
 	return cmd.removeByFilesystem(ctx, server)
 }
@@ -70,14 +74,19 @@ func (cmd *defaultDeleteServer) removeByFilesystem(_ context.Context, server *do
 	path := server.WorkDir(cmd.cfg)
 
 	if cmd.isWorkDirForbiddenToRemove(path) {
+		_, _ = cmd.output.Write([]byte("Forbidden work directory path, aborting removal.\n"))
+
 		return errForbiddenWorkDirectoryPath
 	}
+
+	_, _ = cmd.output.Write([]byte("Removing directory: " + path + "\n"))
 
 	err := os.RemoveAll(path)
 	if err != nil {
 		cmd.SetComplete()
 		cmd.SetResult(ErrorResult)
 		_, _ = cmd.output.Write([]byte(err.Error()))
+
 		return err
 	}
 

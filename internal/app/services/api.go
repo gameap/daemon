@@ -17,11 +17,11 @@ import (
 	lock "github.com/viney-shih/go-lock"
 )
 
-const maxActualizeCount = 1
+const maxRefreshCount = 1
 
 var (
-	errInvalidRequestMethod         = errors.New("invalid request method")
-	errActualizeTokenActionIsLocked = errors.New("actualize token action is already locked")
+	errInvalidRequestMethod       = errors.New("invalid request method")
+	errRefreshTokenActionIsLocked = errors.New("refresh token action is already locked")
 )
 
 type APIClient struct {
@@ -41,7 +41,29 @@ func NewAPICaller(ctx context.Context, cfg *config.Config, client *resty.Client)
 		tokenMutex:  lock.NewCASMutex(),
 	}
 
-	err := api.actualizeToken(ctx)
+	var err error
+	maxRetryDuration := 30 * time.Second
+	retryInterval := 2 * time.Second
+	startTime := time.Now()
+
+	for {
+		err = api.refreshToken(ctx)
+		if err == nil {
+			break
+		}
+
+		logger.Error(ctx, errors.WithMessage(err, "failed to refresh token, retrying"))
+
+		if time.Since(startTime) >= maxRetryDuration {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(retryInterval):
+		}
+	}
 
 	return api, err
 }
@@ -120,32 +142,44 @@ func (c *APIClient) request(
 		return nil, errInvalidRequestMethod
 	}
 
-	l.WithFields(logrus.Fields{
-		"requestURL":     restyRequest.URL,
-		"responseStatus": response.StatusCode(),
-		"responseTime":   time.Since(start),
-	}).Debug("api request")
-
-	if err != nil {
-		return nil, err
+	statusCode := 0
+	if response != nil {
+		statusCode = response.StatusCode()
 	}
 
-	if response.StatusCode() == http.StatusUnauthorized && deep < maxActualizeCount {
-		logger.Warn(ctx, "invalid token, actualizing token")
-		err = c.actualizeToken(ctx)
+	if err != nil {
+		l.WithFields(logrus.Fields{
+			"requestURL":     restyRequest.URL,
+			"responseStatus": statusCode,
+			"responseTime":   time.Since(start),
+		}).Debug("api request")
+
+		return nil, errors.WithMessage(err, "[APIClient.request] failed to perform request")
+	} else {
+		l.WithFields(logrus.Fields{
+			"requestURL":     restyRequest.URL,
+			"responseStatus": statusCode,
+			"responseTime":   time.Since(start),
+		}).Trace("api request")
+	}
+
+	if statusCode == http.StatusUnauthorized && deep < maxRefreshCount {
+		logger.Warn(ctx, "invalid token, refreshing token")
+		err = c.refreshToken(ctx)
 		if err != nil {
 			return nil, err
 		}
+
 		return c.request(ctx, request, deep+1)
 	}
 
 	return response, nil
 }
 
-func (c *APIClient) actualizeToken(ctx context.Context) error {
+func (c *APIClient) refreshToken(ctx context.Context) error {
 	locked := c.tokenMutex.TryLockWithContext(ctx)
 	if !locked {
-		return errActualizeTokenActionIsLocked
+		return errRefreshTokenActionIsLocked
 	}
 	defer c.tokenMutex.Unlock()
 

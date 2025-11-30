@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
@@ -32,6 +33,9 @@ const (
 	statusServiceUnknown   = 4
 
 	outputSizeLimit = 30000
+
+	stopTickerInterval = 500 * time.Millisecond
+	stopTimeout        = 1 * time.Minute
 )
 
 type SystemD struct {
@@ -54,20 +58,44 @@ func (pm *SystemD) Install(
 }
 
 func (pm *SystemD) Uninstall(
-	ctx context.Context, server *domain.Server, _ io.Writer,
+	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	err := os.Remove(pm.socketFile(server))
+	s, err := pm.status(ctx, pm.serviceName(server), out)
 	if err != nil {
+		_, _ = out.Write([]byte("Failed to get service status: " + err.Error() + "\n"))
+		logger.WithError(ctx, err).Warn("failed to get service status")
+	} else if s == domain.SuccessResult {
+		_, _ = out.Write([]byte("Service " + pm.serviceName(server) + " is running, stopping it first\n"))
+
+		result, err := pm.Stop(ctx, server, out)
+		if err != nil {
+			_, _ = out.Write([]byte("Failed to stop service: " + err.Error() + "\n"))
+			logger.WithError(ctx, err).Warn("failed to stop service")
+		}
+
+		if result != domain.SuccessResult {
+			_, _ = out.Write([]byte("Failed to stop service, exit code: " + fmt.Sprint(result) + "\n"))
+			logger.Logger(ctx).Warn("failed to stop service, exit code: " + fmt.Sprint(result))
+		}
+	}
+
+	_, _ = out.Write([]byte("Removing socket file at " + pm.socketFile(server) + "\n"))
+	err = os.Remove(pm.socketFile(server))
+	if err != nil {
+		_, _ = out.Write([]byte("Failed to remove socket file: " + err.Error() + "\n"))
 		logger.WithError(ctx, err).Warn("failed to remove socket file")
 	}
 
+	_, _ = out.Write([]byte("Removing service file at " + pm.serviceFile(server) + "\n"))
 	err = os.Remove(pm.serviceFile(server))
 	if err != nil {
+		_, _ = out.Write([]byte("Failed to remove service file: " + err.Error() + "\n"))
 		logger.WithError(ctx, err).Warn("failed to remove service file")
 	}
 
 	err = pm.daemonReload(ctx)
 	if err != nil {
+		_, _ = out.Write([]byte("Failed to daemon-reload: " + err.Error() + "\n"))
 		logger.Logger(ctx).WithError(err).Warn("Failed to daemon-reload")
 	}
 
@@ -76,20 +104,24 @@ func (pm *SystemD) Uninstall(
 
 func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	logFile := pm.logFile(server)
-	if _, err := os.Stat(logFile); errors.Is(err, os.ErrNotExist) {
+	_, err := os.Stat(logFile)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return domain.ErrorResult, errors.Wrap(err, "failed to stat log file")
+	}
+	if errors.Is(err, os.ErrNotExist) {
 		err = os.MkdirAll(filepath.Dir(logFile), 0755)
 		if err != nil {
-			return domain.ErrorResult, errors.WithMessage(err, "failed to create directory")
+			return domain.ErrorResult, errors.Wrap(err, "failed to create directory")
 		}
 	}
 
 	f, err := os.Create(logFile)
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to create file")
+		return domain.ErrorResult, errors.Wrap(err, "failed to create file")
 	}
 	err = f.Close()
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to close file")
+		return domain.ErrorResult, errors.Wrap(err, "failed to close file")
 	}
 
 	if _, err = os.Stat(pm.stdinFile(server)); err == nil {
@@ -127,7 +159,40 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
 	}
 
-	return domain.Result(result), nil
+	if result != 0 {
+		return domain.Result(result), nil
+	}
+
+	// Wait for service to stop
+	_, _ = out.Write([]byte("Waiting for service to stop...\n"))
+	if err := pm.waitForServiceStopped(ctx, server, out); err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to wait for service to stop")
+	}
+
+	_, _ = out.Write([]byte("Service stopped\n"))
+	return domain.SuccessResult, nil
+}
+
+func (pm *SystemD) waitForServiceStopped(ctx context.Context, server *domain.Server, out io.Writer) error {
+	ticker := time.NewTicker(stopTickerInterval)
+	defer ticker.Stop()
+
+	timeout := time.After(stopTimeout)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			return errors.New("timeout waiting for service to stop")
+		case <-ticker.C:
+			status, _ := pm.status(ctx, pm.serviceName(server), out)
+			if status == domain.ErrorResult {
+				// Service is not running (stopped)
+				return nil
+			}
+		}
+	}
 }
 
 func (pm *SystemD) Restart(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
@@ -137,7 +202,7 @@ func (pm *SystemD) Restart(ctx context.Context, server *domain.Server, out io.Wr
 func (pm *SystemD) command(
 	ctx context.Context, server *domain.Server, command string, out io.Writer,
 ) (domain.Result, error) {
-	err := pm.makeService(ctx, server)
+	err := pm.makeService(ctx, server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
 	}
@@ -288,7 +353,7 @@ func (pm *SystemD) SendInput(
 	return domain.SuccessResult, nil
 }
 
-func (pm *SystemD) makeService(ctx context.Context, server *domain.Server) error {
+func (pm *SystemD) makeService(ctx context.Context, server *domain.Server, out io.Writer) error {
 	f, err := os.OpenFile(pm.serviceFile(server), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return errors.WithMessage(err, "failed to open file")
@@ -304,6 +369,11 @@ func (pm *SystemD) makeService(ctx context.Context, server *domain.Server) error
 	if err != nil {
 		return errors.WithMessage(err, "failed to build service config")
 	}
+
+	_, _ = out.Write([]byte("Creating service file at " + pm.serviceFile(server) + "\n"))
+	_, _ = out.Write([]byte("----- BEGIN SERVICE FILE -----\n"))
+	_, _ = out.Write([]byte(c + "\n"))
+	_, _ = out.Write([]byte("----- END SERVICE FILE -----\n\n\n"))
 
 	_, err = f.WriteString(c)
 	if err != nil {
@@ -364,7 +434,7 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 
 	builder.WriteString("Restart=always\n")
 
-	runAsUser, group, err := pm.user(server)
+	runAsUser, group, err := pm.userAndGroup(server)
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to get user")
 	}
@@ -421,7 +491,7 @@ func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
 }
 
 func (pm *SystemD) makeSocket(ctx context.Context, server *domain.Server) error {
-	f, err := os.OpenFile(pm.socketFile(server), os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(pm.socketFile(server), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return errors.WithMessage(err, "failed to open file")
 	}
@@ -526,7 +596,7 @@ func (pm *SystemD) socketFile(server *domain.Server) string {
 	return filepath.Join(systemdServicesDir, pm.socketName(server))
 }
 
-func (pm *SystemD) user(server *domain.Server) (string, string, error) {
+func (pm *SystemD) userAndGroup(server *domain.Server) (string, string, error) {
 	var systemUser *user.User
 	var err error
 

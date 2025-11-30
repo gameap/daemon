@@ -31,6 +31,9 @@ const (
 	shawlStopTimeout        = "10000"
 	shawlLogRotate          = "daily"
 	shawlLogRetain          = "7"
+
+	stopTickerInterval = 500 * time.Millisecond
+	stopTimeout        = 1 * time.Minute
 )
 
 type Shawl struct {
@@ -168,10 +171,10 @@ func (pm *Shawl) Stop(ctx context.Context, server *domain.Server, out io.Writer)
 }
 
 func (pm *Shawl) waitForServiceStopped(ctx context.Context, server *domain.Server) error {
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(stopTickerInterval)
 	defer ticker.Stop()
 
-	timeout := time.After(30 * time.Second)
+	timeout := time.After(stopTimeout)
 
 	for {
 		select {

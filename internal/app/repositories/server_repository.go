@@ -214,7 +214,7 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, errors.WithMessage(err, "[repositories.apiServerRepo] failed to fetch server")
 	}
 
 	if response.StatusCode() == http.StatusNotFound {

@@ -387,6 +387,10 @@ func (s *Server) AutoStart() bool {
 }
 
 func (s *Server) autoStart() bool {
+	if !s.enabled {
+		return false
+	}
+
 	autostart := s.setting(autostartCurrentSettingKey)
 
 	if autostart == "" {

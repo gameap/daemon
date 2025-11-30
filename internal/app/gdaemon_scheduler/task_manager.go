@@ -14,6 +14,7 @@ import (
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 var updateTimeout = 5 * time.Second
@@ -140,7 +141,16 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		return
 	}
 
-	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithField("gdTaskID", task.ID()))
+	ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(
+		log.Fields{
+			"gdTaskID":      task.ID(),
+			"gdTaskCommand": string(task.Task()),
+		},
+	))
+
+	if task.RunAfterID() > 0 {
+		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithField("runAfterTaskID", task.RunAfterID()))
+	}
 
 	if task.Server() != nil {
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithField("gameServerID", task.Server().ID()))
