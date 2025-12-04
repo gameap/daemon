@@ -544,20 +544,20 @@ func (in *installator) installFromSteam(
 
 	_, err := os.Stat(server.WorkDir(in.cfg))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
-		err = os.MkdirAll(server.WorkDir(in.cfg), 0750)
+		err = mkdirAllWithFinalPerm(server.WorkDir(in.cfg), 0750)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create server work directory %s", server.WorkDir(in.cfg))
 		}
-
-		err = in.chown(ctx, server.WorkDir(in.cfg), server.User())
-		if err != nil {
-			err = errors.Wrapf(err, "failed to chown server work directory %s", server.WorkDir(in.cfg))
-			in.writeOutput(ctx, err.Error())
-
-			return err
-		}
 	} else if err != nil {
 		err = errors.Wrapf(err, "failed to check server work directory %s", server.WorkDir(in.cfg))
+		in.writeOutput(ctx, err.Error())
+
+		return err
+	}
+
+	err = in.chown(ctx, server.WorkDir(in.cfg), server.User())
+	if err != nil {
+		err = errors.Wrapf(err, "failed to chown server work directory %s", server.WorkDir(in.cfg))
 		in.writeOutput(ctx, err.Error())
 
 		return err

@@ -1,5 +1,4 @@
 //go:build linux || darwin
-// +build linux darwin
 
 package gameservercommands
 
@@ -34,6 +33,16 @@ func chownR(path string, uid, gid int) error {
 
 		return os.Chown(name, uid, gid)
 	})
+}
+
+func mkdirAllWithFinalPerm(path string, finalPerm os.FileMode) error {
+	parent := filepath.Dir(path)
+	if parent != "." && parent != "/" {
+		if err := os.MkdirAll(parent, 0755); err != nil {
+			return err
+		}
+	}
+	return os.Mkdir(path, finalPerm)
 }
 
 func isRootUser() bool {
