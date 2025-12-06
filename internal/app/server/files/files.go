@@ -338,7 +338,7 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 		return writeError(readWriter, "Failed to transfer file")
 	}
 
-	var permissions os.FileMode
+	var permissions os.FileMode = 0o666
 	if stat, err := os.Stat(message.FilePath); err == nil {
 		permissions = stat.Mode().Perm()
 	}
