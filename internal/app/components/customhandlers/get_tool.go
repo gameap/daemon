@@ -5,7 +5,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
@@ -30,14 +32,17 @@ func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ co
 	fileName := filepath.Base(source)
 	destination := filepath.Join(g.cfg.ToolsPath, fileName)
 
+	progressTracker := components.NewDownloadProgressTracker(out, 5*time.Second)
+
 	c := getter.Client{
-		Ctx:  ctx,
-		Src:  args[0],
-		Dst:  destination,
-		Mode: getter.ClientModeFile,
+		Ctx:              ctx,
+		Src:              args[0],
+		Dst:              destination,
+		Mode:             getter.ClientModeFile,
+		ProgressListener: progressTracker,
 	}
 
-	_, _ = out.Write([]byte("Getting tool from " + source + " to " + destination + " ..."))
+	_, _ = out.Write([]byte("Getting tool from " + source + " to " + destination + " ...\n"))
 	err := c.Get()
 	if err != nil {
 		return int(domain.ErrorResult), errors.WithMessage(err, "[components.GetTool] failed to get tool")

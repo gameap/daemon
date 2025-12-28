@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gameap/daemon/internal/app/components"
@@ -477,11 +478,14 @@ func (in *installator) getAndUnpackFiles(
 	dst string,
 	source string,
 ) error {
+	progressTracker := components.NewDownloadProgressTracker(in.output, 5*time.Second)
+
 	c := getter.Client{
-		Ctx:  ctx,
-		Src:  source,
-		Dst:  dst,
-		Mode: getter.ClientModeAny,
+		Ctx:              ctx,
+		Src:              source,
+		Dst:              dst,
+		Mode:             getter.ClientModeAny,
+		ProgressListener: progressTracker,
 	}
 
 	in.writeOutput(ctx, "Downloading and unpacking from "+source+" to "+dst+" ...")
