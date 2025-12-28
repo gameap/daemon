@@ -193,19 +193,18 @@ func TestProgressReader_UnknownSize(t *testing.T) {
 	assert.NotContains(t, output, "%")
 }
 
-func TestProgressReader_ConcurrentAccess(t *testing.T) {
+func TestProgressReader_ConcurrentTrackers(t *testing.T) {
 	var buf bytes.Buffer
 	tracker := NewDownloadProgressTracker(&buf, time.Millisecond)
 
-	data := bytes.Repeat([]byte("x"), 10000)
-	reader := io.NopCloser(bytes.NewReader(data))
-
-	wrapped := tracker.TrackProgress("http://example.com/file.zip", 0, 10000, reader)
-
-	// Concurrent reads
+	// Test multiple concurrent downloads writing to the same tracker output
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func() {
+			data := bytes.Repeat([]byte("x"), 1000)
+			reader := io.NopCloser(bytes.NewReader(data))
+			wrapped := tracker.TrackProgress("http://example.com/file.zip", 0, 1000, reader)
+
 			chunk := make([]byte, 100)
 			for {
 				_, err := wrapped.Read(chunk)
@@ -213,6 +212,7 @@ func TestProgressReader_ConcurrentAccess(t *testing.T) {
 					break
 				}
 			}
+			wrapped.Close()
 			done <- true
 		}()
 	}
@@ -226,8 +226,6 @@ func TestProgressReader_ConcurrentAccess(t *testing.T) {
 			t.Fatal("timeout waiting for concurrent reads")
 		}
 	}
-
-	wrapped.Close()
 
 	// Should not panic and should have output
 	assert.NotEmpty(t, buf.String())
