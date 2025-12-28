@@ -204,7 +204,7 @@ func (pm *SystemD) command(
 ) (domain.Result, error) {
 	err := pm.makeService(ctx, server, out)
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
+		return domain.ErrorResult, errors.WithMessagef(err, "failed to make service for server %d", server.ID())
 	}
 
 	if _, err := os.Stat(pm.socketFile(server)); errors.Is(err, os.ErrNotExist) {
@@ -457,6 +457,10 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 
 func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
 	startCMD := domain.ReplaceShortCodes(server.StartCommand(), pm.cfg, server)
+
+	if startCMD == "" {
+		return "", ErrEmptyCommand
+	}
 
 	parts, err := shellquote.Split(startCMD)
 	if err != nil {
