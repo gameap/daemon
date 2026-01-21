@@ -57,6 +57,7 @@ func loadYaml(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 
 	bytes, err := io.ReadAll(bufio.NewReader(file))
 	if err != nil {

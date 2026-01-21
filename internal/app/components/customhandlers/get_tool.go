@@ -54,5 +54,12 @@ func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ co
 		return int(domain.ErrorResult), errors.WithMessage(err, "[components.GetTool] failed to chmod tool")
 	}
 
+	err = config.UpdateEnvPath(g.cfg)
+	if err != nil {
+		_, _ = out.Write([]byte("Failed to update PATH with tools directories"))
+
+		return int(domain.ErrorResult), errors.WithMessage(err, "[components.GetTool] failed to update PATH")
+	}
+
 	return int(domain.SuccessResult), nil
 }

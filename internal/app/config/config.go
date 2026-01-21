@@ -160,18 +160,28 @@ func UpdateEnvPath(cfg *Config) error {
 
 	currentPath := os.Getenv("PATH")
 	pathSeparator := string(os.PathListSeparator)
+	existingPaths := strings.Split(currentPath, pathSeparator)
+
+	existingPathsSet := make(map[string]struct{}, len(existingPaths))
+	for _, p := range existingPaths {
+		existingPathsSet[p] = struct{}{}
+	}
 
 	var pathsToAdd []string
 
 	if info, err := os.Stat(cfg.ToolsPath); err == nil && info.IsDir() {
-		pathsToAdd = append(pathsToAdd, cfg.ToolsPath)
+		if _, exists := existingPathsSet[cfg.ToolsPath]; !exists {
+			pathsToAdd = append(pathsToAdd, cfg.ToolsPath)
+		}
 
 		entries, err := os.ReadDir(cfg.ToolsPath)
 		if err == nil {
 			for _, entry := range entries {
 				if entry.IsDir() {
 					subdir := filepath.Join(cfg.ToolsPath, entry.Name())
-					pathsToAdd = append(pathsToAdd, subdir)
+					if _, exists := existingPathsSet[subdir]; !exists {
+						pathsToAdd = append(pathsToAdd, subdir)
+					}
 				}
 			}
 		}
