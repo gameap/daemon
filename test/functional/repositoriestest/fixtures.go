@@ -44,7 +44,10 @@ var JSONApiGetServerResponseBody = []byte(`
         "steam_app_id": 90,
         "steam_app_set_config": null,
         "remote_repository": "http://files.gameap.ru/cstrike-1.6/hlcs_base.tar.xz",
-        "local_repository": "/srv/gameap/repository/hlcs_base.tar.xz"
+        "local_repository": "/srv/gameap/repository/hlcs_base.tar.xz",
+        "metadata": {
+            "custom_key": "custom_value"
+        }
     },
     "game_mod": {
         "id": 4,
@@ -98,7 +101,10 @@ var JSONApiGetServerResponseBody = []byte(`
         "srestart_cmd": "restart",
         "chmap_cmd": "changelevel {map}",
         "sendmsg_cmd": "amx_say \"{msg}\"",
-        "passwd_cmd": "password {password}"
+        "passwd_cmd": "password {password}",
+        "metadata": {
+            "mod_key": "mod_value"
+        }
     },
     "settings": [
         {

@@ -36,15 +36,16 @@ func (appID SteamAppID) String() string {
 }
 
 type Game struct {
-	Code              string     `json:"code"`
-	StartCode         string     `json:"start_code"`
-	Name              string     `json:"name"`
-	Engine            string     `json:"engine"`
-	EngineVersion     string     `json:"engine_version"`
-	SteamAppSetConfig string     `json:"steam_app_set_config"`
-	RemoteRepository  string     `json:"remote_repository"`
-	LocalRepository   string     `json:"local_repository"`
-	SteamAppID        SteamAppID `json:"steam_app_id"`
+	Code              string         `json:"code"`
+	StartCode         string         `json:"start_code"`
+	Name              string         `json:"name"`
+	Engine            string         `json:"engine"`
+	EngineVersion     string         `json:"engine_version"`
+	SteamAppSetConfig string         `json:"steam_app_set_config"`
+	RemoteRepository  string         `json:"remote_repository"`
+	LocalRepository   string         `json:"local_repository"`
+	SteamAppID        SteamAppID     `json:"steam_app_id"`
+	Metadata          map[string]any `json:"metadata"`
 }
 
 type SteamSettings struct {
@@ -99,4 +100,5 @@ type GameMod struct {
 	DefaultStartCMDWindows string               `json:"default_start_cmd_windows"`
 	Vars                   []GameModVarTemplate `json:"vars"`
 	ID                     int                  `json:"id"`
+	Metadata               map[string]any       `json:"metadata"`
 }

@@ -52,6 +52,8 @@ func (suite *Suite) TestSuccess() {
 	suite.Equal("/srv/gameap/repository/cstrike-1.6/amxx.tar.xz", server.GameMod().LocalRepository)
 	suite.Equal("./hlds_run -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}", server.GameMod().DefaultStartCMDLinux)
 	suite.Equal("hlds.exe -console -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}", server.GameMod().DefaultStartCMDWindows)
+	suite.Equal("custom_value", server.Game().Metadata["custom_key"])
+	suite.Equal("mod_value", server.GameMod().Metadata["mod_key"])
 }
 
 func (suite *Suite) TestWhenTokenIsInvalid_ExpectSuccess() {

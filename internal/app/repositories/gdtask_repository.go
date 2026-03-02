@@ -81,6 +81,7 @@ func (repository *GDTaskRepository) FindByStatus(
 					"gameServerID": items[i].Server,
 					"gdTaskID":     items[i].ID,
 				}).Warn("invalid task, game server not found")
+
 				continue
 			}
 		}
