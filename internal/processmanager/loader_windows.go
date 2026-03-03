@@ -17,6 +17,9 @@ func Load(
 		return NewShawl(cfg, executor, detailedExecutor), nil
 	case "simple":
 		return NewSimple(cfg, executor, detailedExecutor), nil
+	case "docker":
+		return NewDocker(cfg, executor, detailedExecutor), nil
+	// Note: Podman not supported on Windows
 	default:
 		return nil, ErrUnknownProcessManager
 	}

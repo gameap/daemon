@@ -17,6 +17,10 @@ func Load(
 		return NewSystemD(cfg, executor, detailedExecutor), nil
 	case "simple":
 		return NewSimple(cfg, executor, detailedExecutor), nil
+	case "docker":
+		return NewDocker(cfg, executor, detailedExecutor), nil
+	case "podman":
+		return NewPodman(cfg, executor, detailedExecutor), nil
 	default:
 		return nil, ErrUnknownProcessManager
 	}
