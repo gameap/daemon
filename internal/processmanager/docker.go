@@ -240,6 +240,16 @@ func (pm *Docker) runInstallation(
 		return domain.ErrorResult, errors.Wrapf(errInstallationFailed, "exit code %d", exitCode)
 	}
 
+	// 12. Change ownership of installed files to server user
+	uid, gid, err := pm.getUserIDs(server)
+	if err != nil {
+		return domain.ErrorResult, errors.Wrap(err, "failed to get user IDs for chown")
+	}
+	_, _ = out.Write([]byte(fmt.Sprintf("Changing ownership to %s:%s...\n", uid, gid)))
+	if err := chownRecursive(workDir, uid, gid); err != nil {
+		return domain.ErrorResult, errors.Wrap(err, "failed to change ownership of installed files")
+	}
+
 	_, _ = out.Write([]byte("Installation completed successfully\n"))
 	return domain.SuccessResult, nil
 }
@@ -669,6 +679,25 @@ func normalizeLineEndings(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n") // Windows → Unix
 	s = strings.ReplaceAll(s, "\r", "\n")   // Old Mac → Unix
 	return s
+}
+
+// chownRecursive changes ownership of a directory and all its contents.
+func chownRecursive(path, uidStr, gidStr string) error {
+	uid, err := strconv.Atoi(uidStr)
+	if err != nil {
+		return errors.Wrapf(err, "invalid uid: %s", uidStr)
+	}
+	gid, err := strconv.Atoi(gidStr)
+	if err != nil {
+		return errors.Wrapf(err, "invalid gid: %s", gidStr)
+	}
+
+	return filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chown(p, uid, gid)
+	})
 }
 
 // detectShellFromShebang extracts the shell interpreter from a script's shebang line.

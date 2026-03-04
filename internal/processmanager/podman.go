@@ -234,6 +234,16 @@ func (pm *Podman) runInstallation(
 		return domain.ErrorResult, errors.Wrapf(errPodmanInstallationFailed, "exit code %d", exitCode)
 	}
 
+	// 13. Change ownership of installed files to server user
+	uid, gid, err := pm.getUserIDs(server)
+	if err != nil {
+		return domain.ErrorResult, errors.Wrap(err, "failed to get user IDs for chown")
+	}
+	_, _ = out.Write([]byte(fmt.Sprintf("Changing ownership to %s:%s...\n", uid, gid)))
+	if err := chownRecursive(workDir, uid, gid); err != nil {
+		return domain.ErrorResult, errors.Wrap(err, "failed to change ownership of installed files")
+	}
+
 	_, _ = out.Write([]byte("Installation completed successfully\n"))
 	return domain.SuccessResult, nil
 }
