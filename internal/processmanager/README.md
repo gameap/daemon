@@ -71,13 +71,16 @@ Configuration values are resolved in the following priority order:
 
 #### Installation Configuration
 
-| Key | Description | Example |
-|-----|-------------|---------|
-| `docker_installation_image` | Image for installation phase | `node:18-bookworm-slim` |
-| `docker_installation_script` | Script to run during installation | See example below |
-| `docker_installation_entrypoint` | Shell interpreter for the script | `ash`, `/bin/sh` |
+| Key | Description | Example | Default |
+|-----|-------------|---------|---------|
+| `docker_installation_image` | Image for installation phase | `node:18-bookworm-slim` | None |
+| `docker_installation_script` | Script to run during installation | See example below | None |
+| `docker_installation_entrypoint` | Shell interpreter for the script | `ash`, `/bin/sh` | Auto-detected |
+| `docker_installation_user` | User to run installation as | `1000:1000`, `root` | `root` |
 
 > **Note:** If `docker_installation_entrypoint` is not set, the shell is auto-detected from the script's shebang line (e.g., `#!/bin/ash` → `/bin/ash`). Falls back to `/bin/sh` if no shebang is found.
+
+> **Note:** Installation runs as `root` by default because most scripts need root permissions to install packages (apt, yum, etc.). If your script doesn't need root, set `docker_installation_user` to match your server user. Remember to `chown` files to the server user at the end of your installation script if running as root.
 
 ### Examples
 
@@ -251,6 +254,7 @@ Podman uses the same metadata keys as Docker for compatibility:
 | `docker_installation_image` | Installation image | `node:18` | None |
 | `docker_installation_script` | Installation script | `#!/bin/bash\n...` | None |
 | `docker_installation_entrypoint` | Shell for installation script | `ash`, `/bin/sh` | Auto-detected from shebang |
+| `docker_installation_user` | User to run installation as | `1000:1000`, `root` | `root` |
 
 ### Socket Configuration
 

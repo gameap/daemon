@@ -43,6 +43,7 @@ const (
 	keyDockerInstallationImage      = "docker_installation_image"
 	keyDockerInstallationScript     = "docker_installation_script"
 	keyDockerInstallationEntrypoint = "docker_installation_entrypoint"
+	keyDockerInstallationUser       = "docker_installation_user"
 	keyDockerMemoryLimit            = "docker_memory_limit"
 	keyDockerCPULimit               = "docker_cpu_limit"
 	keyDockerNetworkMode            = "docker_network_mode"
@@ -143,11 +144,11 @@ func (pm *Docker) runInstallation(
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	// 5. Get user IDs for installation container
-	uid, gid, err := pm.getUserIDs(server)
-	if err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to get user IDs")
-	}
+	// 5. Determine user for installation container
+	// Default to root for installation (most scripts need root for apt/yum/etc)
+	// User can override via docker_installation_user config
+	installUser := pm.getConfig(server, keyDockerInstallationUser)
+	// If not specified, leave empty (runs as root)
 
 	// 6. Container config for installation
 	containerConfig := &container.Config{
@@ -158,7 +159,7 @@ func (pm *Docker) runInstallation(
 			"/mnt/server/.gameap_install.sh",
 		},
 		Env:  env,
-		User: fmt.Sprintf("%s:%s", uid, gid),
+		User: installUser,
 	}
 
 	hostConfig := &container.HostConfig{

@@ -49,6 +49,7 @@ const (
 	keyPodmanInstallationImage      = "docker_installation_image"
 	keyPodmanInstallationScript     = "docker_installation_script"
 	keyPodmanInstallationEntrypoint = "docker_installation_entrypoint"
+	keyPodmanInstallationUser       = "docker_installation_user"
 	keyPodmanMemoryLimit            = "docker_memory_limit"
 	keyPodmanCPULimit               = "docker_cpu_limit"
 	keyPodmanNetworkMode            = "docker_network_mode"
@@ -184,19 +185,18 @@ func (pm *Podman) runInstallation(
 		env[k] = v
 	}
 
-	// 5. Get user IDs for installation container
-	uid, gid, err := pm.getUserIDs(server)
-	if err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to get user IDs")
-	}
-	user := fmt.Sprintf("%s:%s", uid, gid)
+	// 5. Determine user for installation container
+	// Default to root for installation (most scripts need root for apt/yum/etc)
+	// User can override via docker_installation_user config
+	installUser := pm.getConfig(server, keyPodmanInstallationUser)
+	// If not specified, leave empty (runs as root)
 
 	// 6. Remove existing container if any
 	_ = pm.removeContainer(ctx, tempName)
 
 	// 7. Create container spec
 	entrypoint := getInstallationEntrypoint(pm.getConfig(server, keyPodmanInstallationEntrypoint), installScript)
-	spec := pm.buildInstallSpec(tempName, installImage, workDir, entrypoint, user, env)
+	spec := pm.buildInstallSpec(tempName, installImage, workDir, entrypoint, installUser, env)
 
 	// Debug: log installation container configuration
 	specJSON, _ := json.MarshalIndent(spec, "", "  ")
