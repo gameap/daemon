@@ -27,6 +27,8 @@ func ReplaceShortCodes(commandTemplate string, cfg workDirReader, server *Server
 	command = strings.ReplaceAll(command, "{host}", server.IP())
 	command = strings.ReplaceAll(command, "{ip}", server.IP())
 	command = strings.ReplaceAll(command, "{port}", strconv.Itoa(server.ConnectPort()))
+	command = strings.ReplaceAll(command, "{SERVER_PORT}", strconv.Itoa(server.ConnectPort()))
+	command = strings.ReplaceAll(command, "{PORT}", strconv.Itoa(server.ConnectPort()))
 	command = strings.ReplaceAll(command, "{query_port}", strconv.Itoa(server.QueryPort()))
 	command = strings.ReplaceAll(command, "{rcon_port}", strconv.Itoa(server.RCONPort()))
 	command = strings.ReplaceAll(command, "{rcon_password}", server.RCONPassword())
