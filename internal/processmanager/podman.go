@@ -178,8 +178,7 @@ func (pm *Podman) runInstallation(
 	tempName := fmt.Sprintf("gameap-install-%s", server.UUID())
 
 	// 4. Build environment from server.Vars()
-	env := make(map[string]string, len(server.Vars())+1)
-	env["SHELLOPTS"] = "errexit"
+	env := make(map[string]string, len(server.Vars()))
 	for k, v := range server.Vars() {
 		env[k] = v
 	}
@@ -252,7 +251,7 @@ func (pm *Podman) buildInstallSpec(name, image, workDir, entrypoint, user string
 		"name":     name,
 		"image":    image,
 		"work_dir": "/mnt/server",
-		"command":  []string{entrypoint, "/mnt/server/.gameap_install.sh"},
+		"command":  []string{entrypoint, "-e", "/mnt/server/.gameap_install.sh"},
 		"env":      env,
 		"user":     user,
 		"mounts": []map[string]interface{}{

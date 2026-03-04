@@ -137,8 +137,7 @@ func (pm *Docker) runInstallation(
 	tempName := fmt.Sprintf("gameap-install-%s", server.UUID())
 
 	// 4. Build environment from server.Vars()
-	env := make([]string, 0, len(server.Vars())+1)
-	env = append(env, "SHELLOPTS=errexit")
+	env := make([]string, 0, len(server.Vars()))
 	for k, v := range server.Vars() {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
@@ -155,6 +154,7 @@ func (pm *Docker) runInstallation(
 		WorkingDir: "/mnt/server",
 		Cmd: []string{
 			getInstallationEntrypoint(pm.getConfig(server, keyDockerInstallationEntrypoint), installScript),
+			"-e",
 			"/mnt/server/.gameap_install.sh",
 		},
 		Env:  env,
