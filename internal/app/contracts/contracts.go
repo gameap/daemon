@@ -63,6 +63,9 @@ type ProcessManager interface {
 	Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
 	GetOutput(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
 	SendInput(ctx context.Context, input string, server *domain.Server, out io.Writer) (domain.Result, error)
+
+	// HasOwnInstallation checks if the ProcessManager can install server files itself.
+	HasOwnInstallation(server *domain.Server) bool
 }
 
 type DomainPrimitiveValidator interface {

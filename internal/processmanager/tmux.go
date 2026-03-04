@@ -264,3 +264,7 @@ func (pm *Tmux) executeOptions(server *domain.Server) (contracts.ExecutorOptions
 		GID:             systemUser.Gid,
 	}, nil
 }
+
+func (pm *Tmux) HasOwnInstallation(_ *domain.Server) bool {
+	return false
+}

@@ -658,6 +658,12 @@ func (pm *Docker) getConfig(server *domain.Server, key string) string {
 	return getContainerConfig(pm.cfg, server, key)
 }
 
+func (pm *Docker) HasOwnInstallation(server *domain.Server) bool {
+	installImage := pm.getConfig(server, keyDockerInstallationImage)
+	installScript := pm.getConfig(server, keyDockerInstallationScript)
+	return installImage != "" && installScript != ""
+}
+
 func normalizeImageName(imageName string) string {
 	if imageName == "" {
 		return defaultImage

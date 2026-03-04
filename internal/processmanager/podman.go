@@ -793,6 +793,12 @@ func (pm *Podman) getConfig(server *domain.Server, key string) string {
 	return getContainerConfig(pm.cfg, server, key)
 }
 
+func (pm *Podman) HasOwnInstallation(server *domain.Server) bool {
+	installImage := pm.getConfig(server, keyPodmanInstallationImage)
+	installScript := pm.getConfig(server, keyPodmanInstallationScript)
+	return installImage != "" && installScript != ""
+}
+
 func (pm *Podman) parseExtraVolumes(volumesJSON, workDir string) []map[string]interface{} {
 	var volumes []string
 	if err := json.Unmarshal([]byte(volumesJSON), &volumes); err != nil {

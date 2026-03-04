@@ -127,3 +127,7 @@ func (pm *Simple) executeOptions(server *domain.Server) contracts.ExecutorOption
 		FallbackWorkDir: pm.cfg.WorkDir(),
 	}
 }
+
+func (pm *Simple) HasOwnInstallation(_ *domain.Server) bool {
+	return false
+}

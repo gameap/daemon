@@ -53,6 +53,7 @@ var (
 	errAllInstallationMethodsFailed = errors.New("all installation methods failed")
 	errInstallViaSteamCMDFailed     = errors.New("failed to install via steamcmd")
 	errFailedToExecuteAfterScript   = errors.New("failed to execute after installation script")
+	errUnknownInstallationAction    = errors.New("unknown installation action")
 )
 
 type installationRule struct {
@@ -257,29 +258,31 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 	gameMod := server.GameMod()
 
 	gameRules := sd.DefineGameRules(&game)
-	if len(gameRules) == 0 {
+	if len(gameRules) == 0 && !cmd.processManager.HasOwnInstallation(server) {
 		return ErrDefinedNoGameInstallationRulesError
 	}
 
-	_, _ = cmd.installOutput.Write([]byte("Installing game files ...\n"))
+	if len(gameRules) > 0 {
+		_, _ = cmd.installOutput.Write([]byte("Installing game files ...\n"))
 
-	err := cmd.installator.Install(ctx, server, gameRules)
-	if err != nil {
-		cmd.SetResult(ErrorResult)
-		return err
-	}
+		err := cmd.installator.Install(ctx, server, gameRules)
+		if err != nil {
+			cmd.SetResult(ErrorResult)
+			return err
+		}
 
-	if cmd.kind != updater {
-		gameModRules := sd.DefineGameModRules(&gameMod)
+		if cmd.kind != updater {
+			gameModRules := sd.DefineGameModRules(&gameMod)
 
-		if len(gameModRules) > 0 {
-			_, _ = cmd.installOutput.Write([]byte("\n\n"))
-			_, _ = cmd.installOutput.Write([]byte("Installing game mod files ...\n"))
+			if len(gameModRules) > 0 {
+				_, _ = cmd.installOutput.Write([]byte("\n\n"))
+				_, _ = cmd.installOutput.Write([]byte("Installing game mod files ...\n"))
 
-			err = cmd.installator.Install(ctx, server, gameModRules)
-			if err != nil {
-				cmd.SetResult(ErrorResult)
-				return err
+				err = cmd.installator.Install(ctx, server, gameModRules)
+				if err != nil {
+					cmd.SetResult(ErrorResult)
+					return err
+				}
 			}
 		}
 	}
@@ -415,6 +418,7 @@ func (in *installator) Install(ctx context.Context, server *domain.Server, rules
 	for _, rule := range rules {
 		if rule.Action == unknownAction {
 			log.Error("Unknown action found suddenly")
+
 			continue
 		}
 
@@ -451,6 +455,8 @@ func (in *installator) install(ctx context.Context, server *domain.Server, rule 
 		err = in.copyDirectoryFromLocalRepository(ctx, dst, rule.SourceValue)
 	case installFromSteam:
 		err = in.installFromSteam(ctx, in.cfg, in.output, server, rule.SourceValue)
+	default:
+		err = errUnknownInstallationAction
 	}
 
 	if err != nil {

@@ -501,3 +501,7 @@ type onFailure struct {
 type log struct {
 	Mode string `xml:"mode,attr"`
 }
+
+func (pm *WinSW) HasOwnInstallation(_ *domain.Server) bool {
+	return false
+}

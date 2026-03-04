@@ -637,3 +637,7 @@ func (pm *SystemD) userAndGroup(server *domain.Server) (string, string, error) {
 
 	return systemUser.Username, systemUser.Gid, nil
 }
+
+func (pm *SystemD) HasOwnInstallation(_ *domain.Server) bool {
+	return false
+}
