@@ -466,6 +466,8 @@ func givenServer(t *testing.T, game domain.Game, gameMod domain.GameMod) *domain
 		map[string]string{},
 		map[string]string{},
 		time.Now(),
+		0, // cpuLimit
+		0, // ramLimit
 	)
 }
 

@@ -156,11 +156,13 @@ type serverStruct struct {
 	Game             domain.Game              `json:"game"`
 	Settings         []map[string]interface{} `json:"settings"`
 	GameMod          domain.GameMod           `json:"game_mod"`
+	RAMLimit         *int64                   `json:"ram_limit"`
 	ConnectPort      int                      `json:"server_port"`
 	ID               int                      `json:"id"`
 	InstallStatus    int                      `json:"installed"`
 	RconPort         int                      `json:"rcon_port"`
 	QueryPort        int                      `json:"query_port"`
+	CPULimit         *int                     `json:"cpu_limit"`
 	Enabled          bool                     `json:"enabled"`
 	ProcessActive    bool                     `json:"process_active"`
 	Blocked          bool                     `json:"blocked"`
@@ -301,6 +303,15 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 			lastStatusCheck = lastProcessCheck
 		}
 
+		cpuLimit := 0
+		if srv.CPULimit != nil {
+			cpuLimit = *srv.CPULimit
+		}
+		var ramLimit int64
+		if srv.RAMLimit != nil {
+			ramLimit = *srv.RAMLimit
+		}
+
 		server.Set(
 			srv.Enabled,
 			installationStatus,
@@ -326,9 +337,20 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 			srv.Vars,
 			settings,
 			updatedAt,
+			cpuLimit,
+			ramLimit,
 		)
 
 		return server, nil
+	}
+
+	cpuLimit := 0
+	if srv.CPULimit != nil {
+		cpuLimit = *srv.CPULimit
+	}
+	var ramLimit int64
+	if srv.RAMLimit != nil {
+		ramLimit = *srv.RAMLimit
 	}
 
 	server = domain.NewServer(
@@ -357,6 +379,8 @@ func (apiRepo *apiServerRepo) FindByID(ctx context.Context, id int) (*domain.Ser
 		srv.Vars,
 		settings,
 		updatedAt,
+		cpuLimit,
+		ramLimit,
 	)
 
 	apiRepo.servers.Store(srv.ID, server)

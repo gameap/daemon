@@ -68,6 +68,8 @@ func TestMakeFullCommand(t *testing.T) {
 		},
 		map[string]string{},
 		time.Now(),
+		0, // cpuLimit
+		0, // ramLimit
 	)
 
 	command := makeFullCommand(cfg, server, cfg.Scripts.Start, server.StartCommand())

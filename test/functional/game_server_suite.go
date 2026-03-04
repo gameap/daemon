@@ -43,6 +43,8 @@ func (suite *GameServerSuite) GivenServerForGameAndMod(game domain.Game, mod dom
 		},
 		map[string]string{},
 		time.Now(),
+		0, // cpuLimit
+		0, // ramLimit
 	)
 }
 
@@ -86,5 +88,7 @@ func (suite *GameServerSuite) GivenServerWithStartAndStopCommand(startCommand st
 		},
 		map[string]string{},
 		time.Now(),
+		0, // cpuLimit
+		0, // ramLimit
 	)
 }

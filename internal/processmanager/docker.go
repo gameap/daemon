@@ -44,8 +44,6 @@ const (
 	keyDockerInstallationScript     = "docker_installation_script"
 	keyDockerInstallationEntrypoint = "docker_installation_entrypoint"
 	keyDockerInstallationUser       = "docker_installation_user"
-	keyDockerMemoryLimit            = "docker_memory_limit"
-	keyDockerCPULimit               = "docker_cpu_limit"
 	keyDockerNetworkMode            = "docker_network_mode"
 	keyDockerContainerName          = "docker_container_name"
 	keyDockerCapabilities           = "docker_capabilities"
@@ -535,17 +533,14 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 	containerConfig.ExposedPorts = exposedPorts
 	hostConfig.PortBindings = portBindings
 
-	// Resource limits
-	if memLimit := pm.getConfig(server, keyDockerMemoryLimit); memLimit != "" {
-		if mem, parseErr := parseMemoryLimit(memLimit); parseErr == nil && mem > 0 {
-			hostConfig.Resources.Memory = mem
-		}
+	// Resource limits from server API
+	if server.RAMLimit() > 0 {
+		hostConfig.Resources.Memory = server.RAMLimit()
 	}
 
-	if cpuLimit := pm.getConfig(server, keyDockerCPULimit); cpuLimit != "" {
-		if cpu, parseErr := parseCPULimit(cpuLimit); parseErr == nil && cpu > 0 {
-			hostConfig.Resources.NanoCPUs = cpu
-		}
+	if server.CPULimit() > 0 {
+		// Convert millicores to nanocpus: millicores * 1e6
+		hostConfig.Resources.NanoCPUs = int64(server.CPULimit()) * 1_000_000
 	}
 
 	// Capabilities
@@ -741,45 +736,6 @@ func getInstallationEntrypoint(entrypointConfig, script string) string {
 		return shell
 	}
 	return "/bin/sh"
-}
-
-func parseMemoryLimit(s string) (int64, error) {
-	s = strings.ToLower(strings.TrimSpace(s))
-	if s == "" {
-		return 0, nil
-	}
-
-	multiplier := int64(1)
-	switch {
-	case strings.HasSuffix(s, "g"):
-		multiplier = 1024 * 1024 * 1024
-		s = s[:len(s)-1]
-	case strings.HasSuffix(s, "m"):
-		multiplier = 1024 * 1024
-		s = s[:len(s)-1]
-	case strings.HasSuffix(s, "k"):
-		multiplier = 1024
-		s = s[:len(s)-1]
-	}
-
-	val, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	return val * multiplier, nil
-}
-
-func parseCPULimit(s string) (int64, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, nil
-	}
-
-	val, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0, err
-	}
-	return int64(val * 1e9), nil
 }
 
 func parseExtraVolumes(volumesJSON, workDir string) []mount.Mount {

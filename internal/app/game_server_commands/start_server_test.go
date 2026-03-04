@@ -136,5 +136,7 @@ func givenServerWithStartCommand(t *testing.T, startCommand string) *domain.Serv
 		},
 		map[string]string{},
 		time.Now(),
+		0, // cpuLimit
+		0, // ramLimit
 	)
 }

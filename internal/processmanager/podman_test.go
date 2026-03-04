@@ -300,5 +300,7 @@ func createPodmanTestServer(vars map[string]string, gameModMeta, gameMeta map[st
 		vars,                                  // vars
 		domain.Settings{},                     // settings
 		time.Time{},                           // updatedAt
+		0,                                     // cpuLimit
+		0,                                     // ramLimit
 	)
 }

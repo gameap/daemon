@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -445,7 +446,25 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 
 	builder.WriteString("Group=")
 	builder.WriteString(group)
-	builder.WriteString("\n\n")
+	builder.WriteString("\n")
+
+	// Resource limits
+	if server.RAMLimit() > 0 {
+		builder.WriteString("MemoryMax=")
+		builder.WriteString(strconv.FormatInt(server.RAMLimit(), 10))
+		builder.WriteString("\n")
+	}
+
+	if server.CPULimit() > 0 {
+		// Convert millicores to CPUQuota percentage
+		// 1000 millicores = 100% (1 core)
+		cpuQuota := server.CPULimit() / 10
+		builder.WriteString("CPUQuota=")
+		builder.WriteString(strconv.Itoa(cpuQuota))
+		builder.WriteString("%\n")
+	}
+
+	builder.WriteString("\n")
 
 	// [Install]
 	builder.WriteString("[Install]\n")

@@ -39,4 +39,6 @@ var GameServer = domain.NewServer(
 	},
 	map[string]string{},
 	time.Now(),
+	0, // cpuLimit
+	0, // ramLimit
 )

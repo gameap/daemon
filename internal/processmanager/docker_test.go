@@ -9,7 +9,6 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewDocker(t *testing.T) {
@@ -150,65 +149,6 @@ func TestNormalizeImageName(t *testing.T) {
 	}
 }
 
-func TestParseMemoryLimit(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected int64
-		hasError bool
-	}{
-		{"", 0, false},
-		{"1024", 1024, false},
-		{"1k", 1024, false},
-		{"1K", 1024, false},
-		{"1m", 1024 * 1024, false},
-		{"1M", 1024 * 1024, false},
-		{"1g", 1024 * 1024 * 1024, false},
-		{"1G", 1024 * 1024 * 1024, false},
-		{"2g", 2 * 1024 * 1024 * 1024, false},
-		{"512m", 512 * 1024 * 1024, false},
-		{"invalid", 0, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result, err := parseMemoryLimit(tt.input)
-			if tt.hasError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestParseCPULimit(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected int64
-		hasError bool
-	}{
-		{"", 0, false},
-		{"1", 1e9, false},
-		{"2", 2e9, false},
-		{"0.5", int64(0.5e9), false},
-		{"1.5", int64(1.5e9), false},
-		{"invalid", 0, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result, err := parseCPULimit(tt.input)
-			if tt.hasError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
-			}
-		})
-	}
-}
-
 func TestParseExtraVolumes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -282,5 +222,7 @@ func createTestServer(vars map[string]string, gameModMeta, gameMeta map[string]a
 		vars,                                  // vars
 		domain.Settings{},                     // settings
 		time.Time{},                           // updatedAt
+		0,                                     // cpuLimit
+		0,                                     // ramLimit
 	)
 }

@@ -50,8 +50,6 @@ const (
 	keyPodmanInstallationScript     = "docker_installation_script"
 	keyPodmanInstallationEntrypoint = "docker_installation_entrypoint"
 	keyPodmanInstallationUser       = "docker_installation_user"
-	keyPodmanMemoryLimit            = "docker_memory_limit"
-	keyPodmanCPULimit               = "docker_cpu_limit"
 	keyPodmanNetworkMode            = "docker_network_mode"
 	keyPodmanContainerName          = "docker_container_name"
 	keyPodmanCapabilities           = "docker_capabilities"
@@ -508,23 +506,21 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 		"portmappings": pm.buildPortMappings(server),
 	}
 
-	// Resource limits
+	// Resource limits from server API
 	resourceLimits := make(map[string]interface{})
 
-	if memLimit := pm.getConfig(server, keyPodmanMemoryLimit); memLimit != "" {
-		if mem, parseErr := parseMemoryLimit(memLimit); parseErr == nil && mem > 0 {
-			resourceLimits["memory"] = map[string]int64{"limit": mem}
-		}
+	if server.RAMLimit() > 0 {
+		resourceLimits["memory"] = map[string]int64{"limit": server.RAMLimit()}
 	}
 
-	if cpuLimit := pm.getConfig(server, keyPodmanCPULimit); cpuLimit != "" {
-		if cpu, parseErr := parseCPULimit(cpuLimit); parseErr == nil && cpu > 0 {
-			period := int64(100000)
-			quota := int64((float64(cpu) / 1e9) * float64(period))
-			resourceLimits["cpu"] = map[string]int64{
-				"period": period,
-				"quota":  quota,
-			}
+	if server.CPULimit() > 0 {
+		// Convert millicores to period/quota
+		nanoCPUs := int64(server.CPULimit()) * 1_000_000
+		period := int64(100000)
+		quota := int64((float64(nanoCPUs) / 1e9) * float64(period))
+		resourceLimits["cpu"] = map[string]int64{
+			"period": period,
+			"quota":  quota,
 		}
 	}
 

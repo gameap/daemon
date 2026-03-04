@@ -73,11 +73,13 @@ type Server struct {
 	name                string
 	game                Game
 	gameMod             GameMod
+	ramLimit            int64 // bytes
 	id                  int
 	connectPort         int
 	queryPort           int
 	installStatus       InstallationStatus
 	rconPort            int
+	cpuLimit            int // millicores (1000 = 1 CPU core)
 	processActive       bool
 	enabled             bool
 	blocked             bool
@@ -109,6 +111,8 @@ func NewServer(
 	vars map[string]string,
 	settings Settings,
 	updatedAt time.Time,
+	cpuLimit int,
+	ramLimit int64,
 ) *Server {
 	return &Server{
 		id:                  id,
@@ -136,6 +140,8 @@ func NewServer(
 		vars:                vars,
 		settings:            settings,
 		updatedAt:           updatedAt,
+		cpuLimit:            cpuLimit,
+		ramLimit:            ramLimit,
 		lastTaskCompletedAt: time.Unix(0, 0),
 		changeset:           hashset.New(),
 		mu:                  &sync.RWMutex{},
@@ -174,6 +180,8 @@ func (s *Server) Set(
 	vars map[string]string,
 	settings Settings,
 	updatedAt time.Time,
+	cpuLimit int,
+	ramLimit int64,
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,6 +210,8 @@ func (s *Server) Set(
 	s.vars = vars
 	s.settings = settings
 	s.updatedAt = updatedAt
+	s.cpuLimit = cpuLimit
+	s.ramLimit = ramLimit
 }
 
 func (s *Server) Enabled() bool {
@@ -502,6 +512,20 @@ func (s *Server) UpdatedAt() time.Time {
 	defer s.mu.RUnlock()
 
 	return s.updatedAt
+}
+
+func (s *Server) CPULimit() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.cpuLimit
+}
+
+func (s *Server) RAMLimit() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.ramLimit
 }
 
 func (s *Server) NoticeTaskCompleted() {

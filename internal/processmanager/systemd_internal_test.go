@@ -207,5 +207,7 @@ func makeServerWithStartCommandAndDir(startCommand, dir string) *domain.Server {
 		},
 		map[string]string{},
 		time.Now(),
+		0, // cpuLimit
+		0, // ramLimit
 	)
 }
