@@ -122,7 +122,7 @@ func (pm *Docker) runInstallation(
 	}
 
 	scriptPath := filepath.Join(workDir, ".gameap_install.sh")
-	if err := os.WriteFile(scriptPath, []byte(installScript), 0600); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(normalizeLineEndings(installScript)), 0600); err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to write installation script")
 	}
 	if err := os.Chmod(scriptPath, 0755); err != nil {
@@ -622,6 +622,13 @@ func normalizeImageName(imageName string) string {
 		return imageName + ":latest"
 	}
 	return imageName
+}
+
+// normalizeLineEndings converts Windows/Mac line endings to Unix format.
+func normalizeLineEndings(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n") // Windows → Unix
+	s = strings.ReplaceAll(s, "\r", "\n")   // Old Mac → Unix
+	return s
 }
 
 func parseMemoryLimit(s string) (int64, error) {

@@ -163,7 +163,7 @@ func (pm *Podman) runInstallation(
 	}
 
 	scriptPath := filepath.Join(workDir, ".gameap_install.sh")
-	if err := os.WriteFile(scriptPath, []byte(installScript), 0600); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(normalizeLineEndings(installScript)), 0600); err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to write installation script")
 	}
 	if err := os.Chmod(scriptPath, 0755); err != nil {
