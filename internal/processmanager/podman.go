@@ -57,6 +57,7 @@ const (
 	keyPodmanPrivileged             = "docker_privileged"
 	keyPodmanVolumes                = "docker_volumes"
 	keyPodmanDNS                    = "docker_dns"
+	keyPodmanWorkDir                = "docker_workdir"
 )
 
 type Podman struct {
@@ -455,11 +456,17 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 		env[k] = v
 	}
 
+	// Container working directory
+	containerWorkDir := pm.getConfig(server, keyPodmanWorkDir)
+	if containerWorkDir == "" {
+		containerWorkDir = "/server"
+	}
+
 	spec := map[string]interface{}{
 		"name":     containerName,
 		"image":    imageName,
 		"hostname": containerName,
-		"work_dir": "/server",
+		"work_dir": containerWorkDir,
 		"env":      env,
 		"command":  cmdSlice,
 		"user":     fmt.Sprintf("%s:%s", uid, gid),
@@ -468,7 +475,7 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 		"mounts": []map[string]interface{}{
 			{
 				"source":      server.WorkDir(pm.cfg),
-				"destination": "/server",
+				"destination": containerWorkDir,
 				"type":        "bind",
 			},
 		},
@@ -516,7 +523,7 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 
 	// Extra volumes
 	if volumes := pm.getConfig(server, keyPodmanVolumes); volumes != "" {
-		extraMounts := pm.parseExtraVolumes(volumes)
+		extraMounts := pm.parseExtraVolumes(volumes, server.WorkDir(pm.cfg))
 		if len(extraMounts) > 0 {
 			mounts := spec["mounts"].([]map[string]interface{})
 			spec["mounts"] = append(mounts, extraMounts...)
@@ -764,7 +771,7 @@ func (pm *Podman) getConfig(server *domain.Server, key string) string {
 	return getContainerConfig(pm.cfg, server, key)
 }
 
-func (pm *Podman) parseExtraVolumes(volumesJSON string) []map[string]interface{} {
+func (pm *Podman) parseExtraVolumes(volumesJSON, workDir string) []map[string]interface{} {
 	var volumes []string
 	if err := json.Unmarshal([]byte(volumesJSON), &volumes); err != nil {
 		// Try parsing as comma-separated string
@@ -783,9 +790,15 @@ func (pm *Podman) parseExtraVolumes(volumesJSON string) []map[string]interface{}
 			continue
 		}
 
+		source := parts[0]
+		// Resolve relative paths against workDir
+		if !filepath.IsAbs(source) {
+			source = filepath.Join(workDir, source)
+		}
+
 		m := map[string]interface{}{
 			"type":        "bind",
-			"source":      parts[0],
+			"source":      source,
 			"destination": parts[1],
 		}
 

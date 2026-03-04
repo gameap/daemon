@@ -52,6 +52,7 @@ const (
 	keyDockerVolumes                = "docker_volumes"
 	keyDockerHealthcheck            = "docker_healthcheck"
 	keyDockerDNS                    = "docker_dns"
+	keyDockerWorkDir                = "docker_workdir"
 )
 
 type Docker struct {
@@ -462,11 +463,17 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
+	// Container working directory
+	containerWorkDir := pm.getConfig(server, keyDockerWorkDir)
+	if containerWorkDir == "" {
+		containerWorkDir = "/server"
+	}
+
 	// Container config
 	containerConfig := &container.Config{
 		Image:      imageName,
 		Hostname:   containerName,
-		WorkingDir: "/server",
+		WorkingDir: containerWorkDir,
 		Env:        env,
 		Cmd:        cmdSlice,
 		User:       fmt.Sprintf("%s:%s", uid, gid),
@@ -479,7 +486,7 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 		Mounts: []mount.Mount{{
 			Type:   mount.TypeBind,
 			Source: server.WorkDir(pm.cfg),
-			Target: "/server",
+			Target: containerWorkDir,
 		}},
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 	}
@@ -526,7 +533,7 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 
 	// Extra volumes
 	if volumes := pm.getConfig(server, keyDockerVolumes); volumes != "" {
-		extraMounts := parseExtraVolumes(volumes)
+		extraMounts := parseExtraVolumes(volumes, server.WorkDir(pm.cfg))
 		hostConfig.Mounts = append(hostConfig.Mounts, extraMounts...)
 	}
 
@@ -717,7 +724,7 @@ func parseCPULimit(s string) (int64, error) {
 	return int64(val * 1e9), nil
 }
 
-func parseExtraVolumes(volumesJSON string) []mount.Mount {
+func parseExtraVolumes(volumesJSON, workDir string) []mount.Mount {
 	var volumes []string
 	if err := json.Unmarshal([]byte(volumesJSON), &volumes); err != nil {
 		// Try parsing as comma-separated string
@@ -736,9 +743,15 @@ func parseExtraVolumes(volumesJSON string) []mount.Mount {
 			continue
 		}
 
+		source := parts[0]
+		// Resolve relative paths against workDir
+		if !filepath.IsAbs(source) {
+			source = filepath.Join(workDir, source)
+		}
+
 		m := mount.Mount{
 			Type:   mount.TypeBind,
-			Source: parts[0],
+			Source: source,
 			Target: parts[1],
 		}
 

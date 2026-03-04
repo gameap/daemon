@@ -188,7 +188,7 @@ func TestPodman_parseExtraVolumes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := pm.parseExtraVolumes(tt.input)
+			result := pm.parseExtraVolumes(tt.input, "/tmp/workdir")
 			assert.Len(t, result, tt.expected)
 		})
 	}

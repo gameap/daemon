@@ -67,6 +67,7 @@ Configuration values are resolved in the following priority order:
 | `docker_privileged` | Run in privileged mode | `true`, `false` | `false` |
 | `docker_volumes` | Additional volumes (JSON array or comma-separated) | `["/data:/data:ro"]` | None |
 | `docker_dns` | Custom DNS servers (comma-separated) | `8.8.8.8,8.8.4.4` | System default |
+| `docker_workdir` | Container working directory | `/home/container` | `/server` |
 
 #### Installation Configuration
 
@@ -246,6 +247,7 @@ Podman uses the same metadata keys as Docker for compatibility:
 | `docker_privileged` | Privileged mode | `true`, `false` | `false` |
 | `docker_volumes` | Additional volumes | `["/data:/data:ro"]` | None |
 | `docker_dns` | DNS servers | `8.8.8.8,8.8.4.4` | System default |
+| `docker_workdir` | Container working directory | `/home/container` | `/server` |
 | `docker_installation_image` | Installation image | `node:18` | None |
 | `docker_installation_script` | Installation script | `#!/bin/bash\n...` | None |
 | `docker_installation_entrypoint` | Shell for installation script | `ash`, `/bin/sh` | Auto-detected from shebang |
