@@ -191,6 +191,10 @@ func (pm *Podman) runInstallation(
 	entrypoint := getInstallationEntrypoint(pm.getConfig(server, keyPodmanInstallationEntrypoint), installScript)
 	spec := pm.buildInstallSpec(tempName, installImage, workDir, entrypoint, env)
 
+	// Debug: log installation container configuration
+	specJSON, _ := json.MarshalIndent(spec, "", "  ")
+	_, _ = out.Write([]byte(fmt.Sprintf("Installation container config:\n%s\n", specJSON)))
+
 	// 7. Create container
 	_, _ = out.Write([]byte("Creating installation container...\n"))
 	containerID, err := pm.createContainer(ctx, spec)
@@ -311,6 +315,10 @@ func (pm *Podman) Start(ctx context.Context, server *domain.Server, out io.Write
 	if err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to build container spec")
 	}
+
+	// Debug: log container configuration
+	specJSON, _ := json.MarshalIndent(spec, "", "  ")
+	_, _ = out.Write([]byte(fmt.Sprintf("Container config:\n%s\n", specJSON)))
 
 	// Create container
 	_, _ = out.Write([]byte(fmt.Sprintf("Creating container %s...\n", containerName)))

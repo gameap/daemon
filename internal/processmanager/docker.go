@@ -165,6 +165,15 @@ func (pm *Docker) runInstallation(
 	// 6. Remove existing container if any
 	_, _ = pm.client.ContainerRemove(ctx, tempName, client.ContainerRemoveOptions{Force: true})
 
+	// Debug: log installation container configuration
+	configJSON, _ := json.MarshalIndent(map[string]interface{}{
+		"image":      containerConfig.Image,
+		"workingDir": containerConfig.WorkingDir,
+		"cmd":        containerConfig.Cmd,
+		"mounts":     hostConfig.Mounts,
+	}, "", "  ")
+	_, _ = out.Write([]byte(fmt.Sprintf("Installation container config:\n%s\n", configJSON)))
+
 	// 7. Create and start container
 	_, _ = out.Write([]byte("Creating installation container...\n"))
 	resp, err := pm.client.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -297,6 +306,17 @@ func (pm *Docker) Start(ctx context.Context, server *domain.Server, out io.Write
 	if err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to build container config")
 	}
+
+	// Debug: log container configuration
+	configJSON, _ := json.MarshalIndent(map[string]interface{}{
+		"image":      containerConfig.Image,
+		"workingDir": containerConfig.WorkingDir,
+		"cmd":        containerConfig.Cmd,
+		"user":       containerConfig.User,
+		"env":        containerConfig.Env,
+		"mounts":     hostConfig.Mounts,
+	}, "", "  ")
+	_, _ = out.Write([]byte(fmt.Sprintf("Container config:\n%s\n", configJSON)))
 
 	// Create container
 	_, _ = out.Write([]byte(fmt.Sprintf("Creating container %s...\n", containerName)))
