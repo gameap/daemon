@@ -30,6 +30,19 @@ const (
 	podmanAPIVersion         = "v4.0.0"
 )
 
+var (
+	errPodmanInstallationFailed = errors.New("installation failed")
+	errPodmanPullImage          = errors.New("failed to pull image")
+	errPodmanCreateExec         = errors.New("failed to create exec")
+	errPodmanCreateContainer    = errors.New("failed to create container")
+	errPodmanStartContainer     = errors.New("failed to start container")
+	errPodmanStopContainer      = errors.New("failed to stop container")
+	errPodmanRemoveContainer    = errors.New("failed to remove container")
+	errPodmanWaitContainer      = errors.New("failed to wait for container")
+	errPodmanInspectContainer   = errors.New("failed to inspect container")
+	errPodmanGetLogs            = errors.New("failed to get logs")
+)
+
 // Podman metadata configuration keys (same as Docker for compatibility)
 const (
 	keyPodmanImage              = "docker_image"
@@ -150,8 +163,11 @@ func (pm *Podman) runInstallation(
 	}
 
 	scriptPath := filepath.Join(workDir, ".gameap_install.sh")
-	if err := os.WriteFile(scriptPath, []byte(installScript), 0755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(installScript), 0600); err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to write installation script")
+	}
+	if err := os.Chmod(scriptPath, 0755); err != nil {
+		return domain.ErrorResult, errors.Wrap(err, "failed to make installation script executable")
 	}
 	defer func() {
 		_ = os.Remove(scriptPath)
@@ -201,7 +217,7 @@ func (pm *Podman) runInstallation(
 	_ = pm.removeContainer(ctx, containerID)
 
 	if exitCode != 0 {
-		return domain.ErrorResult, fmt.Errorf("installation failed with exit code %d", exitCode)
+		return domain.ErrorResult, errors.Wrapf(errPodmanInstallationFailed, "exit code %d", exitCode)
 	}
 
 	_, _ = out.Write([]byte("Installation completed successfully\n"))
@@ -247,7 +263,7 @@ func (pm *Podman) pullImageByName(ctx context.Context, imageName string, out io.
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to pull image: %s", string(body))
+		return errors.Wrapf(errPodmanPullImage, "%s", string(body))
 	}
 
 	// Stream the response to output
@@ -394,7 +410,7 @@ func (pm *Podman) SendInput(
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return domain.ErrorResult, fmt.Errorf("failed to create exec: %s", string(body))
+		return domain.ErrorResult, errors.Wrapf(errPodmanCreateExec, "%s", string(body))
 	}
 
 	var execResp struct {
@@ -553,7 +569,7 @@ func (pm *Podman) createContainer(ctx context.Context, spec map[string]interface
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("failed to create container: %s", string(body))
+		return "", errors.Wrapf(errPodmanCreateContainer, "%s", string(body))
 	}
 
 	var createResp struct {
@@ -576,7 +592,7 @@ func (pm *Podman) startContainer(ctx context.Context, nameOrID string) error {
 
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to start container: %s", string(body))
+		return errors.Wrapf(errPodmanStartContainer, "%s", string(body))
 	}
 
 	return nil
@@ -591,9 +607,11 @@ func (pm *Podman) stopContainer(ctx context.Context, nameOrID string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+	if resp.StatusCode != http.StatusNoContent &&
+		resp.StatusCode != http.StatusOK &&
+		resp.StatusCode != http.StatusNotFound {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to stop container: %s", string(body))
+		return errors.Wrapf(errPodmanStopContainer, "%s", string(body))
 	}
 
 	return nil
@@ -607,9 +625,11 @@ func (pm *Podman) removeContainer(ctx context.Context, nameOrID string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
+	if resp.StatusCode != http.StatusOK &&
+		resp.StatusCode != http.StatusNoContent &&
+		resp.StatusCode != http.StatusNotFound {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to remove container: %s", string(body))
+		return errors.Wrapf(errPodmanRemoveContainer, "%s", string(body))
 	}
 
 	return nil
@@ -625,7 +645,7 @@ func (pm *Podman) waitContainer(ctx context.Context, nameOrID string) (int, erro
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return -1, fmt.Errorf("failed to wait for container: %s", string(body))
+		return -1, errors.Wrapf(errPodmanWaitContainer, "%s", string(body))
 	}
 
 	var waitResp struct {
@@ -652,7 +672,7 @@ func (pm *Podman) inspectContainer(ctx context.Context, nameOrID string) (bool, 
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return false, "", fmt.Errorf("failed to inspect container: %s", string(body))
+		return false, "", errors.Wrapf(errPodmanInspectContainer, "%s", string(body))
 	}
 
 	var inspectResp struct {
@@ -682,7 +702,7 @@ func (pm *Podman) getLogs(ctx context.Context, nameOrID string, tailLines int) (
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("failed to get logs: %s", string(body))
+		return "", errors.Wrapf(errPodmanGetLogs, "%s", string(body))
 	}
 
 	logs, err := io.ReadAll(resp.Body)
@@ -738,45 +758,8 @@ func (pm *Podman) getUserIDs(server *domain.Server) (string, string, error) {
 	return systemUser.Uid, systemUser.Gid, nil
 }
 
-// getConfig retrieves configuration value with priority:
-// 1. Server vars
-// 2. GameMod metadata
-// 3. Game metadata
-// 4. ProcessManager config
 func (pm *Podman) getConfig(server *domain.Server, key string) string {
-	// 1. Check server vars
-	if val, ok := server.Vars()[key]; ok && val != "" {
-		return val
-	}
-
-	// 2. Check game mod metadata
-	if val, ok := server.GameMod().Metadata[key]; ok {
-		if strVal, isStr := val.(string); isStr && strVal != "" {
-			return strVal
-		}
-	}
-
-	// 3. Check game metadata
-	if val, ok := server.Game().Metadata[key]; ok {
-		if strVal, isStr := val.(string); isStr && strVal != "" {
-			return strVal
-		}
-	}
-
-	// 4. Check process manager config
-	if pm.cfg.ProcessManager.Config != nil {
-		// Map docker_ prefixed keys to config keys without prefix
-		configKey := strings.TrimPrefix(key, "docker_")
-		if val, ok := pm.cfg.ProcessManager.Config[configKey]; ok && val != "" {
-			return val
-		}
-		// Also check with original key
-		if val, ok := pm.cfg.ProcessManager.Config[key]; ok && val != "" {
-			return val
-		}
-	}
-
-	return ""
+	return getContainerConfig(pm.cfg, server, key)
 }
 
 func (pm *Podman) parseExtraVolumes(volumesJSON string) []map[string]interface{} {
@@ -786,7 +769,7 @@ func (pm *Podman) parseExtraVolumes(volumesJSON string) []map[string]interface{}
 		volumes = strings.Split(volumesJSON, ",")
 	}
 
-	var mounts []map[string]interface{}
+	mounts := make([]map[string]interface{}, 0, len(volumes))
 	for _, v := range volumes {
 		v = strings.TrimSpace(v)
 		if v == "" {

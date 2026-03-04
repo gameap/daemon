@@ -33,12 +33,9 @@ const (
 	defaultImage       = "debian:bookworm-slim"
 	defaultStopTimeout = 30 * time.Second
 	maxLogTailLines    = "500"
-
-	// Retry configuration
-	maxRetries     = 3
-	initialBackoff = 100 * time.Millisecond
-	maxBackoff     = 5 * time.Second
 )
+
+var errInstallationFailed = errors.New("installation failed")
 
 // Docker metadata configuration keys
 const (
@@ -125,8 +122,11 @@ func (pm *Docker) runInstallation(
 	}
 
 	scriptPath := filepath.Join(workDir, ".gameap_install.sh")
-	if err := os.WriteFile(scriptPath, []byte(installScript), 0755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(installScript), 0600); err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to write installation script")
+	}
+	if err := os.Chmod(scriptPath, 0755); err != nil {
+		return domain.ErrorResult, errors.Wrap(err, "failed to make installation script executable")
 	}
 	defer func() {
 		_ = os.Remove(scriptPath)
@@ -214,7 +214,7 @@ func (pm *Docker) runInstallation(
 	_, _ = pm.client.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
 
 	if exitCode != 0 {
-		return domain.ErrorResult, fmt.Errorf("installation failed with exit code %d", exitCode)
+		return domain.ErrorResult, errors.Wrapf(errInstallationFailed, "exit code %d", exitCode)
 	}
 
 	_, _ = out.Write([]byte("Installation completed successfully\n"))
@@ -288,7 +288,7 @@ func (pm *Docker) Start(ctx context.Context, server *domain.Server, out io.Write
 	}
 
 	// Build container config
-	containerConfig, hostConfig, networkingConfig, err := pm.buildContainerConfig(server)
+	containerConfig, hostConfig, err := pm.buildContainerConfig(server)
 	if err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to build container config")
 	}
@@ -296,10 +296,9 @@ func (pm *Docker) Start(ctx context.Context, server *domain.Server, out io.Write
 	// Create container
 	_, _ = out.Write([]byte(fmt.Sprintf("Creating container %s...\n", containerName)))
 	resp, err := pm.client.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:           containerConfig,
-		HostConfig:       hostConfig,
-		NetworkingConfig: networkingConfig,
-		Name:             containerName,
+		Config:     containerConfig,
+		HostConfig: hostConfig,
+		Name:       containerName,
 	})
 	if err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to create container")
@@ -369,7 +368,11 @@ func (pm *Docker) Status(ctx context.Context, server *domain.Server, out io.Writ
 		return domain.SuccessResult, nil
 	}
 
-	_, _ = out.Write([]byte(fmt.Sprintf("Container %s is not running (status: %s)\n", containerName, inspect.Container.State.Status)))
+	msg := fmt.Sprintf(
+		"Container %s is not running (status: %s)\n",
+		containerName, inspect.Container.State.Status,
+	)
+	_, _ = out.Write([]byte(msg))
 	return domain.ErrorResult, nil
 }
 
@@ -432,7 +435,6 @@ func (pm *Docker) SendInput(
 func (pm *Docker) buildContainerConfig(server *domain.Server) (
 	*container.Config,
 	*container.HostConfig,
-	*network.NetworkingConfig,
 	error,
 ) {
 	imageName := normalizeImageName(pm.getConfig(server, keyDockerImage))
@@ -441,13 +443,13 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 	// Parse command
 	cmdSlice, err := pm.parseCommand(server)
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "failed to parse start command")
+		return nil, nil, errors.Wrap(err, "failed to parse start command")
 	}
 
 	// Get user IDs
 	uid, gid, err := pm.getUserIDs(server)
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "failed to get user IDs")
+		return nil, nil, errors.Wrap(err, "failed to get user IDs")
 	}
 
 	// Build environment variables
@@ -520,10 +522,8 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 
 	// Extra volumes
 	if volumes := pm.getConfig(server, keyDockerVolumes); volumes != "" {
-		extraMounts, parseErr := parseExtraVolumes(volumes)
-		if parseErr == nil {
-			hostConfig.Mounts = append(hostConfig.Mounts, extraMounts...)
-		}
+		extraMounts := parseExtraVolumes(volumes)
+		hostConfig.Mounts = append(hostConfig.Mounts, extraMounts...)
 	}
 
 	// Network mode
@@ -531,7 +531,7 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 		hostConfig.NetworkMode = "host"
 	}
 
-	return containerConfig, hostConfig, nil, nil
+	return containerConfig, hostConfig, nil
 }
 
 func (pm *Docker) buildPortBindings(server *domain.Server) (network.PortMap, network.PortSet) {
@@ -609,79 +609,8 @@ func (pm *Docker) getUserIDs(server *domain.Server) (string, string, error) {
 	return systemUser.Uid, systemUser.Gid, nil
 }
 
-// getConfig retrieves configuration value with priority:
-// 1. Server vars
-// 2. GameMod metadata
-// 3. Game metadata
-// 4. ProcessManager config
 func (pm *Docker) getConfig(server *domain.Server, key string) string {
-	// 1. Check server vars
-	if val, ok := server.Vars()[key]; ok && val != "" {
-		return val
-	}
-
-	// 2. Check game mod metadata
-	if val, ok := server.GameMod().Metadata[key]; ok {
-		if strVal, isStr := val.(string); isStr && strVal != "" {
-			return strVal
-		}
-	}
-
-	// 3. Check game metadata
-	if val, ok := server.Game().Metadata[key]; ok {
-		if strVal, isStr := val.(string); isStr && strVal != "" {
-			return strVal
-		}
-	}
-
-	// 4. Check process manager config
-	if pm.cfg.ProcessManager.Config != nil {
-		// Map docker_ prefixed keys to config keys without prefix
-		configKey := strings.TrimPrefix(key, "docker_")
-		if val, ok := pm.cfg.ProcessManager.Config[configKey]; ok && val != "" {
-			return val
-		}
-		// Also check with original key
-		if val, ok := pm.cfg.ProcessManager.Config[key]; ok && val != "" {
-			return val
-		}
-	}
-
-	return ""
-}
-
-func (pm *Docker) withRetry(ctx context.Context, operation func() error) error {
-	var lastErr error
-	backoff := initialBackoff
-
-	for i := 0; i < maxRetries; i++ {
-		if err := operation(); err != nil {
-			if !isRetryableError(err) {
-				return err
-			}
-			lastErr = err
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(backoff):
-				backoff = min(backoff*2, maxBackoff)
-			}
-			continue
-		}
-		return nil
-	}
-	return lastErr
-}
-
-func isRetryableError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "i/o timeout") ||
-		strings.Contains(errStr, "connection reset")
+	return getContainerConfig(pm.cfg, server, key)
 }
 
 func normalizeImageName(imageName string) string {
@@ -734,7 +663,7 @@ func parseCPULimit(s string) (int64, error) {
 	return int64(val * 1e9), nil
 }
 
-func parseExtraVolumes(volumesJSON string) ([]mount.Mount, error) {
+func parseExtraVolumes(volumesJSON string) []mount.Mount {
 	var volumes []string
 	if err := json.Unmarshal([]byte(volumesJSON), &volumes); err != nil {
 		// Try parsing as comma-separated string
@@ -766,5 +695,5 @@ func parseExtraVolumes(volumesJSON string) ([]mount.Mount, error) {
 		mounts = append(mounts, m)
 	}
 
-	return mounts, nil
+	return mounts
 }

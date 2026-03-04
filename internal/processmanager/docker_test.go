@@ -239,39 +239,10 @@ func TestParseExtraVolumes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, _ := parseExtraVolumes(tt.input)
+			result := parseExtraVolumes(tt.input)
 			assert.Len(t, result, tt.expected)
 		})
 	}
-}
-
-func TestIsRetryableError(t *testing.T) {
-	tests := []struct {
-		err      error
-		expected bool
-	}{
-		{nil, false},
-		{assert.AnError, false},
-		{&testError{msg: "connection refused"}, true},
-		{&testError{msg: "i/o timeout"}, true},
-		{&testError{msg: "connection reset"}, true},
-		{&testError{msg: "other error"}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run("", func(t *testing.T) {
-			result := isRetryableError(tt.err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-type testError struct {
-	msg string
-}
-
-func (e *testError) Error() string {
-	return e.msg
 }
 
 func createTestServer(vars map[string]string, gameModMeta, gameMeta map[string]any) *domain.Server {
