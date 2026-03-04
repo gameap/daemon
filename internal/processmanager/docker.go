@@ -143,7 +143,13 @@ func (pm *Docker) runInstallation(
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	// 5. Container config for installation
+	// 5. Get user IDs for installation container
+	uid, gid, err := pm.getUserIDs(server)
+	if err != nil {
+		return domain.ErrorResult, errors.Wrap(err, "failed to get user IDs")
+	}
+
+	// 6. Container config for installation
 	containerConfig := &container.Config{
 		Image:      installImage,
 		WorkingDir: "/mnt/server",
@@ -151,7 +157,8 @@ func (pm *Docker) runInstallation(
 			getInstallationEntrypoint(pm.getConfig(server, keyDockerInstallationEntrypoint), installScript),
 			"/mnt/server/.gameap_install.sh",
 		},
-		Env: env,
+		Env:  env,
+		User: fmt.Sprintf("%s:%s", uid, gid),
 	}
 
 	hostConfig := &container.HostConfig{
@@ -162,7 +169,7 @@ func (pm *Docker) runInstallation(
 		}},
 	}
 
-	// 6. Remove existing container if any
+	// 7. Remove existing container if any
 	_, _ = pm.client.ContainerRemove(ctx, tempName, client.ContainerRemoveOptions{Force: true})
 
 	// Debug: log installation container configuration
@@ -170,11 +177,12 @@ func (pm *Docker) runInstallation(
 		"image":      containerConfig.Image,
 		"workingDir": containerConfig.WorkingDir,
 		"cmd":        containerConfig.Cmd,
+		"user":       containerConfig.User,
 		"mounts":     hostConfig.Mounts,
 	}, "", "  ")
 	_, _ = out.Write([]byte(fmt.Sprintf("Installation container config:\n%s\n", configJSON)))
 
-	// 7. Create and start container
+	// 8. Create and start container
 	_, _ = out.Write([]byte("Creating installation container...\n"))
 	resp, err := pm.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:     containerConfig,
@@ -191,7 +199,7 @@ func (pm *Docker) runInstallation(
 		return domain.ErrorResult, errors.Wrap(err, "failed to start installation container")
 	}
 
-	// 8. Stream logs in real-time
+	// 9. Stream logs in real-time
 	logsDone := make(chan struct{})
 	go func() {
 		defer close(logsDone)
@@ -207,7 +215,7 @@ func (pm *Docker) runInstallation(
 		_, _ = stdcopy.StdCopy(out, out, logs)
 	}()
 
-	// 9. Wait for container to finish
+	// 10. Wait for container to finish
 	waitResult := pm.client.ContainerWait(ctx, resp.ID, client.ContainerWaitOptions{
 		Condition: container.WaitConditionNotRunning,
 	})
@@ -224,7 +232,7 @@ func (pm *Docker) runInstallation(
 	// Wait for logs to finish
 	<-logsDone
 
-	// 10. Remove container
+	// 11. Remove container
 	_, _ = pm.client.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
 
 	if exitCode != 0 {

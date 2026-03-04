@@ -184,43 +184,50 @@ func (pm *Podman) runInstallation(
 		env[k] = v
 	}
 
-	// 5. Remove existing container if any
+	// 5. Get user IDs for installation container
+	uid, gid, err := pm.getUserIDs(server)
+	if err != nil {
+		return domain.ErrorResult, errors.Wrap(err, "failed to get user IDs")
+	}
+	user := fmt.Sprintf("%s:%s", uid, gid)
+
+	// 6. Remove existing container if any
 	_ = pm.removeContainer(ctx, tempName)
 
-	// 6. Create container spec
+	// 7. Create container spec
 	entrypoint := getInstallationEntrypoint(pm.getConfig(server, keyPodmanInstallationEntrypoint), installScript)
-	spec := pm.buildInstallSpec(tempName, installImage, workDir, entrypoint, env)
+	spec := pm.buildInstallSpec(tempName, installImage, workDir, entrypoint, user, env)
 
 	// Debug: log installation container configuration
 	specJSON, _ := json.MarshalIndent(spec, "", "  ")
 	_, _ = out.Write([]byte(fmt.Sprintf("Installation container config:\n%s\n", specJSON)))
 
-	// 7. Create container
+	// 8. Create container
 	_, _ = out.Write([]byte("Creating installation container...\n"))
 	containerID, err := pm.createContainer(ctx, spec)
 	if err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to create installation container")
 	}
 
-	// 8. Start container
+	// 9. Start container
 	_, _ = out.Write([]byte("Starting installation container...\n"))
 	if err := pm.startContainer(ctx, containerID); err != nil {
 		_ = pm.removeContainer(ctx, containerID)
 		return domain.ErrorResult, errors.Wrap(err, "failed to start installation container")
 	}
 
-	// 9. Wait for container to finish
+	// 10. Wait for container to finish
 	exitCode, err := pm.waitContainer(ctx, containerID)
 	if err != nil {
 		_ = pm.removeContainer(ctx, containerID)
 		return domain.ErrorResult, errors.Wrap(err, "error waiting for installation container")
 	}
 
-	// 10. Get logs
+	// 11. Get logs
 	logs, _ := pm.getLogs(ctx, containerID, podmanMaxLogTailLines*10)
 	_, _ = out.Write([]byte(logs))
 
-	// 11. Remove container
+	// 12. Remove container
 	_ = pm.removeContainer(ctx, containerID)
 
 	if exitCode != 0 {
@@ -231,13 +238,14 @@ func (pm *Podman) runInstallation(
 	return domain.SuccessResult, nil
 }
 
-func (pm *Podman) buildInstallSpec(name, image, workDir, entrypoint string, env map[string]string) map[string]interface{} {
+func (pm *Podman) buildInstallSpec(name, image, workDir, entrypoint, user string, env map[string]string) map[string]interface{} {
 	return map[string]interface{}{
 		"name":     name,
 		"image":    image,
 		"work_dir": "/mnt/server",
 		"command":  []string{entrypoint, "/mnt/server/.gameap_install.sh"},
 		"env":      env,
+		"user":     user,
 		"mounts": []map[string]interface{}{
 			{
 				"source":      workDir,
