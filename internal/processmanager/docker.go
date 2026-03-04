@@ -39,18 +39,19 @@ var errInstallationFailed = errors.New("installation failed")
 
 // Docker metadata configuration keys
 const (
-	keyDockerImage              = "docker_image"
-	keyDockerInstallationImage  = "docker_installation_image"
-	keyDockerInstallationScript = "docker_installation_script"
-	keyDockerMemoryLimit        = "docker_memory_limit"
-	keyDockerCPULimit           = "docker_cpu_limit"
-	keyDockerNetworkMode        = "docker_network_mode"
-	keyDockerContainerName      = "docker_container_name"
-	keyDockerCapabilities       = "docker_capabilities"
-	keyDockerPrivileged         = "docker_privileged"
-	keyDockerVolumes            = "docker_volumes"
-	keyDockerHealthcheck        = "docker_healthcheck"
-	keyDockerDNS                = "docker_dns"
+	keyDockerImage                  = "docker_image"
+	keyDockerInstallationImage      = "docker_installation_image"
+	keyDockerInstallationScript     = "docker_installation_script"
+	keyDockerInstallationEntrypoint = "docker_installation_entrypoint"
+	keyDockerMemoryLimit            = "docker_memory_limit"
+	keyDockerCPULimit               = "docker_cpu_limit"
+	keyDockerNetworkMode            = "docker_network_mode"
+	keyDockerContainerName          = "docker_container_name"
+	keyDockerCapabilities           = "docker_capabilities"
+	keyDockerPrivileged             = "docker_privileged"
+	keyDockerVolumes                = "docker_volumes"
+	keyDockerHealthcheck            = "docker_healthcheck"
+	keyDockerDNS                    = "docker_dns"
 )
 
 type Docker struct {
@@ -145,8 +146,11 @@ func (pm *Docker) runInstallation(
 	containerConfig := &container.Config{
 		Image:      installImage,
 		WorkingDir: "/mnt/server",
-		Cmd:        []string{"/bin/bash", "/mnt/server/.gameap_install.sh"},
-		Env:        env,
+		Cmd: []string{
+			getInstallationEntrypoint(pm.getConfig(server, keyDockerInstallationEntrypoint), installScript),
+			"/mnt/server/.gameap_install.sh",
+		},
+		Env: env,
 	}
 
 	hostConfig := &container.HostConfig{
@@ -629,6 +633,49 @@ func normalizeLineEndings(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n") // Windows → Unix
 	s = strings.ReplaceAll(s, "\r", "\n")   // Old Mac → Unix
 	return s
+}
+
+// detectShellFromShebang extracts the shell interpreter from a script's shebang line.
+func detectShellFromShebang(script string) string {
+	if !strings.HasPrefix(script, "#!") {
+		return ""
+	}
+	firstLine := strings.SplitN(script, "\n", 2)[0]
+	shebang := strings.TrimPrefix(firstLine, "#!")
+	shebang = strings.TrimSpace(shebang)
+
+	// Handle "#!/usr/bin/env bash" style
+	if strings.HasPrefix(shebang, "/usr/bin/env ") {
+		parts := strings.Fields(strings.TrimPrefix(shebang, "/usr/bin/env "))
+		if len(parts) > 0 {
+			return "/bin/" + parts[0]
+		}
+		return ""
+	}
+
+	// Return the path directly (e.g., "/bin/ash", "/bin/bash")
+	if strings.HasPrefix(shebang, "/") {
+		parts := strings.Fields(shebang)
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+	return ""
+}
+
+// getInstallationEntrypoint returns the shell for running installation scripts.
+// Priority: 1) config value, 2) script shebang, 3) /bin/sh fallback
+func getInstallationEntrypoint(entrypointConfig, script string) string {
+	if entrypointConfig != "" {
+		if !strings.HasPrefix(entrypointConfig, "/") {
+			return "/bin/" + entrypointConfig
+		}
+		return entrypointConfig
+	}
+	if shell := detectShellFromShebang(script); shell != "" {
+		return shell
+	}
+	return "/bin/sh"
 }
 
 func parseMemoryLimit(s string) (int64, error) {

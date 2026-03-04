@@ -45,17 +45,18 @@ var (
 
 // Podman metadata configuration keys (same as Docker for compatibility)
 const (
-	keyPodmanImage              = "docker_image"
-	keyPodmanInstallationImage  = "docker_installation_image"
-	keyPodmanInstallationScript = "docker_installation_script"
-	keyPodmanMemoryLimit        = "docker_memory_limit"
-	keyPodmanCPULimit           = "docker_cpu_limit"
-	keyPodmanNetworkMode        = "docker_network_mode"
-	keyPodmanContainerName      = "docker_container_name"
-	keyPodmanCapabilities       = "docker_capabilities"
-	keyPodmanPrivileged         = "docker_privileged"
-	keyPodmanVolumes            = "docker_volumes"
-	keyPodmanDNS                = "docker_dns"
+	keyPodmanImage                  = "docker_image"
+	keyPodmanInstallationImage      = "docker_installation_image"
+	keyPodmanInstallationScript     = "docker_installation_script"
+	keyPodmanInstallationEntrypoint = "docker_installation_entrypoint"
+	keyPodmanMemoryLimit            = "docker_memory_limit"
+	keyPodmanCPULimit               = "docker_cpu_limit"
+	keyPodmanNetworkMode            = "docker_network_mode"
+	keyPodmanContainerName          = "docker_container_name"
+	keyPodmanCapabilities           = "docker_capabilities"
+	keyPodmanPrivileged             = "docker_privileged"
+	keyPodmanVolumes                = "docker_volumes"
+	keyPodmanDNS                    = "docker_dns"
 )
 
 type Podman struct {
@@ -186,7 +187,8 @@ func (pm *Podman) runInstallation(
 	_ = pm.removeContainer(ctx, tempName)
 
 	// 6. Create container spec
-	spec := pm.buildInstallSpec(tempName, installImage, workDir, env)
+	entrypoint := getInstallationEntrypoint(pm.getConfig(server, keyPodmanInstallationEntrypoint), installScript)
+	spec := pm.buildInstallSpec(tempName, installImage, workDir, entrypoint, env)
 
 	// 7. Create container
 	_, _ = out.Write([]byte("Creating installation container...\n"))
@@ -224,12 +226,12 @@ func (pm *Podman) runInstallation(
 	return domain.SuccessResult, nil
 }
 
-func (pm *Podman) buildInstallSpec(name, image, workDir string, env map[string]string) map[string]interface{} {
+func (pm *Podman) buildInstallSpec(name, image, workDir, entrypoint string, env map[string]string) map[string]interface{} {
 	return map[string]interface{}{
 		"name":     name,
 		"image":    image,
 		"work_dir": "/mnt/server",
-		"command":  []string{"/bin/bash", "/mnt/server/.gameap_install.sh"},
+		"command":  []string{entrypoint, "/mnt/server/.gameap_install.sh"},
 		"env":      env,
 		"mounts": []map[string]interface{}{
 			{

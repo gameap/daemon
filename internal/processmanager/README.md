@@ -73,7 +73,10 @@ Configuration values are resolved in the following priority order:
 | Key | Description | Example |
 |-----|-------------|---------|
 | `docker_installation_image` | Image for installation phase | `node:18-bookworm-slim` |
-| `docker_installation_script` | Bash script to run during installation | See example below |
+| `docker_installation_script` | Script to run during installation | See example below |
+| `docker_installation_entrypoint` | Shell interpreter for the script | `ash`, `/bin/sh` |
+
+> **Note:** If `docker_installation_entrypoint` is not set, the shell is auto-detected from the script's shebang line (e.g., `#!/bin/ash` → `/bin/ash`). Falls back to `/bin/sh` if no shebang is found.
 
 ### Examples
 
@@ -101,8 +104,18 @@ Configuration values are resolved in the following priority order:
 
 ```json
 {
-  "docker_installation_image": "debian:bookworm-slim",
-  "docker_installation_script": "#!/bin/bash\nset -e\napt-get update\napt-get install -y curl\ncurl -sL https://example.com/install.sh | bash\n"
+  "docker_installation_image": "ghcr.io/parkervcp/installers:alpine",
+  "docker_installation_script": "#!/bin/ash\nset -e\napk add --no-cache curl\ncurl -sL https://example.com/install.sh | ash\n"
+}
+```
+
+The shell is auto-detected from the shebang (`#!/bin/ash`). To override explicitly:
+
+```json
+{
+  "docker_installation_image": "ghcr.io/parkervcp/installers:alpine",
+  "docker_installation_script": "...",
+  "docker_installation_entrypoint": "ash"
 }
 ```
 
@@ -235,6 +248,7 @@ Podman uses the same metadata keys as Docker for compatibility:
 | `docker_dns` | DNS servers | `8.8.8.8,8.8.4.4` | System default |
 | `docker_installation_image` | Installation image | `node:18` | None |
 | `docker_installation_script` | Installation script | `#!/bin/bash\n...` | None |
+| `docker_installation_entrypoint` | Shell for installation script | `ash`, `/bin/sh` | Auto-detected from shebang |
 
 ### Socket Configuration
 
