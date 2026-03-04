@@ -173,13 +173,13 @@ func (pm *Docker) runInstallation(
 	// 7. Remove existing container if any
 	_, _ = pm.client.ContainerRemove(ctx, tempName, client.ContainerRemoveOptions{Force: true})
 
-	// Debug: log installation container configuration
 	configJSON, _ := json.MarshalIndent(map[string]interface{}{
-		"image":      containerConfig.Image,
-		"workingDir": containerConfig.WorkingDir,
-		"cmd":        containerConfig.Cmd,
-		"user":       containerConfig.User,
-		"mounts":     hostConfig.Mounts,
+		"image":        containerConfig.Image,
+		"workingDir":   containerConfig.WorkingDir,
+		"cmd":          containerConfig.Cmd,
+		"user":         containerConfig.User,
+		"exposedPorts": containerConfig.ExposedPorts,
+		"mounts":       hostConfig.Mounts,
 	}, "", "  ")
 	_, _ = out.Write([]byte(fmt.Sprintf("Installation container config:\n%s\n", configJSON)))
 
