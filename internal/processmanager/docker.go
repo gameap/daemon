@@ -137,7 +137,8 @@ func (pm *Docker) runInstallation(
 	tempName := fmt.Sprintf("gameap-install-%s", server.UUID())
 
 	// 4. Build environment from server.Vars()
-	env := make([]string, 0, len(server.Vars()))
+	env := make([]string, 0, len(server.Vars())+1)
+	env = append(env, "SHELLOPTS=errexit")
 	for k, v := range server.Vars() {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
