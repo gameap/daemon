@@ -139,7 +139,10 @@ func (pm *Docker) runInstallation(
 	// 4. Build environment from server.Vars()
 	env := make([]string, 0, len(server.Vars()))
 	for k, v := range server.Vars() {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
+		env = append(
+			env,
+			fmt.Sprintf("%s=%s", strings.ToUpper(strings.ReplaceAll(k, "-", "_")), v),
+		)
 	}
 
 	// 5. Determine user for installation container
