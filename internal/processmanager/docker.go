@@ -498,7 +498,10 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 	// Build environment variables
 	env := make([]string, 0, len(server.Vars()))
 	for k, v := range server.Vars() {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
+		env = append(
+			env,
+			fmt.Sprintf("%s=%s", strings.ToUpper(strings.ReplaceAll(k, "-", "_")), v),
+		)
 	}
 
 	// Container working directory
