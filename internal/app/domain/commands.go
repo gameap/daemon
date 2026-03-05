@@ -41,6 +41,8 @@ func ReplaceShortCodes(commandTemplate string, cfg workDirReader, server *Server
 
 	for k, v := range server.Vars() {
 		command = strings.ReplaceAll(command, "{"+k+"}", v)
+		command = strings.ReplaceAll(command, "{"+strings.ToLower(k)+"}", v)
+		command = strings.ReplaceAll(command, "{"+strings.ToUpper(k)+"}", v)
 	}
 
 	return command
