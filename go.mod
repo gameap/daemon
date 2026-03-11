@@ -10,7 +10,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.11
 	github.com/gameap/gameapctl v0.20.7
 	github.com/go-resty/resty/v2 v2.17.0
-	github.com/goccy/go-yaml v1.18.0
+	github.com/goccy/go-yaml v1.19.2
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485
 	github.com/gorilla/mux v1.8.1
 	github.com/hashicorp/go-getter v1.8.4

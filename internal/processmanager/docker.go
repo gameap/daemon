@@ -182,6 +182,7 @@ func (pm *Docker) runInstallation(
 		"user":         containerConfig.User,
 		"exposedPorts": containerConfig.ExposedPorts,
 		"mounts":       hostConfig.Mounts,
+		"env":          containerConfig.Env,
 	}, "", "  ")
 	_, _ = out.Write([]byte(fmt.Sprintf("Installation container config:\n%s\n", configJSON)))
 
