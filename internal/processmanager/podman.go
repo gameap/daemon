@@ -246,7 +246,9 @@ func (pm *Podman) runInstallation(
 	return domain.SuccessResult, nil
 }
 
-func (pm *Podman) buildInstallSpec(name, image, workDir, entrypoint, user string, env map[string]string) map[string]interface{} {
+func (pm *Podman) buildInstallSpec(
+	name, image, workDir, entrypoint, user string, env map[string]string,
+) map[string]interface{} {
 	return map[string]interface{}{
 		"name":     name,
 		"image":    image,
