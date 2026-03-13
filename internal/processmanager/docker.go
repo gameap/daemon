@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/netip"
 	"os"
 	"os/user"
@@ -689,11 +690,17 @@ func chownRecursive(path, uidStr, gidStr string) error {
 		return errors.Wrapf(err, "invalid gid: %s", gidStr)
 	}
 
-	return filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+
+	return fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		return os.Chown(p, uid, gid)
+		return root.Lchown(p, uid, gid)
 	})
 }
 
