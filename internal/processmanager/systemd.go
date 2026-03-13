@@ -464,6 +464,13 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 		builder.WriteString("%\n")
 	}
 
+	// Environment variables
+	for key, value := range server.EnvironmentVars() {
+		builder.WriteString("Environment=")
+		builder.WriteString(escapeSystemdEnv(key, value))
+		builder.WriteString("\n")
+	}
+
 	builder.WriteString("\n")
 
 	// [Install]
@@ -640,4 +647,35 @@ func (pm *SystemD) userAndGroup(server *domain.Server) (string, string, error) {
 
 func (pm *SystemD) HasOwnInstallation(_ *domain.Server) bool {
 	return false
+}
+
+// escapeSystemdEnv formats and escapes an environment variable for systemd.
+// Systemd requires proper quoting and escaping of special characters.
+// Format: "KEY=value" with proper escaping of quotes, backslashes, and special chars.
+func escapeSystemdEnv(key, value string) string {
+	var sb strings.Builder
+	sb.Grow(len(key) + len(value) + 10)
+
+	sb.WriteByte('"')
+	sb.WriteString(key)
+	sb.WriteByte('=')
+
+	// Escape special characters in value
+	for _, r := range value {
+		switch r {
+		case '"':
+			sb.WriteString("\\\"")
+		case '\\':
+			sb.WriteString("\\\\")
+		case '\n':
+			sb.WriteString("\\n")
+		case '\t':
+			sb.WriteString("\\t")
+		default:
+			sb.WriteRune(r)
+		}
+	}
+
+	sb.WriteByte('"')
+	return sb.String()
 }

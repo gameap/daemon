@@ -136,14 +136,8 @@ func (pm *Docker) runInstallation(
 	// 3. Create temp container name
 	tempName := fmt.Sprintf("gameap-install-%s", server.UUID())
 
-	// 4. Build environment from server.Vars()
-	env := make([]string, 0, len(server.Vars()))
-	for k, v := range server.Vars() {
-		env = append(
-			env,
-			fmt.Sprintf("%s=%s", strings.ToUpper(strings.ReplaceAll(k, "-", "_")), v),
-		)
-	}
+	// 4. Build environment from server.EnvironmentVars()
+	env := buildEnvSlice(server.EnvironmentVars())
 
 	// 5. Determine user for installation container
 	// Default to root for installation (most scripts need root for apt/yum/etc)
@@ -500,13 +494,7 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 	}
 
 	// Build environment variables
-	env := make([]string, 0, len(server.Vars()))
-	for k, v := range server.Vars() {
-		env = append(
-			env,
-			fmt.Sprintf("%s=%s", strings.ToUpper(strings.ReplaceAll(k, "-", "_")), v),
-		)
-	}
+	env := buildEnvSlice(server.EnvironmentVars())
 
 	// Container working directory
 	containerWorkDir := pm.getConfig(server, keyDockerWorkDir)
@@ -791,4 +779,21 @@ func parseExtraVolumes(volumesJSON, workDir string) []mount.Mount {
 	}
 
 	return mounts
+}
+
+// buildEnvSlice converts a map of environment variables to a slice of "KEY=value" strings.
+func buildEnvSlice(envVars map[string]string) []string {
+	env := make([]string, 0, len(envVars))
+	var sb strings.Builder
+
+	for k, v := range envVars {
+		sb.Reset()
+		sb.Grow(64)
+		sb.WriteString(k)
+		sb.WriteByte('=')
+		sb.WriteString(v)
+		env = append(env, sb.String())
+	}
+
+	return env
 }

@@ -125,6 +125,7 @@ func (pm *Simple) executeOptions(server *domain.Server) contracts.ExecutorOption
 	return contracts.ExecutorOptions{
 		WorkDir:         server.WorkDir(pm.cfg),
 		FallbackWorkDir: pm.cfg.WorkDir(),
+		Env:             server.EnvironmentVars(),
 	}
 }
 

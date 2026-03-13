@@ -8,7 +8,7 @@ import (
 )
 
 func (suite *Suite) TestNotFound() {
-	server, err := suite.ServerRepository.FindByID(context.Background(), 1)
+	server, err := suite.ServerRepository.FindByID(context.Background(), 99999)
 
 	suite.Require().Nil(err)
 	suite.Require().Nil(server)
@@ -66,4 +66,110 @@ func (suite *Suite) TestWhenTokenIsInvalid_ExpectSuccess() {
 	suite.Require().Nil(err)
 	suite.Require().NotNil(server)
 	suite.Equal(1, server.ID())
+}
+
+func (suite *Suite) TestFactorioServerParsing() {
+	suite.GivenAPIResponse("/gdaemon_api/servers/2", http.StatusOK, repositoriestest.JSONApiGetServerFactorioResponseBody)
+
+	server, err := suite.ServerRepository.FindByID(context.Background(), 2)
+
+	suite.Require().Nil(err)
+	suite.Require().NotNil(server)
+
+	// Basic server info
+	suite.Equal(2, server.ID())
+	suite.Equal("9c3dea74-b4d6-4e2f-9f4e-6c97b6e3f9a2", server.UUID())
+	suite.Equal("9c3dea74", server.UUIDShort())
+	suite.Equal("servers/9c3dea74-b4d6-4e2f-9f4e-6c97b6e3f9a2", server.Dir())
+	suite.Equal("192.168.1.100", server.IP())
+	suite.Equal(27023, server.ConnectPort())
+	suite.Equal(27023, server.QueryPort())
+	suite.Equal(27023, server.RCONPort())
+	suite.Equal("factoriorcon", server.RCONPassword())
+	suite.Equal("gameap", server.User())
+
+	// Server settings parsed correctly from array format
+	suite.Equal("false", server.Setting("update_before_start"))
+	suite.Equal("Description", server.Setting("SERVER_DESC"))
+	suite.Equal("unnamed", server.Setting("SERVER_USERNAME"))
+	suite.Equal("1.1.100", server.Setting("FACTORIO_VERSION"))
+	suite.Equal("20", server.Setting("MAX_SLOTS"))
+	suite.Equal("gamesave", server.Setting("SAVE_NAME"))
+
+	// Null vars handled properly - Vars() should return only gameMod.Vars defaults
+	vars := server.Vars()
+	suite.Equal("latest", vars["FACTORIO_VERSION"])
+	suite.Equal("10", vars["MAX_SLOTS"])
+	suite.Equal("world", vars["SAVE_NAME"])
+	suite.Equal("A Factorio Server", vars["SERVER_DESC"])
+
+	// Game info
+	suite.Equal("factorio", server.Game().Code)
+	suite.Equal("factorio", server.Game().StartCode)
+	suite.Equal("Factorio", server.Game().Engine)
+	suite.Equal("Factorio", server.Game().Name)
+
+	// GameMod info
+	suite.Equal(10, server.GameMod().ID)
+	suite.Equal("Vanilla", server.GameMod().Name)
+	suite.Len(server.GameMod().Vars, 4)
+}
+
+func (suite *Suite) TestEnvironmentVars() {
+	suite.GivenAPIResponse("/gdaemon_api/servers/2", http.StatusOK, repositoriestest.JSONApiGetServerFactorioResponseBody)
+
+	server, err := suite.ServerRepository.FindByID(context.Background(), 2)
+
+	suite.Require().Nil(err)
+	suite.Require().NotNil(server)
+
+	envVars := server.EnvironmentVars()
+
+	// Port values are always set
+	suite.Equal("27023", envVars["SERVER_PORT"])
+	suite.Equal("27023", envVars["PORT"])
+	suite.Equal("27023", envVars["QUERY_PORT"])
+	suite.Equal("27023", envVars["RCON_PORT"])
+
+	// Settings override gameMod.Vars defaults
+	// FACTORIO_VERSION: default "latest" -> setting "1.1.100"
+	suite.Equal("1.1.100", envVars["FACTORIO_VERSION"])
+	// MAX_SLOTS: default "10" -> setting "20"
+	suite.Equal("20", envVars["MAX_SLOTS"])
+	// SAVE_NAME: default "world" -> setting "gamesave"
+	suite.Equal("gamesave", envVars["SAVE_NAME"])
+	// SERVER_DESC: default "A Factorio Server" -> setting "Description"
+	suite.Equal("Description", envVars["SERVER_DESC"])
+
+	// Additional settings that weren't in gameMod.Vars (keys are normalized)
+	suite.Equal("false", envVars["UPDATE_BEFORE_START"])
+	suite.Equal("unnamed", envVars["SERVER_USERNAME"])
+}
+
+func (suite *Suite) TestEnvironmentVarsWithServerVars() {
+	suite.GivenAPIResponse("/gdaemon_api/servers/1", http.StatusOK, repositoriestest.JSONApiGetServerResponseBody)
+
+	server, err := suite.ServerRepository.FindByID(context.Background(), 1)
+
+	suite.Require().Nil(err)
+	suite.Require().NotNil(server)
+
+	envVars := server.EnvironmentVars()
+
+	// Port values are always set
+	suite.Equal("27015", envVars["SERVER_PORT"])
+	suite.Equal("27015", envVars["PORT"])
+	suite.Equal("27015", envVars["QUERY_PORT"])
+	suite.Equal("27015", envVars["RCON_PORT"])
+
+	// server.vars override gameMod.Vars defaults (keys are normalized to uppercase)
+	// default_map: gameMod default "de_dust2" -> server var "de_dust2" (same in this case)
+	suite.Equal("de_dust2", envVars["DEFAULT_MAP"])
+	// fps: gameMod default "500" (no override)
+	suite.Equal("500", envVars["FPS"])
+	// maxplayers: gameMod default "32" (no override)
+	suite.Equal("32", envVars["MAXPLAYERS"])
+
+	// Settings from server.settings (keys are normalized)
+	suite.Equal("1", envVars["AUTOSTART_CURRENT"])
 }

@@ -177,11 +177,8 @@ func (pm *Podman) runInstallation(
 	// 3. Create temp container name
 	tempName := fmt.Sprintf("gameap-install-%s", server.UUID())
 
-	// 4. Build environment from server.Vars()
-	env := make(map[string]string, len(server.Vars()))
-	for k, v := range server.Vars() {
-		env[k] = v
-	}
+	// 4. Build environment from server.EnvironmentVars()
+	env := server.EnvironmentVars()
 
 	// 5. Determine user for installation container
 	// Default to root for installation (most scripts need root for apt/yum/etc)
@@ -477,10 +474,7 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 	}
 
 	// Build environment variables
-	env := make(map[string]string, len(server.Vars()))
-	for k, v := range server.Vars() {
-		env[k] = v
-	}
+	env := server.EnvironmentVars()
 
 	// Container working directory
 	containerWorkDir := pm.getConfig(server, keyPodmanWorkDir)

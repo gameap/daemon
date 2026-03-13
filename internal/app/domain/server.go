@@ -3,9 +3,11 @@ package domain
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/emirpasic/gods/sets/hashset"
 )
@@ -298,6 +300,54 @@ func (s *Server) Vars() map[string]string {
 	}
 
 	return vars
+}
+
+func (s *Server) EnvironmentVars() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	envVars := make(map[string]string)
+
+	// 1. Start with gameMod.Vars defaults
+	for _, v := range s.gameMod.Vars {
+		envVars[normalizeEnvKey(v.Key)] = v.DefaultValue
+	}
+
+	// 2. Apply server vars (overwrites defaults)
+	for k, v := range s.vars {
+		envVars[normalizeEnvKey(k)] = v
+	}
+
+	// 3. Apply server settings (overwrites vars)
+	for k, v := range s.settings {
+		envVars[normalizeEnvKey(k)] = v
+	}
+
+	// 4. Add port values (always set)
+	envVars["SERVER_PORT"] = strconv.Itoa(s.connectPort)
+	envVars["PORT"] = strconv.Itoa(s.connectPort)
+	envVars["QUERY_PORT"] = strconv.Itoa(s.queryPort)
+	envVars["RCON_PORT"] = strconv.Itoa(s.rconPort)
+
+	return envVars
+}
+
+func normalizeEnvKey(key string) string {
+	var result strings.Builder
+	result.Grow(len(key))
+
+	for _, r := range key {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			result.WriteRune(unicode.ToUpper(r))
+		case r == '-' || r == ' ':
+			result.WriteRune('_')
+		case r == '_':
+			result.WriteRune('_')
+		}
+	}
+
+	return strings.Trim(result.String(), "_")
 }
 
 func (s *Server) Game() Game {

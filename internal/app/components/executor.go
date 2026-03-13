@@ -129,6 +129,14 @@ func ExecWithWriter(
 	cmd.Stdout = out
 	cmd.Stderr = out
 
+	// Set environment variables
+	if len(options.Env) > 0 {
+		cmd.Env = os.Environ()
+		for key, value := range options.Env {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
+
 	if options.UID != "" && options.GID != "" {
 		cmd, err = setCMDSysProcCredential(cmd, options)
 		if err != nil {
