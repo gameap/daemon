@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	defaultImage       = "debian:bookworm-slim"
+	defaultImage       = "docker.io/gameap/debian"
 	defaultStopTimeout = 30 * time.Second
 	maxLogTailLines    = "500"
 )
