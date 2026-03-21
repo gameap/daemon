@@ -77,10 +77,33 @@ func initialize(c *cli.Context) error {
 
 	group, ctx := errgroup.WithContext(ctx)
 
-	group.Go(processRunner.RunGDaemonServer(ctx, cfg))
-	group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))
-	group.Go(processRunner.RunServersLoop(ctx, cfg))
-	group.Go(processRunner.RunServerScheduler(ctx, cfg))
+	if cfg.GRPC.Enabled {
+		connectionManager, err := container.ConnectionManager(ctx)
+		if err != nil {
+			return err
+		}
+
+		statusReporter, err := container.ServerStatusReporter(ctx)
+		if err != nil {
+			return err
+		}
+
+		processRunner.SetGRPCComponents(connectionManager, statusReporter)
+
+		group.Go(processRunner.RunGRPCClient(ctx, cfg))
+		group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))
+		group.Go(processRunner.RunServersLoopWithReporter(ctx, cfg))
+		group.Go(processRunner.RunServerScheduler(ctx, cfg))
+
+		log.Info("Running in gRPC mode")
+	} else {
+		group.Go(processRunner.RunGDaemonServer(ctx, cfg))
+		group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))
+		group.Go(processRunner.RunServersLoop(ctx, cfg))
+		group.Go(processRunner.RunServerScheduler(ctx, cfg))
+
+		log.Info("Running in legacy mode")
+	}
 
 	err = group.Wait()
 	if err != nil {

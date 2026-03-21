@@ -19,6 +19,11 @@ import (
 
 var updateTimeout = 5 * time.Second
 
+type TaskStatusSender interface {
+	SendTaskStatus(taskID int, status string, message string)
+	SendTaskOutput(taskID int, output []byte, isFinal bool)
+}
+
 var taskServerCommandMap = map[domain.GDTaskCommand]domain.ServerCommand{
 	domain.GDTaskGameServerStart:     domain.Start,
 	domain.GDTaskGameServerPause:     domain.Pause,
@@ -41,6 +46,7 @@ type TaskManager struct {
 	mutex                *sync.Mutex
 	queue                *taskQueue
 	commandsInProgress   sync.Map
+	taskStatusSender     TaskStatusSender
 }
 
 func NewTaskManager(
@@ -59,6 +65,28 @@ func NewTaskManager(
 		mutex:                &sync.Mutex{},
 		executor:             executor,
 	}
+}
+
+func (manager *TaskManager) SetTaskStatusSender(sender TaskStatusSender) {
+	manager.taskStatusSender = sender
+}
+
+func (manager *TaskManager) InsertTask(task *domain.GDTask) {
+	manager.queue.Insert([]*domain.GDTask{task})
+}
+
+func (manager *TaskManager) CancelTask(taskID int) error {
+	task := manager.queue.FindByID(taskID)
+	if task == nil {
+		return errors.New("task not found")
+	}
+
+	if err := task.SetStatus(domain.GDTaskStatusCanceled); err != nil {
+		return err
+	}
+
+	manager.queue.Remove(task)
+	return nil
 }
 
 func (manager *TaskManager) Run(ctx context.Context) error {
@@ -99,6 +127,10 @@ func (manager *TaskManager) RunWorker(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (manager *TaskManager) WorkingTasks() ([]int, []*domain.GDTask) {
+	return manager.queue.WorkingTasks()
 }
 
 func (manager *TaskManager) Stats() domain.GDTaskStats {
@@ -213,6 +245,8 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 		return err
 	}
 
+	manager.notifyTaskStatus(task, "Task started")
+
 	err = manager.repository.Save(ctx, task)
 	if err != nil {
 		err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
@@ -285,7 +319,10 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 
 	cmd := c.(contracts.CommandResultReader)
 
-	if cmd.IsComplete() {
+	output := cmd.ReadOutput()
+	isFinal := cmd.IsComplete()
+
+	if isFinal {
 		manager.commandsInProgress.Delete(*task)
 
 		if cmd.Result() == gameservercommands.SuccessResult {
@@ -293,12 +330,14 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 			if err != nil {
 				return err
 			}
+			manager.notifyTaskStatus(task, "Task completed successfully")
 		} else {
 			manager.failTask(ctx, task)
 		}
 	}
 
-	go manager.appendTaskOutput(ctx, task, cmd.ReadOutput())
+	go manager.appendTaskOutput(ctx, task, output)
+	manager.notifyTaskOutput(task, output, isFinal)
 
 	return nil
 }
@@ -307,6 +346,20 @@ func (manager *TaskManager) failTask(ctx context.Context, task *domain.GDTask) {
 	err := task.SetStatus(domain.GDTaskStatusError)
 	if err != nil {
 		logger.Error(ctx, err)
+	}
+
+	manager.notifyTaskStatus(task, "")
+}
+
+func (manager *TaskManager) notifyTaskStatus(task *domain.GDTask, message string) {
+	if manager.taskStatusSender != nil {
+		manager.taskStatusSender.SendTaskStatus(task.ID(), string(task.Status()), message)
+	}
+}
+
+func (manager *TaskManager) notifyTaskOutput(task *domain.GDTask, output []byte, isFinal bool) {
+	if manager.taskStatusSender != nil && len(output) > 0 {
+		manager.taskStatusSender.SendTaskOutput(task.ID(), output, isFinal)
 	}
 }
 

@@ -6,13 +6,15 @@ package di
 
 import (
 	"context"
+	"sync"
+
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/di/internal"
 	"github.com/gameap/daemon/internal/app/domain"
+	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/sirupsen/logrus"
-	"sync"
 )
 
 type Container struct {
@@ -97,6 +99,58 @@ func (c *Container) ServerTaskRepository(ctx context.Context) (domain.ServerTask
 	defer c.mu.Unlock()
 
 	s := c.c.Repositories().(*internal.RepositoryContainer).ServerTaskRepository(ctx)
+	err := c.c.Error()
+	if err != nil {
+		return nil, err
+	}
+
+	return s, err
+}
+
+func (c *Container) GatewayClient(ctx context.Context) (*grpcclient.GatewayClient, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	s := c.c.GatewayClient(ctx)
+	err := c.c.Error()
+	if err != nil {
+		return nil, err
+	}
+
+	return s, err
+}
+
+func (c *Container) ConnectionManager(ctx context.Context) (*grpcclient.ConnectionManager, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	s := c.c.ConnectionManager(ctx)
+	err := c.c.Error()
+	if err != nil {
+		return nil, err
+	}
+
+	return s, err
+}
+
+func (c *Container) FileTransferClient(ctx context.Context) (*grpcclient.FileTransferClient, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	s := c.c.FileTransferClient(ctx)
+	err := c.c.Error()
+	if err != nil {
+		return nil, err
+	}
+
+	return s, err
+}
+
+func (c *Container) ServerStatusReporter(ctx context.Context) (*grpcclient.ServerStatusReporter, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	s := c.c.ServerStatusReporter(ctx)
 	err := c.c.Error()
 	if err != nil {
 		return nil, err

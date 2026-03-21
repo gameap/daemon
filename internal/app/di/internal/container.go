@@ -6,6 +6,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -23,6 +24,12 @@ type Container struct {
 	processRunner        *services.Runner
 	cacheManager         contracts.Cache
 	serverCommandFactory *gameservercommands.ServerCommandFactory
+
+	gameStore            *grpcclient.GameStore
+	gatewayClient        *grpcclient.GatewayClient
+	connectionManager    *grpcclient.ConnectionManager
+	fileTransferClient   *grpcclient.FileTransferClient
+	serverStatusReporter *grpcclient.ServerStatusReporter
 
 	services     *ServicesContainer
 	repositories *RepositoryContainer
@@ -94,6 +101,42 @@ func (c *Container) ServerCommandFactory(ctx context.Context) *gameservercommand
 		c.serverCommandFactory = definitions.CreateServerCommandFactory(ctx, c)
 	}
 	return c.serverCommandFactory
+}
+
+func (c *Container) GameStore() *grpcclient.GameStore {
+	if c.gameStore == nil {
+		c.gameStore = definitions.CreateGameStore()
+	}
+	return c.gameStore
+}
+
+func (c *Container) GatewayClient(ctx context.Context) *grpcclient.GatewayClient {
+	if c.gatewayClient == nil && c.err == nil {
+		c.gatewayClient = definitions.CreateGatewayClient(ctx, c, c.GameStore())
+	}
+	return c.gatewayClient
+}
+
+func (c *Container) ConnectionManager(ctx context.Context) *grpcclient.ConnectionManager {
+	if c.connectionManager == nil && c.err == nil {
+		c.connectionManager = definitions.CreateConnectionManager(ctx, c, c.GameStore())
+	}
+	return c.connectionManager
+}
+
+func (c *Container) FileTransferClient(ctx context.Context) *grpcclient.FileTransferClient {
+	if c.fileTransferClient == nil && c.err == nil {
+		c.fileTransferClient = definitions.CreateFileTransferClient(ctx, c)
+	}
+	return c.fileTransferClient
+}
+
+func (c *Container) ServerStatusReporter(ctx context.Context) *grpcclient.ServerStatusReporter {
+	if c.serverStatusReporter == nil && c.err == nil {
+		client := c.GatewayClient(ctx)
+		c.serverStatusReporter = definitions.CreateServerStatusReporter(ctx, c, client)
+	}
+	return c.serverStatusReporter
 }
 
 func (c *Container) Services() definitions.ServicesContainer {

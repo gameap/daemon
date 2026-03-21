@@ -8,6 +8,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
+	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/server"
 	serversloop "github.com/gameap/daemon/internal/app/servers_loop"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
@@ -25,6 +26,8 @@ type Runner struct {
 	gdTaskManager        *gdaemonscheduler.TaskManager
 	serverRepository     domain.ServerRepository
 	serverTaskRepository domain.ServerTaskRepository
+	connectionManager    *grpcclient.ConnectionManager
+	statusReporter       *grpcclient.ServerStatusReporter
 }
 
 func NewProcessRunner(
@@ -45,6 +48,14 @@ func NewProcessRunner(
 		serverRepository:     serverRepository,
 		serverTaskRepository: serverTaskRepository,
 	}, nil
+}
+
+func (r *Runner) SetGRPCComponents(
+	connectionManager *grpcclient.ConnectionManager,
+	statusReporter *grpcclient.ServerStatusReporter,
+) {
+	r.connectionManager = connectionManager
+	r.statusReporter = statusReporter
 }
 
 func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
@@ -132,6 +143,43 @@ func (r *Runner) RunServerScheduler(ctx context.Context, cfg *config.Config) fun
 
 		log.Trace("Running server tasks scheduler...")
 		return runService(ctx, scheduler.Run)
+	}
+}
+
+func (r *Runner) RunGRPCClient(ctx context.Context, cfg *config.Config) func() error {
+	return func() error {
+		if !cfg.GRPC.Enabled {
+			return nil
+		}
+
+		if r.connectionManager == nil {
+			return errors.New("gRPC connection manager not initialized")
+		}
+
+		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+			"service": "grpc client",
+		}))
+
+		log.Info("Running gRPC client...")
+		return r.connectionManager.Run(ctx)
+	}
+}
+
+func (r *Runner) RunServersLoopWithReporter(ctx context.Context, cfg *config.Config) func() error {
+	return func() error {
+		loop := serversloop.NewServersLoop(r.serverRepository, r.commandFactory, cfg)
+
+		if r.statusReporter != nil {
+			loop.SetStatusReporter(r.statusReporter)
+			r.statusReporter.Start(ctx)
+		}
+
+		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
+			"service": "servers loop",
+		}))
+
+		log.Trace("Running server loop...")
+		return runService(ctx, loop.Run)
 	}
 }
 

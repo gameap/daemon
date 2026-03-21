@@ -30,10 +30,15 @@ const (
 	skipMaxCount = 20
 )
 
+type ServerStatusReporter interface {
+	Report(server *domain.Server)
+}
+
 type ServersLoop struct {
 	cfg                  *config.Config
 	serverRepo           domain.ServerRepository
 	serverCommandFactory *commands.ServerCommandFactory
+	statusReporter       ServerStatusReporter
 
 	skipCounter skipCounter
 }
@@ -50,6 +55,10 @@ func NewServersLoop(
 
 		skipCounter: skipCounter{},
 	}
+}
+
+func (l *ServersLoop) SetStatusReporter(reporter ServerStatusReporter) {
+	l.statusReporter = reporter
 }
 
 func (l *ServersLoop) Run(ctx context.Context) error {
@@ -130,6 +139,10 @@ func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) er
 	}
 
 	server.SetStatus(statusCmd.Result() == commands.SuccessResult)
+
+	if l.statusReporter != nil {
+		l.statusReporter.Report(server)
+	}
 
 	return nil
 }

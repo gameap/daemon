@@ -28,6 +28,14 @@ type SteamConfig struct {
 	Password string `yaml:"password"`
 }
 
+type GRPCConfig struct {
+	Enabled               bool          `yaml:"enabled"`
+	HeartbeatInterval     time.Duration `yaml:"heartbeat_interval"`
+	ConnectTimeout        time.Duration `yaml:"connect_timeout"`
+	InitialReconnectDelay time.Duration `yaml:"initial_reconnect_delay"`
+	MaxReconnectDelay     time.Duration `yaml:"max_reconnect_delay"`
+}
+
 //nolint:govet
 type Config struct {
 	NodeID uint `yaml:"ds_id"`
@@ -82,6 +90,8 @@ type Config struct {
 		Config map[string]string `yaml:"config"`
 	} `yaml:"process_manager"`
 
+	GRPC GRPCConfig `yaml:"grpc"`
+
 	Users map[string]string `yaml:"users"`
 
 	// Windows specific settings
@@ -118,6 +128,23 @@ func (cfg *Config) Init() error {
 		cfg.ProcessManager.Name = defaultProcessManager
 	}
 
+	// GRPC defaults
+	if cfg.GRPC.HeartbeatInterval == 0 {
+		cfg.GRPC.HeartbeatInterval = 30 * time.Second
+	}
+
+	if cfg.GRPC.ConnectTimeout == 0 {
+		cfg.GRPC.ConnectTimeout = 30 * time.Second
+	}
+
+	if cfg.GRPC.InitialReconnectDelay == 0 {
+		cfg.GRPC.InitialReconnectDelay = 1 * time.Second
+	}
+
+	if cfg.GRPC.MaxReconnectDelay == 0 {
+		cfg.GRPC.MaxReconnectDelay = 60 * time.Second
+	}
+
 	return cfg.validate()
 }
 
@@ -151,6 +178,19 @@ func (cfg *Config) validate() error {
 
 func (cfg *Config) WorkDir() string {
 	return cfg.WorkPath
+}
+
+func (cfg *Config) GRPCAddress() string {
+	host := cfg.APIHost
+	// Remove scheme (https://, http://)
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	// Remove path if present
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+	}
+	// host now contains "hostname" or "hostname:port"
+	return host
 }
 
 func UpdateEnvPath(cfg *Config) error {
