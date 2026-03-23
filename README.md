@@ -6,7 +6,7 @@ The server management daemon
 
 ## Configuration
 
-Configuration file: daemon.cfg
+Configuration file: gameap-daemon.yaml
 
 ### Base parameters
 

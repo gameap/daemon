@@ -28,7 +28,6 @@ require (
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.79.3
-	gopkg.in/ini.v1 v1.67.1
 )
 
 require (
