@@ -201,7 +201,20 @@ process_manager:
     image: "debian:bookworm-slim"      # Default base image
     memory_limit: "2g"                  # Default memory limit
     cpu_limit: "1.0"                    # Default CPU limit
+    host: "tcp://remote-docker:2376"   # Docker daemon address (DOCKER_HOST)
+    cert_path: "/path/to/certs"        # TLS certificates directory (DOCKER_CERT_PATH)
+    api_version: "1.41"                # Docker API version (DOCKER_API_VERSION)
 ```
+
+#### Docker Connection Options
+
+| Config Key     | Env Var Equivalent    | Description |
+|----------------|-----------------------|-------------|
+| `host`         | `DOCKER_HOST`         | Docker daemon address (e.g., `tcp://remote:2376`, `unix:///var/run/docker.sock`) |
+| `cert_path`    | `DOCKER_CERT_PATH`    | Directory containing `ca.pem`, `cert.pem`, `key.pem` for TLS |
+| `api_version`  | `DOCKER_API_VERSION`  | Docker API version to use |
+
+If none of these keys are set, the client falls back to `client.FromEnv` (reads from environment variables).
 
 ---
 

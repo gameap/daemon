@@ -61,7 +61,7 @@ type Docker struct {
 }
 
 func NewDocker(cfg *config.Config, _, _ contracts.Executor) *Docker {
-	cli, err := client.New(client.FromEnv)
+	cli, err := client.New(dockerClientOptions(cfg)...)
 	if err != nil {
 		// Client will be created lazily on first use
 		return &Docker{cfg: cfg}
@@ -74,7 +74,7 @@ func (pm *Docker) ensureClient(ctx context.Context) error {
 		return nil
 	}
 
-	cli, err := client.New(client.FromEnv)
+	cli, err := client.New(dockerClientOptions(pm.cfg)...)
 	if err != nil {
 		return errors.Wrap(err, "failed to create docker client")
 	}
@@ -87,6 +87,41 @@ func (pm *Docker) ensureClient(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func dockerClientOptions(cfg *config.Config) []client.Opt {
+	pmCfg := cfg.ProcessManager.Config
+	if pmCfg == nil {
+		return []client.Opt{client.FromEnv}
+	}
+
+	host := pmCfg["host"]
+	certPath := pmCfg["cert_path"]
+	apiVersion := pmCfg["api_version"]
+
+	if host == "" && certPath == "" && apiVersion == "" {
+		return []client.Opt{client.FromEnv}
+	}
+
+	var opts []client.Opt
+
+	if certPath != "" {
+		opts = append(opts, client.WithTLSClientConfig(
+			filepath.Join(certPath, "ca.pem"),
+			filepath.Join(certPath, "cert.pem"),
+			filepath.Join(certPath, "key.pem"),
+		))
+	}
+
+	if host != "" {
+		opts = append(opts, client.WithHost(host))
+	}
+
+	if apiVersion != "" {
+		opts = append(opts, client.WithAPIVersion(apiVersion))
+	}
+
+	return opts
 }
 
 func (pm *Docker) Install(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
