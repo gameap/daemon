@@ -79,11 +79,21 @@ func (r *Runner) initNodeConfigFromAPI(ctx context.Context, cfg *config.Config) 
 
 func (r *Runner) RunGDaemonServer(ctx context.Context, cfg *config.Config) func() error {
 	return func() error {
+		certPEM, err := cfg.CertificateChainPEM()
+		if err != nil {
+			return errors.Wrap(err, "failed to read certificate chain")
+		}
+
+		keyPEM, err := cfg.PrivateKeyPEM()
+		if err != nil {
+			return errors.Wrap(err, "failed to read private key")
+		}
+
 		srv, err := server.NewServer(
 			cfg.ListenIP,
 			cfg.ListenPort,
-			cfg.CertificateChainFile,
-			cfg.PrivateKeyFile,
+			certPEM,
+			keyPEM,
 			server.CredentialsConfig{
 				PasswordAuthentication: cfg.PasswordAuthentication,
 				Login:                  cfg.DaemonLogin,

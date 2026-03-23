@@ -38,8 +38,8 @@ type Server struct {
 	quit chan struct{}
 
 	ip          string
-	certFile    string
-	keyFile     string
+	certPEM     []byte
+	keyPEM      []byte
 	credConfig  CredentialsConfig
 	wg          sync.WaitGroup
 	port        int
@@ -53,8 +53,8 @@ type componentHandler interface {
 func NewServer(
 	ip string,
 	port int,
-	certFile string,
-	keyFile string,
+	certPEM []byte,
+	keyPEM []byte,
 	credConfig CredentialsConfig,
 	executor contracts.Executor,
 	taskStatsReader domain.GDTaskStatsReader,
@@ -62,8 +62,8 @@ func NewServer(
 	return &Server{
 		ip:              ip,
 		port:            port,
-		certFile:        certFile,
-		keyFile:         keyFile,
+		certPEM:         certPEM,
+		keyPEM:          keyPEM,
 		credConfig:      credConfig,
 		quit:            make(chan struct{}),
 		connTimeout:     5 * time.Second,
@@ -73,7 +73,7 @@ func NewServer(
 }
 
 func (srv *Server) Run(ctx context.Context) error {
-	cer, err := tls.LoadX509KeyPair(srv.certFile, srv.keyFile)
+	cer, err := tls.X509KeyPair(srv.certPEM, srv.keyPEM)
 	if err != nil {
 		return err
 	}

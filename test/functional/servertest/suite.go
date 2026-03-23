@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"os"
 	"time"
 
 	"github.com/et-nik/binngo"
@@ -43,11 +44,20 @@ func (suite *Suite) SetupSuite() {
 	suite.TaskStatsReader = &mocks.TasksStatsReader{}
 	suite.Executor = components.NewCleanExecutor()
 
+	certPEM, err := os.ReadFile(ServerCert)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+	keyPEM, err := os.ReadFile(ServerKey)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+
 	suite.Server, err = server.NewServer(
 		"127.0.0.1",
 		3717,
-		ServerCert,
-		ServerKey,
+		certPEM,
+		keyPEM,
 		server.CredentialsConfig{
 			PasswordAuthentication: true,
 			Login:                  "login",

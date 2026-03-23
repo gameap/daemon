@@ -51,8 +51,11 @@ type Config struct {
 	PasswordAuthentication bool   `yaml:"password_authentication"`
 
 	CACertificateFile    string `yaml:"ca_certificate_file"`
+	CACertificate        string `yaml:"ca_certificate"`
 	CertificateChainFile string `yaml:"certificate_chain_file"`
+	CertificateChain     string `yaml:"certificate_chain"`
 	PrivateKeyFile       string `yaml:"private_key_file"`
+	PrivateKey           string `yaml:"private_key"`
 	PrivateKeyPassword   string `yaml:"private_key_password"`
 	DHFile               string `yaml:"dh_file"`
 
@@ -161,19 +164,55 @@ func (cfg *Config) validate() error {
 		return ErrEmptyAPIKey
 	}
 
-	if _, err := os.Stat(cfg.CACertificateFile); err != nil {
-		return NewInvalidFileError("invalid CA certificate file (ca_certificate_file)", err)
+	if cfg.CACertificate == "" {
+		if cfg.CACertificateFile == "" {
+			return ErrNoCACertificate
+		}
+		if _, err := os.Stat(cfg.CACertificateFile); err != nil {
+			return NewInvalidFileError("invalid CA certificate file (ca_certificate_file)", err)
+		}
 	}
 
-	if _, err := os.Stat(cfg.CertificateChainFile); err != nil {
-		return NewInvalidFileError("invalid certificate chain file (certificate_chain_file)", err)
+	if cfg.CertificateChain == "" {
+		if cfg.CertificateChainFile == "" {
+			return ErrNoCertificateChain
+		}
+		if _, err := os.Stat(cfg.CertificateChainFile); err != nil {
+			return NewInvalidFileError("invalid certificate chain file (certificate_chain_file)", err)
+		}
 	}
 
-	if _, err := os.Stat(cfg.PrivateKeyFile); err != nil {
-		return NewInvalidFileError("invalid private key file (private_key_file)", err)
+	if cfg.PrivateKey == "" {
+		if cfg.PrivateKeyFile == "" {
+			return ErrNoPrivateKey
+		}
+		if _, err := os.Stat(cfg.PrivateKeyFile); err != nil {
+			return NewInvalidFileError("invalid private key file (private_key_file)", err)
+		}
 	}
 
 	return nil
+}
+
+func (cfg *Config) CACertificatePEM() ([]byte, error) {
+	if cfg.CACertificate != "" {
+		return []byte(cfg.CACertificate), nil
+	}
+	return os.ReadFile(cfg.CACertificateFile)
+}
+
+func (cfg *Config) CertificateChainPEM() ([]byte, error) {
+	if cfg.CertificateChain != "" {
+		return []byte(cfg.CertificateChain), nil
+	}
+	return os.ReadFile(cfg.CertificateChainFile)
+}
+
+func (cfg *Config) PrivateKeyPEM() ([]byte, error) {
+	if cfg.PrivateKey != "" {
+		return []byte(cfg.PrivateKey), nil
+	}
+	return os.ReadFile(cfg.PrivateKeyFile)
 }
 
 func (cfg *Config) WorkDir() string {

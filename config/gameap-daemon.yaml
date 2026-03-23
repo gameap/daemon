@@ -1,17 +1,32 @@
 ds_id: 1
-listen_ip: 0.0.0.0
-# listen_port: 31717
-daemon_login: sEcreT-L0gin
-daemon_password: seCrEt-PaSSW0rD
 
 api_host: http://localhost:2080
 api_key: KxL6shP6Q4aEJeLXIaoe8mXpkIrTTFSQMKWt1qAfBZ2TQe42YvzDzrlwVZ2F5pgH
 
+# Certificates can be specified as file paths:
 ca_certificate_file: ./certs_panel/ca.crt
 certificate_chain_file: ./certs_panel/server.crt
 private_key_file: ./certs_panel/server.key
+
+# Or as inline PEM values (takes precedence over file paths):
+# ca_certificate: |
+#   -----BEGIN CERTIFICATE-----
+#   MIIDPTCCAiWgAwIBAgIRAIy/eAu45373SY5SxmS8HsowDQYJKoZIhvcNAQELBQAw
+#   ...
+#   -----END CERTIFICATE-----
+# certificate_chain: |
+#   -----BEGIN CERTIFICATE-----
+#   MIIDPTCCAiWgAwIBAgIRAIy/eAu45373SY5SxmS8HsowDQYJKoZIhvcNAQELBQAw
+#   ...
+#   -----END CERTIFICATE-----
+# private_key: |
+#   -----BEGIN PRIVATE KEY-----
+#   MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCaJGeZltblsjgD
+#   ...
+#   -----END PRIVATE KEY-----
+
+# If your private key is encrypted, you can specify the password here:
 # private_key_password: abracadabra
-dh_file: /etc/gameap-daemon/certs_panel/dh2048.pem
 
 if_list:
   - eth0

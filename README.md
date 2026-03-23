@@ -22,13 +22,47 @@ Configuration file: gameap-daemon.yaml
 
 ### SSL/TLS
 
+Certificates can be specified either as file paths or as inline PEM values.
+If both are set, inline values take precedence over file paths.
+
+#### File paths
+
 | Parameter                 | Required              | Type      | Info
 |---------------------------|-----------------------|-----------|------------
-| ca_certificate_file       | yes                   | string    | CA Certificate
-| certificate_chain_file    | yes                   | string    | Server Certificate
-| private_key_file          | yes                   | string    | Server Private Key
+| ca_certificate_file       | yes*                  | string    | Path to CA Certificate file
+| certificate_chain_file    | yes*                  | string    | Path to Server Certificate file
+| private_key_file          | yes*                  | string    | Path to Server Private Key file
 | private_key_password      | no                    | string    | Server Private Key Password
-| dh_file                   | yes                   | string    | Diffie-Hellman Certificate
+| dh_file                   | no                    | string    | Path to Diffie-Hellman file
+
+#### Inline PEM values
+
+| Parameter                 | Required              | Type      | Info
+|---------------------------|-----------------------|-----------|------------
+| ca_certificate            | yes*                  | string    | CA Certificate PEM
+| certificate_chain         | yes*                  | string    | Server Certificate PEM
+| private_key               | yes*                  | string    | Server Private Key PEM
+
+\* For each certificate, either the file path or the inline PEM value must be provided.
+
+Inline PEM example:
+```yaml
+ca_certificate: |
+  -----BEGIN CERTIFICATE-----
+  MIIDPTCCAiWgAwIBAgIRAIy/eAu45373SY5SxmS8HsowDQYJKoZIhvcNAQELBQAw
+  ...
+  -----END CERTIFICATE-----
+certificate_chain: |
+  -----BEGIN CERTIFICATE-----
+  MIIDPTCCAiWgAwIBAgIRAIy/eAu45373SY5SxmS8HsowDQYJKoZIhvcNAQELBQAw
+  ...
+  -----END CERTIFICATE-----
+private_key: |
+  -----BEGIN PRIVATE KEY-----
+  MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCaJGeZltblsjgD
+  ...
+  -----END PRIVATE KEY-----
+```
 
 ### Base Authentification
 

@@ -80,19 +80,19 @@ func updatePaths(cfgPath string, cfg *Config) *Config {
 
 	cfgDirPath := filepath.Dir(cfgPath)
 
-	if !filepath.IsAbs(cfg.CACertificateFile) {
+	if cfg.CACertificateFile != "" && !filepath.IsAbs(cfg.CACertificateFile) {
 		cfg.CACertificateFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.CACertificateFile))
 	}
 
-	if !filepath.IsAbs(cfg.CertificateChainFile) {
+	if cfg.CertificateChainFile != "" && !filepath.IsAbs(cfg.CertificateChainFile) {
 		cfg.CertificateChainFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.CertificateChainFile))
 	}
 
-	if !filepath.IsAbs(cfg.PrivateKeyFile) {
+	if cfg.PrivateKeyFile != "" && !filepath.IsAbs(cfg.PrivateKeyFile) {
 		cfg.PrivateKeyFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.PrivateKeyFile))
 	}
 
-	if !filepath.IsAbs(cfg.DHFile) {
+	if cfg.DHFile != "" && !filepath.IsAbs(cfg.DHFile) {
 		cfg.DHFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.DHFile))
 	}
 

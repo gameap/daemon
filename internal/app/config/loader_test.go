@@ -21,3 +21,14 @@ func TestUpdatePaths(t *testing.T) {
 	assert.Equal(t, privateKeyFilePath, updatedCfg.PrivateKeyFile)
 	assert.Equal(t, dhFilePathPath, updatedCfg.DHFile)
 }
+
+func TestUpdatePaths_EmptyFilePaths(t *testing.T) {
+	cfg := &Config{}
+
+	updatedCfg := updatePaths(configPath, cfg)
+
+	assert.Empty(t, updatedCfg.CACertificateFile)
+	assert.Empty(t, updatedCfg.CertificateChainFile)
+	assert.Empty(t, updatedCfg.PrivateKeyFile)
+	assert.Empty(t, updatedCfg.DHFile)
+}
