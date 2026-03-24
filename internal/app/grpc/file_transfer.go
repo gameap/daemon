@@ -115,6 +115,98 @@ func (c *FileTransferClient) UploadFile(ctx context.Context, localPath, remotePa
 	return nil
 }
 
+func (c *FileTransferClient) UploadFileForTransfer(
+	ctx context.Context,
+	transferID string,
+	file *os.File,
+	fileSize int64,
+	fileMode os.FileMode,
+) (string, error) {
+	if c.client == nil {
+		return "", errors.New("file transfer client not connected")
+	}
+
+	stream, err := c.client.UploadFile(ctx)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to create upload stream")
+	}
+
+	hasher := sha256.New()
+
+	firstChunk := true
+	buf := make([]byte, fileChunkSize)
+	for {
+		n, readErr := file.Read(buf)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", errors.Wrap(readErr, "failed to read file")
+		}
+
+		hasher.Write(buf[:n])
+
+		chunk := &pb.UploadChunk{
+			Data: buf[:n],
+		}
+
+		if firstChunk {
+			chunk.Metadata = &pb.UploadMetadata{
+				TransferId: transferID,
+				Path:       transferID,
+				TotalSize:  fileSize,
+				Mode:       int32(fileMode),
+			}
+			firstChunk = false
+		}
+
+		if sendErr := stream.Send(chunk); sendErr != nil {
+			return "", errors.Wrap(sendErr, "failed to send chunk")
+		}
+	}
+
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+
+	if err := stream.Send(&pb.UploadChunk{
+		Metadata: &pb.UploadMetadata{
+			ChecksumSha256: checksum,
+		},
+	}); err != nil {
+		return "", errors.Wrap(err, "failed to send final chunk with checksum")
+	}
+
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to close stream")
+	}
+
+	if !resp.Success {
+		return "", errors.Errorf("upload failed: %s", resp.Error)
+	}
+
+	return checksum, nil
+}
+
+func (c *FileTransferClient) DownloadFileStream(
+	ctx context.Context,
+	transferID string,
+	offset int64,
+) (grpc.ServerStreamingClient[pb.DownloadChunk], error) {
+	if c.client == nil {
+		return nil, errors.New("file transfer client not connected")
+	}
+
+	stream, err := c.client.DownloadFile(ctx, &pb.DownloadRequest{
+		Path:   transferID,
+		Offset: offset,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create download stream")
+	}
+
+	return stream, nil
+}
+
 func (c *FileTransferClient) DownloadFile(ctx context.Context, remotePath, localPath string) error {
 	if c.client == nil {
 		return errors.New("file transfer client not connected")

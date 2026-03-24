@@ -49,6 +49,22 @@ func (r *ServerRepository) Save(_ context.Context, server *domain.Server) error 
 	return nil
 }
 
+func (r *ServerRepository) FindByIDFromCache(id int) (*domain.Server, bool) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	server, exists := r.items[id]
+
+	return server, exists
+}
+
+func (r *ServerRepository) SaveToCache(server *domain.Server) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	r.items[server.ID()] = server
+}
+
 func (r *ServerRepository) Set(items []*domain.Server) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()

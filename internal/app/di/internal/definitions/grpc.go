@@ -4,6 +4,7 @@ import (
 	"context"
 
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
+	"github.com/gameap/daemon/internal/app/repositories"
 )
 
 func CreateGameStore() *grpcclient.GameStore {
@@ -26,7 +27,7 @@ func CreateGatewayClient(ctx context.Context, c Container, gameStore *grpcclient
 	fileHandler := grpcclient.NewGRPCFileHandler(cfg.WorkPath)
 
 	serverHandler := grpcclient.NewGRPCServerHandler(
-		c.Repositories().ServerRepository(ctx),
+		c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository),
 		gameStore,
 	)
 
@@ -49,9 +50,23 @@ func CreateGatewayClient(ctx context.Context, c Container, gameStore *grpcclient
 
 func CreateConnectionManager(ctx context.Context, c Container, gameStore *grpcclient.GameStore) *grpcclient.ConnectionManager {
 	cfg := c.Cfg(ctx)
+	fileTransferClient := CreateFileTransferClient(ctx, c)
 	client := CreateGatewayClient(ctx, c, gameStore)
 
-	return grpcclient.NewConnectionManager(cfg, client)
+	transferHandler := grpcclient.NewGRPCTransferHandler(
+		cfg.WorkPath,
+		fileTransferClient,
+		client,
+		4,
+	)
+	client.SetTransferHandler(transferHandler)
+
+	c.Services().GdTaskManager(ctx).SetTaskStatusSender(client)
+
+	cm := grpcclient.NewConnectionManager(cfg, client)
+	cm.OnConnect(fileTransferClient.SetConnection)
+
+	return cm
 }
 
 func CreateFileTransferClient(ctx context.Context, c Container) *grpcclient.FileTransferClient {

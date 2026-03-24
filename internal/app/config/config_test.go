@@ -81,10 +81,22 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestValidate_InsecureWithoutCerts(t *testing.T) {
+	cfg := NewConfig()
+	cfg.NodeID = 1
+	cfg.APIHost = "http://localhost:8025"
+	cfg.APIKey = "api-key"
+	cfg.WorkPath = "/tmp/config_test"
+
+	err := cfg.Init()
+
+	assert.Nil(t, err)
+}
+
 func TestValidate_InlineCerts(t *testing.T) {
 	cfg := NewConfig()
 	cfg.NodeID = 1
-	cfg.APIHost = "http://localhost"
+	cfg.APIHost = "https://localhost"
 	cfg.APIKey = "api-key"
 	cfg.WorkPath = "/tmp/config_test"
 	cfg.CACertificate = "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
@@ -145,12 +157,32 @@ func TestPrivateKeyPEM_Inline(t *testing.T) {
 	assert.Equal(t, []byte("inline-key-pem"), pem)
 }
 
+func TestIsInsecure(t *testing.T) {
+	tests := []struct {
+		apiHost  string
+		expected bool
+	}{
+		{"http://localhost:8025", true},
+		{"http://example.com", true},
+		{"https://example.com", false},
+		{"https://localhost:8025", false},
+		{"example.com", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.apiHost, func(t *testing.T) {
+			cfg := &Config{APIHost: tt.apiHost}
+			assert.Equal(t, tt.expected, cfg.IsInsecure())
+		})
+	}
+}
+
 func givenValidConfig(t *testing.T) *Config {
 	t.Helper()
 
 	cfg := NewConfig()
 	cfg.NodeID = 1
-	cfg.APIHost = "http://localhost"
+	cfg.APIHost = "https://localhost"
 	cfg.APIKey = "api-key"
 	cfg.WorkPath = "/tmp/config_test"
 	cfg.CACertificateFile = "../../../config/certs/rootca.crt"

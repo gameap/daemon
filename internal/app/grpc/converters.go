@@ -6,6 +6,7 @@ import (
 
 	"github.com/gameap/daemon/internal/app/domain"
 	pb "github.com/gameap/gameap/pkg/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func ProtoTaskToDomain(task *pb.DaemonTask, server *domain.Server) *domain.GDTask {
@@ -95,9 +96,9 @@ func stringStatusToProto(status string) pb.DaemonTaskStatus {
 
 func DomainServerToProtoStatus(server *domain.Server) *pb.ServerStatus {
 	return &pb.ServerStatus{
-		ServerId:      uint64(server.ID()),
-		IsRunning:     server.IsActive(),
-		LastCheckUnix: server.LastStatusCheck().Unix(),
+		ServerId:  uint64(server.ID()),
+		IsRunning: server.IsActive(),
+		LastCheck: timestamppb.New(server.LastStatusCheck()),
 	}
 }
 

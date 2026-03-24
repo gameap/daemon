@@ -30,6 +30,8 @@ type SteamConfig struct {
 
 type GRPCConfig struct {
 	Enabled               bool          `yaml:"enabled"`
+	Insecure              bool          `yaml:"insecure"`
+	Address               string        `yaml:"address"`
 	HeartbeatInterval     time.Duration `yaml:"heartbeat_interval"`
 	ConnectTimeout        time.Duration `yaml:"connect_timeout"`
 	InitialReconnectDelay time.Duration `yaml:"initial_reconnect_delay"`
@@ -164,30 +166,32 @@ func (cfg *Config) validate() error {
 		return ErrEmptyAPIKey
 	}
 
-	if cfg.CACertificate == "" {
-		if cfg.CACertificateFile == "" {
-			return ErrNoCACertificate
+	if !cfg.IsInsecure() {
+		if cfg.CACertificate == "" {
+			if cfg.CACertificateFile == "" {
+				return ErrNoCACertificate
+			}
+			if _, err := os.Stat(cfg.CACertificateFile); err != nil {
+				return NewInvalidFileError("invalid CA certificate file (ca_certificate_file)", err)
+			}
 		}
-		if _, err := os.Stat(cfg.CACertificateFile); err != nil {
-			return NewInvalidFileError("invalid CA certificate file (ca_certificate_file)", err)
-		}
-	}
 
-	if cfg.CertificateChain == "" {
-		if cfg.CertificateChainFile == "" {
-			return ErrNoCertificateChain
+		if cfg.CertificateChain == "" {
+			if cfg.CertificateChainFile == "" {
+				return ErrNoCertificateChain
+			}
+			if _, err := os.Stat(cfg.CertificateChainFile); err != nil {
+				return NewInvalidFileError("invalid certificate chain file (certificate_chain_file)", err)
+			}
 		}
-		if _, err := os.Stat(cfg.CertificateChainFile); err != nil {
-			return NewInvalidFileError("invalid certificate chain file (certificate_chain_file)", err)
-		}
-	}
 
-	if cfg.PrivateKey == "" {
-		if cfg.PrivateKeyFile == "" {
-			return ErrNoPrivateKey
-		}
-		if _, err := os.Stat(cfg.PrivateKeyFile); err != nil {
-			return NewInvalidFileError("invalid private key file (private_key_file)", err)
+		if cfg.PrivateKey == "" {
+			if cfg.PrivateKeyFile == "" {
+				return ErrNoPrivateKey
+			}
+			if _, err := os.Stat(cfg.PrivateKeyFile); err != nil {
+				return NewInvalidFileError("invalid private key file (private_key_file)", err)
+			}
 		}
 	}
 
@@ -219,7 +223,15 @@ func (cfg *Config) WorkDir() string {
 	return cfg.WorkPath
 }
 
+func (cfg *Config) IsInsecure() bool {
+	return strings.HasPrefix(cfg.APIHost, "http://")
+}
+
 func (cfg *Config) GRPCAddress() string {
+	if cfg.GRPC.Address != "" {
+		return cfg.GRPC.Address
+	}
+
 	host := cfg.APIHost
 	// Remove scheme (https://, http://)
 	host = strings.TrimPrefix(host, "https://")
@@ -228,8 +240,12 @@ func (cfg *Config) GRPCAddress() string {
 	if idx := strings.Index(host, "/"); idx != -1 {
 		host = host[:idx]
 	}
-	// host now contains "hostname" or "hostname:port"
-	return host
+
+	// Replace port with default gRPC port if present
+	if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
+		host = host[:colonIdx]
+	}
+	return host + ":31718"
 }
 
 func UpdateEnvPath(cfg *Config) error {

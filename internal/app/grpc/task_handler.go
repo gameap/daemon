@@ -3,12 +3,12 @@ package grpc
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/gameap/daemon/internal/app/domain"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type TaskQueue interface {
@@ -69,9 +69,9 @@ func (h *GRPCTaskHandler) InFlightTasks() []*pb.InFlightTask {
 	result := make([]*pb.InFlightTask, 0, len(tasks))
 	for _, task := range tasks {
 		result = append(result, &pb.InFlightTask{
-			TaskId:        uint64(task.ID()),
-			Status:        DomainTaskStatusToProto(task.Status()),
-			StartedAtUnix: time.Now().Unix(),
+			TaskId:    uint64(task.ID()),
+			Status:    DomainTaskStatusToProto(task.Status()),
+			StartedAt: timestamppb.Now(),
 		})
 	}
 

@@ -5,7 +5,6 @@ import (
 
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/load"
 	"github.com/shirou/gopsutil/v3/mem"
 	log "github.com/sirupsen/logrus"
@@ -35,13 +34,6 @@ func (c *HeartbeatCollector) CollectStats() *pb.SystemStats {
 		stats.MemoryUsedBytes = memInfo.Used
 	} else {
 		log.WithError(err).Debug("Failed to get memory info")
-	}
-
-	if diskInfo, err := disk.Usage(c.workDir); err == nil {
-		stats.DiskTotalBytes = diskInfo.Total
-		stats.DiskUsedBytes = diskInfo.Used
-	} else {
-		log.WithError(err).Debug("Failed to get disk info")
 	}
 
 	if runtime.GOOS != "windows" {

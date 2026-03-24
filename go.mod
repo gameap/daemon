@@ -8,7 +8,7 @@ require (
 	github.com/emirpasic/gods v1.18.1
 	github.com/et-nik/binngo v0.3.0
 	github.com/gabriel-vasile/mimetype v1.4.13
-	github.com/gameap/gameap v0.0.0-20260323195815-079a0001cbe0
+	github.com/gameap/gameap v0.0.0-20260325223901-09d60bfe8c93
 	github.com/gameap/gameapctl v0.22.2
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/goccy/go-yaml v1.19.2
@@ -28,6 +28,7 @@ require (
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.79.3
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -124,6 +125,5 @@ require (
 	google.golang.org/genproto v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260203192932-546029d2fa20 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260217215200-42d3e9bedb6d // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

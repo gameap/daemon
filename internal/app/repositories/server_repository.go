@@ -137,6 +137,20 @@ func (repo *ServerRepository) Save(_ context.Context, server *domain.Server) err
 	return nil
 }
 
+func (repo *ServerRepository) FindByIDFromCache(id int) (*domain.Server, bool) {
+	loaded, ok := repo.servers.Load(id)
+	if !ok {
+		return nil, false
+	}
+
+	return loaded.(*domain.Server), true
+}
+
+func (repo *ServerRepository) SaveToCache(server *domain.Server) {
+	repo.servers.Store(server.ID(), server)
+	repo.lastUpdated.Store(server.ID(), time.Now())
+}
+
 //nolint:maligned
 type serverStruct struct {
 	Vars             map[string]string        `json:"vars"`

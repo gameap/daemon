@@ -11,10 +11,11 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
-	outboundBufferSize = 100
+	outboundBufferSize = 500
 )
 
 type TaskHandler interface {
@@ -30,10 +31,20 @@ type FileHandler interface {
 	HandleFileRead(ctx context.Context, requestID string, req *pb.FileReadRequest) (*pb.FileReadResponse, error)
 	HandleFileWrite(ctx context.Context, requestID string, req *pb.FileWriteRequest) (*pb.FileWriteResponse, error)
 	HandleFileList(ctx context.Context, requestID string, req *pb.FileListRequest) (*pb.FileListResponse, error)
+	HandleFileOperation(ctx context.Context, req *pb.FileOperationRequest) (*pb.FileOperationResponse, error)
 }
 
 type ServerHandler interface {
 	HandleServerUpdate(ctx context.Context, srv *pb.Server) error
+}
+
+type TransferHandler interface {
+	HandleFileUploadTask(ctx context.Context, requestID string, task *pb.FileUploadTask)
+	HandleFileDownloadTask(ctx context.Context, requestID string, task *pb.FileDownloadTask)
+}
+
+type ResponseSender interface {
+	Send(msg *pb.DaemonMessage)
 }
 
 type InFlightTasksProvider interface {
@@ -49,6 +60,7 @@ type GatewayClient struct {
 	commandHandler       CommandHandler
 	fileHandler          FileHandler
 	serverHandler        ServerHandler
+	transferHandler      TransferHandler
 	inFlightTaskProvider InFlightTasksProvider
 	gameStore            *GameStore
 
@@ -163,8 +175,8 @@ func (c *GatewayClient) register(ctx context.Context) error {
 }
 
 func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.RegisterAck) {
-	if ack.HeartbeatIntervalSeconds > 0 {
-		c.heartbeatInterval = time.Duration(ack.HeartbeatIntervalSeconds) * time.Second
+	if ack.HeartbeatInterval != nil {
+		c.heartbeatInterval = ack.HeartbeatInterval.AsDuration()
 	}
 
 	if len(ack.Games) > 0 {
@@ -176,6 +188,9 @@ func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.Register
 	}
 
 	for _, srv := range ack.Servers {
+		if ctx.Err() != nil {
+			break
+		}
 		if err := c.serverHandler.HandleServerUpdate(ctx, srv); err != nil {
 			log.WithError(err).WithField("server_id", srv.Id).
 				Warn("Failed to sync server from RegisterAck")
@@ -183,6 +198,9 @@ func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.Register
 	}
 
 	for _, task := range ack.PendingTasks {
+		if ctx.Err() != nil {
+			break
+		}
 		if err := c.taskHandler.HandleTask(ctx, task); err != nil {
 			log.WithError(err).WithField("task_id", task.Id).
 				Warn("Failed to queue pending task from RegisterAck")
@@ -263,8 +281,8 @@ func (c *GatewayClient) sendHeartbeat() {
 	c.Send(&pb.DaemonMessage{
 		Payload: &pb.DaemonMessage_Heartbeat{
 			Heartbeat: &pb.Heartbeat{
-				TimestampUnix: time.Now().Unix(),
-				SystemStats:   stats,
+				Timestamp:   timestamppb.Now(),
+				SystemStats: stats,
 			},
 		},
 	})
@@ -338,6 +356,9 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 	case *pb.GatewayMessage_ServerConfigBatch:
 		if payload.ServerConfigBatch != nil {
 			for _, srv := range payload.ServerConfigBatch.Servers {
+				if ctx.Err() != nil {
+					break
+				}
 				if err := c.serverHandler.HandleServerUpdate(ctx, srv); err != nil {
 					log.WithError(err).WithField("server_id", srv.Id).Error("Failed to handle server update from batch")
 				}
@@ -346,14 +367,35 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 
 	case *pb.GatewayMessage_Shutdown:
 		log.WithField("reason", payload.Shutdown.Reason).
-			WithField("reconnect_delay", payload.Shutdown.ReconnectDelaySeconds).
+			WithField("reconnect_delay", payload.Shutdown.ReconnectDelay).
 			Warn("Received shutdown notification from panel")
 		c.closeStream()
 
+	case *pb.GatewayMessage_FileOperation:
+		resp, err := c.fileHandler.HandleFileOperation(ctx, payload.FileOperation)
+		if err != nil {
+			log.WithError(err).Error("Failed to handle file operation")
+			return
+		}
+		c.Send(&pb.DaemonMessage{
+			Payload: &pb.DaemonMessage_FileOperationResponse{
+				FileOperationResponse: resp,
+			},
+		})
+
 	case *pb.GatewayMessage_FileUploadTask:
-		log.WithField("transfer_id", payload.FileUploadTask.TransferId).
-			WithField("path", payload.FileUploadTask.Path).
-			Warn("FileUploadTask not yet implemented")
+		if c.transferHandler != nil {
+			go c.transferHandler.HandleFileUploadTask(ctx, msg.RequestId, payload.FileUploadTask)
+		} else {
+			log.Warn("FileUploadTask received but no transfer handler configured")
+		}
+
+	case *pb.GatewayMessage_FileDownloadTask:
+		if c.transferHandler != nil {
+			go c.transferHandler.HandleFileDownloadTask(ctx, msg.RequestId, payload.FileDownloadTask)
+		} else {
+			log.Warn("FileDownloadTask received but no transfer handler configured")
+		}
 
 	default:
 		log.WithField("type", msg.Payload).Warn("Unknown message type received")
@@ -416,4 +458,8 @@ func (c *GatewayClient) closeStream() {
 func (c *GatewayClient) Close() error {
 	c.closeStream()
 	return nil
+}
+
+func (c *GatewayClient) SetTransferHandler(h TransferHandler) {
+	c.transferHandler = h
 }

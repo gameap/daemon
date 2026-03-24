@@ -12,12 +12,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type ConnectionManager struct {
 	cfg        *config.Config
 	conn       *grpc.ClientConn
 	client     *GatewayClient
+	onConnect  []func(conn *grpc.ClientConn)
 	mu         sync.RWMutex
 	reconnects int
 }
@@ -29,6 +31,10 @@ func NewConnectionManager(cfg *config.Config, client *GatewayClient) *Connection
 	}
 }
 
+func (cm *ConnectionManager) OnConnect(fn func(conn *grpc.ClientConn)) {
+	cm.onConnect = append(cm.onConnect, fn)
+}
+
 func (cm *ConnectionManager) Run(ctx context.Context) error {
 	for {
 		select {
@@ -36,10 +42,11 @@ func (cm *ConnectionManager) Run(ctx context.Context) error {
 			return cm.Close()
 		default:
 			if err := cm.connectAndRun(ctx); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
 				log.WithError(err).Error("gRPC connection failed")
+			}
+
+			if ctx.Err() != nil {
+				return cm.Close()
 			}
 
 			delay := cm.calculateBackoff()
@@ -56,14 +63,22 @@ func (cm *ConnectionManager) Run(ctx context.Context) error {
 }
 
 func (cm *ConnectionManager) connectAndRun(ctx context.Context) error {
-	creds, err := NewTLSCredentials(cm.cfg)
-	if err != nil {
-		return errors.Wrap(err, "failed to create TLS credentials")
+	var dialOpt grpc.DialOption
+
+	if cm.cfg.IsInsecure() || cm.cfg.GRPC.Insecure {
+		log.Warn("gRPC connection is running without TLS. It is recommended to enable TLS for security")
+		dialOpt = grpc.WithTransportCredentials(insecure.NewCredentials())
+	} else {
+		creds, err := NewTLSCredentials(cm.cfg)
+		if err != nil {
+			return errors.Wrap(err, "failed to create TLS credentials")
+		}
+		dialOpt = grpc.WithTransportCredentials(creds)
 	}
 
 	conn, err := grpc.NewClient(
 		cm.cfg.GRPCAddress(),
-		grpc.WithTransportCredentials(creds),
+		dialOpt,
 	)
 	if err != nil {
 		cm.reconnects++
@@ -74,7 +89,11 @@ func (cm *ConnectionManager) connectAndRun(ctx context.Context) error {
 	cm.conn = conn
 	cm.mu.Unlock()
 
-	log.Info("Connected to panel via gRPC")
+	log.Infof("Connected to panel via gRPC at %s", cm.cfg.GRPCAddress())
+
+	for _, fn := range cm.onConnect {
+		fn(conn)
+	}
 
 	err = cm.client.Run(ctx, conn)
 	if err != nil {
