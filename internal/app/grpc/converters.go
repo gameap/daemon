@@ -6,7 +6,11 @@ import (
 
 	"github.com/gameap/daemon/internal/app/domain"
 	pb "github.com/gameap/gameap/pkg/proto"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func ProtoTaskToDomain(task *pb.DaemonTask, server *domain.Server) *domain.GDTask {
@@ -135,6 +139,7 @@ func ProtoGameToDomain(g *pb.Game) domain.Game {
 		RemoteRepository:  remoteRepo,
 		LocalRepository:   localRepo,
 		SteamAppID:        steamAppID,
+		Metadata:          protoAnyMapToMetadata(g.GetMetadata()),
 	}
 }
 
@@ -163,7 +168,49 @@ func ProtoGameModToDomain(m *pb.GameMod) domain.GameMod {
 		DefaultStartCMDLinux:   m.GetStartCmdLinux(),
 		DefaultStartCMDWindows: m.GetStartCmdWindows(),
 		Vars:                   vars,
+		Metadata:               protoAnyMapToMetadata(m.GetMetadata()),
 	}
+}
+
+func protoAnyMapToMetadata(m map[string]*anypb.Any) map[string]any {
+	if len(m) == 0 {
+		return nil
+	}
+
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		if v == nil {
+			continue
+		}
+
+		msg, err := anypb.UnmarshalNew(v, proto.UnmarshalOptions{})
+		if err != nil {
+			continue
+		}
+
+		switch tv := msg.(type) {
+		case *wrapperspb.StringValue:
+			result[k] = tv.GetValue()
+		case *wrapperspb.Int64Value:
+			result[k] = tv.GetValue()
+		case *wrapperspb.Int32Value:
+			result[k] = tv.GetValue()
+		case *wrapperspb.UInt64Value:
+			result[k] = tv.GetValue()
+		case *wrapperspb.UInt32Value:
+			result[k] = tv.GetValue()
+		case *wrapperspb.DoubleValue:
+			result[k] = tv.GetValue()
+		case *wrapperspb.FloatValue:
+			result[k] = tv.GetValue()
+		case *wrapperspb.BoolValue:
+			result[k] = tv.GetValue()
+		case *structpb.Value:
+			result[k] = tv.AsInterface()
+		}
+	}
+
+	return result
 }
 
 func parseVarsJSON(varsJSON string) map[string]string {

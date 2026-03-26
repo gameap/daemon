@@ -89,6 +89,7 @@ func initialize(c *cli.Context) error {
 		}
 
 		processRunner.SetGRPCComponents(connectionManager, statusReporter)
+		processRunner.EnableGRPCMode()
 
 		group.Go(processRunner.RunGRPCClient(ctx, cfg))
 		group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))

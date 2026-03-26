@@ -49,13 +49,22 @@ func (cm *ConnectionManager) Run(ctx context.Context) error {
 				return cm.Close()
 			}
 
-			delay := cm.calculateBackoff()
-			log.WithField("delay", delay).Info("Reconnecting to panel...")
+			var delay time.Duration
+			if d, ok := cm.client.PendingShutdownDelay(); ok {
+				delay = d
+				cm.reconnects = 0
+				log.WithField("delay", delay).Info("Server requested reconnect delay")
+			} else {
+				delay = cm.calculateBackoff()
+			}
+
+			log.WithField("delay", delay).Info("Waiting before reconnecting to panel...")
 
 			select {
 			case <-ctx.Done():
 				return cm.Close()
 			case <-time.After(delay):
+				log.Info("Reconnecting to panel...")
 				continue
 			}
 		}

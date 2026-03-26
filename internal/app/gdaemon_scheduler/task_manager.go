@@ -47,6 +47,7 @@ type TaskManager struct {
 	queue                *taskQueue
 	commandsInProgress   sync.Map
 	taskStatusSender     TaskStatusSender
+	grpcMode             bool
 }
 
 func NewTaskManager(
@@ -71,6 +72,10 @@ func (manager *TaskManager) SetTaskStatusSender(sender TaskStatusSender) {
 	manager.taskStatusSender = sender
 }
 
+func (manager *TaskManager) SetGRPCMode(enabled bool) {
+	manager.grpcMode = enabled
+}
+
 func (manager *TaskManager) InsertTask(task *domain.GDTask) {
 	manager.queue.Insert([]*domain.GDTask{task})
 }
@@ -90,11 +95,13 @@ func (manager *TaskManager) CancelTask(taskID int) error {
 }
 
 func (manager *TaskManager) Run(ctx context.Context) error {
-	manager.failWorkingTaskAfterRestart(ctx)
+	if !manager.grpcMode {
+		manager.failWorkingTaskAfterRestart(ctx)
 
-	err := manager.updateTasksIfNeeded(ctx)
-	if err != nil {
-		logger.Logger(ctx).Error(err)
+		err := manager.updateTasksIfNeeded(ctx)
+		if err != nil {
+			logger.Logger(ctx).Error(err)
+		}
 	}
 
 	go manager.RunWorker(ctx)
@@ -106,9 +113,11 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 		default:
 			time.Sleep(manager.config.TaskManager.UpdatePeriod)
 
-			err = manager.updateTasksIfNeeded(ctx)
-			if err != nil {
-				logger.Logger(ctx).Error(err)
+			if !manager.grpcMode {
+				err := manager.updateTasksIfNeeded(ctx)
+				if err != nil {
+					logger.Logger(ctx).Error(err)
+				}
 			}
 		}
 	}
@@ -215,10 +224,12 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 
 		manager.queue.Remove(task)
 
-		err = manager.repository.Save(ctx, task)
-		if err != nil {
-			err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
-			logger.Error(ctx, err)
+		if !manager.grpcMode {
+			err = manager.repository.Save(ctx, task)
+			if err != nil {
+				err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
+				logger.Error(ctx, err)
+			}
 		}
 	}
 }
@@ -247,10 +258,12 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 
 	manager.notifyTaskStatus(task, "Task started")
 
-	err = manager.repository.Save(ctx, task)
-	if err != nil {
-		err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
-		logger.Error(ctx, err)
+	if !manager.grpcMode {
+		err = manager.repository.Save(ctx, task)
+		if err != nil {
+			err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
+			logger.Error(ctx, err)
+		}
 	}
 
 	if task.Task() == domain.GDTaskCommandExecute {
@@ -365,6 +378,10 @@ func (manager *TaskManager) notifyTaskOutput(task *domain.GDTask, output []byte,
 
 func (manager *TaskManager) appendTaskOutput(ctx context.Context, task *domain.GDTask, output []byte) {
 	if len(output) == 0 {
+		return
+	}
+
+	if manager.grpcMode {
 		return
 	}
 

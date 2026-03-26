@@ -14,9 +14,12 @@ func CreateGameStore() *grpcclient.GameStore {
 func CreateGatewayClient(ctx context.Context, c Container, gameStore *grpcclient.GameStore) *grpcclient.GatewayClient {
 	cfg := c.Cfg(ctx)
 
+	taskManager := c.Services().GdTaskManager(ctx)
+	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)
+
 	taskHandler := grpcclient.NewGRPCTaskHandler(
-		c.Services().GdTaskManager(ctx),
-		c.Repositories().ServerRepository(ctx),
+		taskManager,
+		serverRepo,
 	)
 
 	commandHandler := grpcclient.NewGRPCCommandHandler(
@@ -27,7 +30,7 @@ func CreateGatewayClient(ctx context.Context, c Container, gameStore *grpcclient
 	fileHandler := grpcclient.NewGRPCFileHandler(cfg.WorkPath)
 
 	serverHandler := grpcclient.NewGRPCServerHandler(
-		c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository),
+		serverRepo,
 		gameStore,
 	)
 
@@ -43,6 +46,8 @@ func CreateGatewayClient(ctx context.Context, c Container, gameStore *grpcclient
 		nil,
 		taskHandler,
 		gameStore,
+		taskManager,
+		serverRepo,
 	)
 
 	return client

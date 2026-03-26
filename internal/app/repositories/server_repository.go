@@ -31,6 +31,7 @@ type ServerRepository struct {
 	servers        sync.Map
 	lastUpdated    sync.Map
 	mu             sync.Mutex
+	grpcMode       bool
 }
 
 func NewServerRepository(ctx context.Context, client contracts.APIRequestMaker, logger *log.Logger) *ServerRepository {
@@ -85,13 +86,39 @@ func NewServerRepository(ctx context.Context, client contracts.APIRequestMaker, 
 	return serverRepo
 }
 
+func (repo *ServerRepository) SetGRPCMode(enabled bool) {
+	repo.grpcMode = enabled
+}
+
+func (repo *ServerRepository) IDsFromCache() []int {
+	var ids []int
+	repo.servers.Range(func(key, _ interface{}) bool {
+		if id, ok := key.(int); ok {
+			ids = append(ids, id)
+		}
+		return true
+	})
+	return ids
+}
+
 func (repo *ServerRepository) IDs(ctx context.Context) ([]int, error) {
+	if repo.grpcMode {
+		return repo.IDsFromCache(), nil
+	}
 	return repo.innerRepo.IDs(ctx)
 }
 
 func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Server, error) {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
+
+	if repo.grpcMode {
+		server, ok := repo.FindByIDFromCache(id)
+		if !ok {
+			return nil, nil
+		}
+		return server, nil
+	}
 
 	var err error
 	var server *domain.Server
@@ -129,6 +156,10 @@ func (repo *ServerRepository) FindByID(ctx context.Context, id int) (*domain.Ser
 }
 
 func (repo *ServerRepository) Save(_ context.Context, server *domain.Server) error {
+	if repo.grpcMode {
+		return nil
+	}
+
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 
@@ -149,6 +180,17 @@ func (repo *ServerRepository) FindByIDFromCache(id int) (*domain.Server, bool) {
 func (repo *ServerRepository) SaveToCache(server *domain.Server) {
 	repo.servers.Store(server.ID(), server)
 	repo.lastUpdated.Store(server.ID(), time.Now())
+}
+
+func (repo *ServerRepository) CountOnlineServers() int {
+	count := 0
+	repo.servers.Range(func(_, value interface{}) bool {
+		if server, ok := value.(*domain.Server); ok && server.IsActive() {
+			count++
+		}
+		return true
+	})
+	return count
 }
 
 //nolint:maligned

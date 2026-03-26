@@ -20,12 +20,18 @@ func NewGRPCCommandHandler(executor contracts.Executor, workDir string) *GRPCCom
 	}
 }
 
-func (h *GRPCCommandHandler) HandleCommand(ctx context.Context, cmd *pb.CommandRequest) (*pb.CommandResult, error) {
+func (h *GRPCCommandHandler) HandleCommand(ctx context.Context, requestID string, cmd *pb.CommandRequest) (*pb.CommandResult, error) {
+	workDir := h.workDir
+	if cmd.WorkDir != "" {
+		workDir = cmd.WorkDir
+	}
+
 	output, exitCode, err := h.executor.Exec(ctx, cmd.Command, contracts.ExecutorOptions{
-		WorkDir: h.workDir,
+		WorkDir: workDir,
 	})
 	if err != nil {
 		return &pb.CommandResult{
+			RequestId: requestID,
 			CommandId: cmd.CommandId,
 			ExitCode:  int32(exitCode),
 			Output:    []byte(errors.Wrap(err, "command execution failed").Error()),
@@ -34,6 +40,7 @@ func (h *GRPCCommandHandler) HandleCommand(ctx context.Context, cmd *pb.CommandR
 	}
 
 	return &pb.CommandResult{
+		RequestId: requestID,
 		CommandId: cmd.CommandId,
 		ExitCode:  int32(exitCode),
 		Output:    output,

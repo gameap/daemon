@@ -3,10 +3,12 @@ package grpc
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/build"
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/domain"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -24,7 +26,11 @@ type TaskHandler interface {
 }
 
 type CommandHandler interface {
-	HandleCommand(ctx context.Context, cmd *pb.CommandRequest) (*pb.CommandResult, error)
+	HandleCommand(ctx context.Context, requestID string, cmd *pb.CommandRequest) (*pb.CommandResult, error)
+}
+
+type OnlineServerCounter interface {
+	CountOnlineServers() int
 }
 
 type FileHandler interface {
@@ -64,13 +70,16 @@ type GatewayClient struct {
 	inFlightTaskProvider InFlightTasksProvider
 	gameStore            *GameStore
 
-	heartbeatCollector *HeartbeatCollector
-	statusReporter     *ServerStatusReporter
-	heartbeatInterval  time.Duration
+	heartbeatCollector  *HeartbeatCollector
+	statusReporter      *ServerStatusReporter
+	heartbeatInterval   time.Duration
+	taskStatsReader     domain.GDTaskStatsReader
+	onlineServerCounter OnlineServerCounter
 
-	outbound chan *pb.DaemonMessage
-	shutdown chan struct{}
-	wg       sync.WaitGroup
+	outbound      chan *pb.DaemonMessage
+	shutdown      chan struct{}
+	wg            sync.WaitGroup
+	shutdownDelay atomic.Pointer[time.Duration]
 }
 
 func NewGatewayClient(
@@ -83,6 +92,8 @@ func NewGatewayClient(
 	statusReporter *ServerStatusReporter,
 	inFlightTaskProvider InFlightTasksProvider,
 	gameStore *GameStore,
+	taskStatsReader domain.GDTaskStatsReader,
+	onlineServerCounter OnlineServerCounter,
 ) *GatewayClient {
 	return &GatewayClient{
 		cfg:                  cfg,
@@ -95,6 +106,8 @@ func NewGatewayClient(
 		inFlightTaskProvider: inFlightTaskProvider,
 		gameStore:            gameStore,
 		heartbeatInterval:    cfg.GRPC.HeartbeatInterval,
+		taskStatsReader:      taskStatsReader,
+		onlineServerCounter:  onlineServerCounter,
 		outbound:             make(chan *pb.DaemonMessage, outboundBufferSize),
 		shutdown:             make(chan struct{}),
 	}
@@ -301,12 +314,13 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		}
 
 	case *pb.GatewayMessage_Command:
-		resp, err := c.commandHandler.HandleCommand(ctx, payload.Command)
+		resp, err := c.commandHandler.HandleCommand(ctx, msg.RequestId, payload.Command)
 		if err != nil {
 			log.WithError(err).Error("Failed to handle command")
 			return
 		}
 		c.Send(&pb.DaemonMessage{
+			RequestId: msg.RequestId,
 			Payload: &pb.DaemonMessage_CommandResult{
 				CommandResult: resp,
 			},
@@ -369,6 +383,10 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		log.WithField("reason", payload.Shutdown.Reason).
 			WithField("reconnect_delay", payload.Shutdown.ReconnectDelay).
 			Warn("Received shutdown notification from panel")
+		if payload.Shutdown.ReconnectDelay != nil {
+			delay := payload.Shutdown.ReconnectDelay.AsDuration()
+			c.shutdownDelay.Store(&delay)
+		}
 		c.closeStream()
 
 	case *pb.GatewayMessage_FileOperation:
@@ -397,9 +415,39 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 			log.Warn("FileDownloadTask received but no transfer handler configured")
 		}
 
+	case *pb.GatewayMessage_StatusRequest:
+		c.Send(&pb.DaemonMessage{
+			RequestId: msg.RequestId,
+			Payload: &pb.DaemonMessage_StatusResponse{
+				StatusResponse: c.buildStatusResponse(msg.RequestId),
+			},
+		})
+
 	default:
 		log.WithField("type", msg.Payload).Warn("Unknown message type received")
 	}
+}
+
+func (c *GatewayClient) buildStatusResponse(requestID string) *pb.StatusResponse {
+	resp := &pb.StatusResponse{
+		RequestId:     requestID,
+		Success:       true,
+		Version:       build.Version,
+		BuildDate:     build.BuildDate,
+		UptimeSeconds: int64(time.Since(domain.StartTime).Seconds()),
+	}
+
+	if c.taskStatsReader != nil {
+		stats := c.taskStatsReader.Stats()
+		resp.WorkingTasks = int32(stats.WorkingCount)
+		resp.WaitingTasks = int32(stats.WaitingCount)
+	}
+
+	if c.onlineServerCounter != nil {
+		resp.OnlineServers = int32(c.onlineServerCounter.CountOnlineServers())
+	}
+
+	return resp
 }
 
 func (c *GatewayClient) Send(msg *pb.DaemonMessage) {
@@ -442,6 +490,14 @@ func (c *GatewayClient) SendServerStatuses(statuses []*pb.ServerStatus) {
 			},
 		},
 	})
+}
+
+func (c *GatewayClient) PendingShutdownDelay() (time.Duration, bool) {
+	d := c.shutdownDelay.Swap(nil)
+	if d != nil {
+		return *d, true
+	}
+	return 0, false
 }
 
 func (c *GatewayClient) closeStream() {

@@ -9,6 +9,7 @@ import (
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
+	"github.com/gameap/daemon/internal/app/repositories"
 	"github.com/gameap/daemon/internal/app/server"
 	serversloop "github.com/gameap/daemon/internal/app/servers_loop"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
@@ -28,6 +29,7 @@ type Runner struct {
 	serverTaskRepository domain.ServerTaskRepository
 	connectionManager    *grpcclient.ConnectionManager
 	statusReporter       *grpcclient.ServerStatusReporter
+	grpcMode             bool
 }
 
 func NewProcessRunner(
@@ -56,6 +58,16 @@ func (r *Runner) SetGRPCComponents(
 ) {
 	r.connectionManager = connectionManager
 	r.statusReporter = statusReporter
+}
+
+func (r *Runner) EnableGRPCMode() {
+	r.grpcMode = true
+
+	r.gdTaskManager.SetGRPCMode(true)
+
+	if repo, ok := r.serverRepository.(*repositories.ServerRepository); ok {
+		repo.SetGRPCMode(true)
+	}
 }
 
 func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
@@ -146,6 +158,10 @@ func (r *Runner) RunServerScheduler(ctx context.Context, cfg *config.Config) fun
 			r.serverTaskRepository,
 			r.commandFactory,
 		)
+
+		if r.grpcMode {
+			scheduler.SetGRPCMode(true)
+		}
 
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
 			"service": "server tasks scheduler",

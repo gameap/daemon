@@ -24,6 +24,7 @@ type Scheduler struct {
 	mutex       *sync.Mutex
 	lastUpdated time.Time
 	queue       *taskQueue
+	grpcMode    bool
 }
 
 func NewScheduler(
@@ -40,10 +41,16 @@ func NewScheduler(
 	}
 }
 
+func (s *Scheduler) SetGRPCMode(enabled bool) {
+	s.grpcMode = enabled
+}
+
 func (s *Scheduler) Run(ctx context.Context) error {
-	err := s.updateTasksIfNeeded(ctx)
-	if err != nil {
-		logger.Logger(ctx).WithError(err).Warn("Failed to update game server tasks")
+	if !s.grpcMode {
+		err := s.updateTasksIfNeeded(ctx)
+		if err != nil {
+			logger.Logger(ctx).WithError(err).Warn("Failed to update game server tasks")
+		}
 	}
 
 	for {
@@ -53,9 +60,11 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		default:
 			s.runNext(ctx)
 
-			err = s.updateTasksIfNeeded(ctx)
-			if err != nil {
-				logger.Logger(ctx).WithError(err).Warn("Failed to update game server tasks")
+			if !s.grpcMode {
+				err := s.updateTasksIfNeeded(ctx)
+				if err != nil {
+					logger.Logger(ctx).WithError(err).Warn("Failed to update game server tasks")
+				}
 			}
 
 			time.Sleep(updateTimeout)
@@ -106,15 +115,21 @@ func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) {
 func (s *Scheduler) prolongTask(ctx context.Context, task *domain.ServerTask) {
 	task.IncreaseCountersAndTime()
 
-	err := s.repository.Save(ctx, task)
-	if err != nil {
-		logger.Logger(ctx).WithError(err).Warn("Failed to prolong game server task")
+	if !s.grpcMode {
+		err := s.repository.Save(ctx, task)
+		if err != nil {
+			logger.Logger(ctx).WithError(err).Warn("Failed to prolong game server task")
+		}
 	}
 
 	s.queue.Put(task)
 }
 
 func (s *Scheduler) saveFailInfo(ctx context.Context, task *domain.ServerTask, errorText string) {
+	if s.grpcMode {
+		return
+	}
+
 	err := s.repository.Fail(ctx, task, []byte(errorText))
 	if err != nil {
 		log.Error(err)
