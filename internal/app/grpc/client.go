@@ -49,6 +49,13 @@ type TransferHandler interface {
 	HandleFileDownloadTask(ctx context.Context, requestID string, task *pb.FileDownloadTask)
 }
 
+type AttachHandler interface {
+	HandleAttachRequest(ctx context.Context, req *pb.AttachRequest)
+	HandleAttachInput(ctx context.Context, input *pb.AttachInput)
+	HandleAttachDetach(ctx context.Context, detach *pb.AttachDetach)
+	CloseAllSessions(reason string)
+}
+
 type ResponseSender interface {
 	Send(msg *pb.DaemonMessage)
 }
@@ -67,6 +74,7 @@ type GatewayClient struct {
 	fileHandler          FileHandler
 	serverHandler        ServerHandler
 	transferHandler      TransferHandler
+	attachHandler        AttachHandler
 	inFlightTaskProvider InFlightTasksProvider
 	gameStore            *GameStore
 
@@ -158,7 +166,7 @@ func (c *GatewayClient) register(ctx context.Context) error {
 				NodeId:        uint64(c.cfg.NodeID),
 				ApiKey:        c.cfg.APIKey,
 				Version:       build.Version,
-				Capabilities:  []string{"grpc", "file_transfer", "server_status"},
+				Capabilities:  []string{"grpc", "file_transfer", "server_status", "attach"},
 				InFlightTasks: inFlightTasks,
 			},
 		},
@@ -188,6 +196,13 @@ func (c *GatewayClient) register(ctx context.Context) error {
 }
 
 func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.RegisterAck) {
+	log.WithFields(log.Fields{
+		"servers":  len(ack.Servers),
+		"tasks":    len(ack.PendingTasks),
+		"games":    len(ack.Games),
+		"gameMods": len(ack.GameMods),
+	}).Info("Processing RegisterAck from panel")
+
 	if ack.HeartbeatInterval != nil {
 		c.heartbeatInterval = ack.HeartbeatInterval.AsDuration()
 	}
@@ -415,6 +430,21 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 			log.Warn("FileDownloadTask received but no transfer handler configured")
 		}
 
+	case *pb.GatewayMessage_AttachRequest:
+		if c.attachHandler != nil {
+			c.attachHandler.HandleAttachRequest(ctx, payload.AttachRequest)
+		}
+
+	case *pb.GatewayMessage_AttachInput:
+		if c.attachHandler != nil {
+			c.attachHandler.HandleAttachInput(ctx, payload.AttachInput)
+		}
+
+	case *pb.GatewayMessage_AttachDetach:
+		if c.attachHandler != nil {
+			c.attachHandler.HandleAttachDetach(ctx, payload.AttachDetach)
+		}
+
 	case *pb.GatewayMessage_StatusRequest:
 		c.Send(&pb.DaemonMessage{
 			RequestId: msg.RequestId,
@@ -501,6 +531,10 @@ func (c *GatewayClient) PendingShutdownDelay() (time.Duration, bool) {
 }
 
 func (c *GatewayClient) closeStream() {
+	if c.attachHandler != nil {
+		c.attachHandler.CloseAllSessions("daemon disconnected")
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -518,4 +552,8 @@ func (c *GatewayClient) Close() error {
 
 func (c *GatewayClient) SetTransferHandler(h TransferHandler) {
 	c.transferHandler = h
+}
+
+func (c *GatewayClient) SetAttachHandler(h AttachHandler) {
+	c.attachHandler = h
 }

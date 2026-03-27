@@ -85,6 +85,12 @@ func (l *ServersLoop) tick(ctx context.Context) {
 		return
 	}
 
+	if len(ids) == 0 {
+		log.Debug("No servers found to check status")
+
+		return
+	}
+
 	for i := range ids {
 		ctxWithServer := logger.WithLogger(ctx, logger.WithField(ctx, "gameServerID", ids[i]))
 

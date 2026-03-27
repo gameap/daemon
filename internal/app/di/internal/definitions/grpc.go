@@ -53,10 +53,14 @@ func CreateGatewayClient(ctx context.Context, c Container, gameStore *grpcclient
 	return client
 }
 
-func CreateConnectionManager(ctx context.Context, c Container, gameStore *grpcclient.GameStore) *grpcclient.ConnectionManager {
+func CreateConnectionManager(
+	ctx context.Context,
+	c Container,
+	gameStore *grpcclient.GameStore,
+	client *grpcclient.GatewayClient,
+) *grpcclient.ConnectionManager {
 	cfg := c.Cfg(ctx)
 	fileTransferClient := CreateFileTransferClient(ctx, c)
-	client := CreateGatewayClient(ctx, c, gameStore)
 
 	transferHandler := grpcclient.NewGRPCTransferHandler(
 		cfg.WorkPath,
@@ -65,6 +69,15 @@ func CreateConnectionManager(ctx context.Context, c Container, gameStore *grpccl
 		4,
 	)
 	client.SetTransferHandler(transferHandler)
+
+	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)
+	attachHandler := grpcclient.NewGRPCAttachHandler(
+		serverRepo,
+		c.Services().ProcessManager(ctx),
+		client,
+	)
+	client.SetAttachHandler(attachHandler)
+	go attachHandler.RunIdleChecker(ctx)
 
 	c.Services().GdTaskManager(ctx).SetTaskStatusSender(client)
 

@@ -119,7 +119,7 @@ func (c *Container) GatewayClient(ctx context.Context) *grpcclient.GatewayClient
 
 func (c *Container) ConnectionManager(ctx context.Context) *grpcclient.ConnectionManager {
 	if c.connectionManager == nil && c.err == nil {
-		c.connectionManager = definitions.CreateConnectionManager(ctx, c, c.GameStore())
+		c.connectionManager = definitions.CreateConnectionManager(ctx, c, c.GameStore(), c.GatewayClient(ctx))
 	}
 	return c.connectionManager
 }
