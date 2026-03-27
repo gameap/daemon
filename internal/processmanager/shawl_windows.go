@@ -581,6 +581,12 @@ func (pm *Shawl) serviceExists(ctx context.Context, server *domain.Server) bool 
 	return result == 0
 }
 
+func (pm *Shawl) Attach(
+	_ context.Context, _ *domain.Server, _ io.Reader, _ io.Writer,
+) error {
+	return ErrNotImplemented
+}
+
 func (pm *Shawl) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }

@@ -502,6 +502,12 @@ type log struct {
 	Mode string `xml:"mode,attr"`
 }
 
+func (pm *WinSW) Attach(
+	_ context.Context, _ *domain.Server, _ io.Reader, _ io.Writer,
+) error {
+	return ErrNotImplemented
+}
+
 func (pm *WinSW) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }

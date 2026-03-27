@@ -64,6 +64,10 @@ type ProcessManager interface {
 	GetOutput(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error)
 	SendInput(ctx context.Context, input string, server *domain.Server, out io.Writer) (domain.Result, error)
 
+	// Attach connects to the process stdin/stdout for interactive I/O.
+	// Blocks until ctx is cancelled, in is closed, or an error occurs.
+	Attach(ctx context.Context, server *domain.Server, in io.Reader, out io.Writer) error
+
 	// HasOwnInstallation checks if the ProcessManager can install server files itself.
 	HasOwnInstallation(server *domain.Server) bool
 }

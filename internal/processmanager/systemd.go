@@ -645,6 +645,12 @@ func (pm *SystemD) userAndGroup(server *domain.Server) (string, string, error) {
 	return systemUser.Username, systemUser.Gid, nil
 }
 
+func (pm *SystemD) Attach(
+	_ context.Context, _ *domain.Server, _ io.Reader, _ io.Writer,
+) error {
+	return ErrNotImplemented
+}
+
 func (pm *SystemD) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/netip"
 	"os"
 	"os/user"
@@ -28,6 +29,7 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -507,6 +509,71 @@ func (pm *Docker) SendInput(
 	}
 
 	return domain.SuccessResult, nil
+}
+
+func (pm *Docker) Attach(
+	ctx context.Context, server *domain.Server, in io.Reader, out io.Writer,
+) error {
+	if err := pm.ensureClient(ctx); err != nil {
+		return err
+	}
+
+	containerName := pm.containerName(server)
+
+	inspect, err := pm.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
+	if err != nil {
+		return errors.Wrap(err, "failed to inspect container")
+	}
+	if !inspect.Container.State.Running {
+		return ErrContainerNotRunning
+	}
+
+	resp, err := pm.client.ContainerAttach(ctx, containerName, client.ContainerAttachOptions{
+		Stream: true,
+		Stdin:  true,
+		Stdout: true,
+		Stderr: true,
+	})
+	if err != nil {
+		return errors.Wrap(err, "failed to attach to container")
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	// Close the hijacked connection when context is done to unblock I/O goroutines.
+	g.Go(func() error {
+		<-gctx.Done()
+		resp.Close()
+		return nil
+	})
+
+	// stdin: copy input to container
+	g.Go(func() error {
+		_, cpErr := io.Copy(resp.Conn, in)
+		if cw, ok := resp.Conn.(interface{ CloseWrite() error }); ok {
+			_ = cw.CloseWrite()
+		}
+		if cpErr != nil && !errors.Is(cpErr, io.EOF) && !errors.Is(cpErr, net.ErrClosed) {
+			return errors.Wrap(cpErr, "stdin copy failed")
+		}
+		return nil
+	})
+
+	// stdout/stderr: demultiplex container output
+	g.Go(func() error {
+		_, cpErr := stdcopy.StdCopy(out, out, resp.Reader)
+		if cpErr != nil && !errors.Is(cpErr, io.EOF) && !errors.Is(cpErr, net.ErrClosed) {
+			return errors.Wrap(cpErr, "stdout copy failed")
+		}
+		return nil
+	})
+
+	err = g.Wait()
+	if err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+
+	return nil
 }
 
 func (pm *Docker) buildContainerConfig(server *domain.Server) (

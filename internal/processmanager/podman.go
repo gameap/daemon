@@ -789,6 +789,12 @@ func (pm *Podman) getConfig(server *domain.Server, key string) string {
 	return getContainerConfig(pm.cfg, server, key)
 }
 
+func (pm *Podman) Attach(
+	_ context.Context, _ *domain.Server, _ io.Reader, _ io.Writer,
+) error {
+	return ErrNotImplemented
+}
+
 func (pm *Podman) HasOwnInstallation(server *domain.Server) bool {
 	installImage := pm.getConfig(server, keyPodmanInstallationImage)
 	installScript := pm.getConfig(server, keyPodmanInstallationScript)

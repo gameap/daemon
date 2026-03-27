@@ -265,6 +265,12 @@ func (pm *Tmux) executeOptions(server *domain.Server) (contracts.ExecutorOptions
 	}, nil
 }
 
+func (pm *Tmux) Attach(
+	_ context.Context, _ *domain.Server, _ io.Reader, _ io.Writer,
+) error {
+	return ErrNotImplemented
+}
+
 func (pm *Tmux) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }

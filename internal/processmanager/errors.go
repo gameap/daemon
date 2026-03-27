@@ -8,4 +8,6 @@ var (
 	ErrUserNotFound          = errors.New("user not found")
 	ErrInvalidUserPassword   = errors.New("invalid user password")
 	ErrEmptyCommand          = errors.New("empty command")
+	ErrNotImplemented        = errors.New("not implemented")
+	ErrContainerNotRunning   = errors.New("container is not running")
 )

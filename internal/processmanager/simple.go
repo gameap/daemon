@@ -129,6 +129,12 @@ func (pm *Simple) executeOptions(server *domain.Server) contracts.ExecutorOption
 	}
 }
 
+func (pm *Simple) Attach(
+	_ context.Context, _ *domain.Server, _ io.Reader, _ io.Writer,
+) error {
+	return ErrNotImplemented
+}
+
 func (pm *Simple) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }
