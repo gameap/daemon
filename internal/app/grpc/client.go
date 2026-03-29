@@ -56,6 +56,10 @@ type AttachHandler interface {
 	CloseAllSessions(reason string)
 }
 
+type ConsoleLogHandler interface {
+	HandleConsoleLogRequest(ctx context.Context, requestID string, req *pb.ConsoleLogRequest) (*pb.ConsoleLogResponse, error)
+}
+
 type ResponseSender interface {
 	Send(msg *pb.DaemonMessage)
 }
@@ -75,6 +79,7 @@ type GatewayClient struct {
 	serverHandler        ServerHandler
 	transferHandler      TransferHandler
 	attachHandler        AttachHandler
+	consoleLogHandler    ConsoleLogHandler
 	inFlightTaskProvider InFlightTasksProvider
 	gameStore            *GameStore
 
@@ -445,6 +450,21 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 			c.attachHandler.HandleAttachDetach(ctx, payload.AttachDetach)
 		}
 
+	case *pb.GatewayMessage_ConsoleLogRequest:
+		if c.consoleLogHandler != nil {
+			resp, err := c.consoleLogHandler.HandleConsoleLogRequest(ctx, msg.RequestId, payload.ConsoleLogRequest)
+			if err != nil {
+				log.WithError(err).Error("Failed to handle console log request")
+				return
+			}
+			c.Send(&pb.DaemonMessage{
+				RequestId: msg.RequestId,
+				Payload: &pb.DaemonMessage_ConsoleLogResponse{
+					ConsoleLogResponse: resp,
+				},
+			})
+		}
+
 	case *pb.GatewayMessage_StatusRequest:
 		c.Send(&pb.DaemonMessage{
 			RequestId: msg.RequestId,
@@ -556,4 +576,8 @@ func (c *GatewayClient) SetTransferHandler(h TransferHandler) {
 
 func (c *GatewayClient) SetAttachHandler(h AttachHandler) {
 	c.attachHandler = h
+}
+
+func (c *GatewayClient) SetConsoleLogHandler(h ConsoleLogHandler) {
+	c.consoleLogHandler = h
 }

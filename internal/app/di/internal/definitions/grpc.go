@@ -79,6 +79,12 @@ func CreateConnectionManager(
 	client.SetAttachHandler(attachHandler)
 	go attachHandler.RunIdleChecker(ctx)
 
+	consoleLogHandler := grpcclient.NewGRPCConsoleLogHandler(
+		serverRepo,
+		c.Services().ProcessManager(ctx),
+	)
+	client.SetConsoleLogHandler(consoleLogHandler)
+
 	c.Services().GdTaskManager(ctx).SetTaskStatusSender(client)
 
 	cm := grpcclient.NewConnectionManager(cfg, client)
