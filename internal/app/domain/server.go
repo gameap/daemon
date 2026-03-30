@@ -10,6 +10,8 @@ import (
 	"unicode"
 
 	"github.com/emirpasic/gods/sets/hashset"
+	"github.com/gameap/gameap/pkg/idgen"
+	"github.com/google/uuid"
 )
 
 type InstallationStatus int
@@ -235,6 +237,24 @@ func (s *Server) UUID() string {
 	defer s.mu.RUnlock()
 
 	return s.uuid
+}
+
+func (s *Server) XID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	parsed, err := uuid.Parse(s.uuid)
+	if err != nil {
+		var u uuid.UUID
+		u[0] = byte(s.id >> 24)
+		u[1] = byte(s.id >> 16)
+		u[2] = byte(s.id >> 8)
+		u[3] = byte(s.id)
+
+		return idgen.UUIDToXID(u).String()
+	}
+
+	return idgen.UUIDToXID(parsed).String()
 }
 
 func (s *Server) UUIDShort() string {

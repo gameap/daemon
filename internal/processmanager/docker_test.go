@@ -28,6 +28,43 @@ func TestDocker_containerName(t *testing.T) {
 	}
 	pm := NewDocker(cfg, nil, nil)
 
+	defaultServer := createTestServer(nil, nil, nil)
+
+	tests := []struct {
+		name           string
+		server         *domain.Server
+		expectedResult string
+	}{
+		{
+			name: "uses docker_container_name from vars",
+			server: createTestServer(map[string]string{
+				"docker_container_name": "my-custom-container",
+			}, nil, nil),
+			expectedResult: "my-custom-container",
+		},
+		{
+			name:           "uses XID when no custom name",
+			server:         defaultServer,
+			expectedResult: defaultServer.XID(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pm.containerName(tt.server)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
+func TestDocker_legacyContainerName(t *testing.T) {
+	cfg := &config.Config{
+		WorkPath: "/tmp/test",
+	}
+	pm := NewDocker(cfg, nil, nil)
+
+	defaultServer := createTestServer(nil, nil, nil)
+
 	tests := []struct {
 		name           string
 		server         *domain.Server
@@ -42,14 +79,14 @@ func TestDocker_containerName(t *testing.T) {
 		},
 		{
 			name:           "uses UUID when no custom name",
-			server:         createTestServer(nil, nil, nil),
-			expectedResult: "test-uuid-1234",
+			server:         defaultServer,
+			expectedResult: defaultServer.UUID(),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := pm.containerName(tt.server)
+			result := pm.legacyContainerName(tt.server)
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}

@@ -172,7 +172,7 @@ func (pm *Docker) runInstallation(
 	}()
 
 	// 3. Create temp container name
-	tempName := fmt.Sprintf("gameap-install-%s", server.UUID())
+	tempName := fmt.Sprintf("gameap-install-%s", server.XID())
 
 	// 4. Build environment from server.EnvironmentVars()
 	env := buildEnvSlice(server.EnvironmentVars())
@@ -317,7 +317,7 @@ func (pm *Docker) Uninstall(ctx context.Context, server *domain.Server, out io.W
 		return domain.ErrorResult, err
 	}
 
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 	_, _ = out.Write([]byte(fmt.Sprintf("Removing container %s...\n", containerName)))
 
 	// Stop container if running
@@ -330,6 +330,13 @@ func (pm *Docker) Uninstall(ctx context.Context, server *domain.Server, out io.W
 		return domain.ErrorResult, errors.Wrap(err, "failed to remove container")
 	}
 
+	// Also clean up container with the other name if different
+	legacyName := pm.legacyContainerName(server)
+	if legacyName != containerName {
+		_, _ = pm.client.ContainerStop(ctx, legacyName, client.ContainerStopOptions{Timeout: &timeout})
+		_, _ = pm.client.ContainerRemove(ctx, legacyName, client.ContainerRemoveOptions{Force: true})
+	}
+
 	_, _ = out.Write([]byte("Container removed successfully\n"))
 	return domain.SuccessResult, nil
 }
@@ -340,10 +347,14 @@ func (pm *Docker) Start(ctx context.Context, server *domain.Server, out io.Write
 	}
 
 	containerName := pm.containerName(server)
+	legacyName := pm.legacyContainerName(server)
 
-	// Remove existing container
+	// Remove existing container (both new XID-based and legacy UUID-based names)
 	_, _ = out.Write([]byte(fmt.Sprintf("Removing existing container %s if present...\n", containerName)))
 	_, _ = pm.client.ContainerRemove(ctx, containerName, client.ContainerRemoveOptions{Force: true})
+	if legacyName != containerName {
+		_, _ = pm.client.ContainerRemove(ctx, legacyName, client.ContainerRemoveOptions{Force: true})
+	}
 
 	// Pull image if missing
 	imageName := normalizeImageName(pm.getConfig(server, keyDockerImage))
@@ -398,7 +409,7 @@ func (pm *Docker) Stop(ctx context.Context, server *domain.Server, out io.Writer
 		return domain.ErrorResult, err
 	}
 
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 	_, _ = out.Write([]byte(fmt.Sprintf("Stopping container %s...\n", containerName)))
 
 	timeout := int(defaultStopTimeout.Seconds())
@@ -432,7 +443,7 @@ func (pm *Docker) Status(ctx context.Context, server *domain.Server, out io.Writ
 		return domain.ErrorResult, err
 	}
 
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 	inspect, err := pm.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 	if err != nil {
 		if cerrdefs.IsNotFound(err) {
@@ -460,7 +471,7 @@ func (pm *Docker) GetOutput(ctx context.Context, server *domain.Server, out io.W
 		return domain.ErrorResult, err
 	}
 
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 	logs, err := pm.client.ContainerLogs(ctx, containerName, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -490,7 +501,7 @@ func (pm *Docker) SendInput(
 		return domain.ErrorResult, err
 	}
 
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 
 	// Attach to container with stdin
 	resp, err := pm.client.ContainerAttach(ctx, containerName, client.ContainerAttachOptions{
@@ -518,7 +529,7 @@ func (pm *Docker) Attach(
 		return err
 	}
 
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 
 	inspect, err := pm.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 	if err != nil {
@@ -731,7 +742,34 @@ func (pm *Docker) containerName(server *domain.Server) string {
 	if name := pm.getConfig(server, keyDockerContainerName); name != "" {
 		return name
 	}
+	return server.XID()
+}
+
+func (pm *Docker) legacyContainerName(server *domain.Server) string {
+	if name := pm.getConfig(server, keyDockerContainerName); name != "" {
+		return name
+	}
 	return server.UUID()
+}
+
+func (pm *Docker) resolveContainerName(ctx context.Context, server *domain.Server) string {
+	name := pm.containerName(server)
+	legacyName := pm.legacyContainerName(server)
+	if name == legacyName {
+		return name
+	}
+
+	_, err := pm.client.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+	if err == nil {
+		return name
+	}
+
+	_, err = pm.client.ContainerInspect(ctx, legacyName, client.ContainerInspectOptions{})
+	if err == nil {
+		return legacyName
+	}
+
+	return name
 }
 
 func (pm *Docker) getUserIDs(server *domain.Server) (string, string, error) {

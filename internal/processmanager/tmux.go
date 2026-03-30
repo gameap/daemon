@@ -64,9 +64,18 @@ func (pm *Tmux) Start(
 		return domain.ErrorResult, errors.WithMessage(err, "failed to create initial tmux session")
 	}
 
+	// Kill legacy UUID-based session if it exists and differs from new XID-based name
+	sessionName := pm.sessionName(server)
+	legacyName := pm.legacySessionName(server)
+	if legacyName != sessionName {
+		_, _ = pm.detailedExecutor.ExecWithWriter(
+			ctx, fmt.Sprintf(`tmux kill-session -t %s`, legacyName), io.Discard, options,
+		)
+	}
+
 	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux new-session -d -s %s -x %d %s`, server.UUID(), defaultWidth, startCmd),
+		fmt.Sprintf(`tmux new-session -d -s %s -x %d %s`, sessionName, defaultWidth, startCmd),
 		out,
 		options,
 	)
@@ -96,9 +105,11 @@ func (pm *Tmux) Stop(
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
 	}
 
+	sessionName := pm.resolveSessionName(ctx, server, options)
+
 	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux kill-session -t %s`, server.UUID()),
+		fmt.Sprintf(`tmux kill-session -t %s`, sessionName),
 		out,
 		options,
 	)
@@ -135,9 +146,11 @@ func (pm *Tmux) Status(
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
 	}
 
+	sessionName := pm.resolveSessionName(ctx, server, options)
+
 	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux has-session -t %s`, server.UUID()),
+		fmt.Sprintf(`tmux has-session -t %s`, sessionName),
 		out,
 		options,
 	)
@@ -156,9 +169,11 @@ func (pm *Tmux) GetOutput(
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
 	}
 
+	sessionName := pm.resolveSessionName(ctx, server, options)
+
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux capture-pane -t %s -p`, server.UUID()),
+		fmt.Sprintf(`tmux capture-pane -t %s -p`, sessionName),
 		out,
 		options,
 	)
@@ -177,11 +192,13 @@ func (pm *Tmux) SendInput(
 		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
 	}
 
+	sessionName := pm.resolveSessionName(ctx, server, options)
+
 	input = strconv.Quote(strings.ReplaceAll(input, `\"`, `"`))
 
 	result, err := pm.detailedExecutor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf(`tmux send-keys -t %s %s ENTER`, server.UUID(), input),
+		fmt.Sprintf(`tmux send-keys -t %s %s ENTER`, sessionName, input),
 		out,
 		options,
 	)
@@ -263,6 +280,40 @@ func (pm *Tmux) executeOptions(server *domain.Server) (contracts.ExecutorOptions
 		UID:             systemUser.Uid,
 		GID:             systemUser.Gid,
 	}, nil
+}
+
+func (pm *Tmux) sessionName(server *domain.Server) string {
+	return server.XID()
+}
+
+func (pm *Tmux) legacySessionName(server *domain.Server) string {
+	return server.UUID()
+}
+
+func (pm *Tmux) resolveSessionName(
+	ctx context.Context, server *domain.Server, options contracts.ExecutorOptions,
+) string {
+	name := pm.sessionName(server)
+	legacyName := pm.legacySessionName(server)
+	if name == legacyName {
+		return name
+	}
+
+	_, exitCode, _ := pm.detailedExecutor.Exec(
+		ctx, fmt.Sprintf(`tmux has-session -t %s`, name), options,
+	)
+	if exitCode == 0 {
+		return name
+	}
+
+	_, exitCode, _ = pm.detailedExecutor.Exec(
+		ctx, fmt.Sprintf(`tmux has-session -t %s`, legacyName), options,
+	)
+	if exitCode == 0 {
+		return legacyName
+	}
+
+	return name
 }
 
 func (pm *Tmux) Attach(

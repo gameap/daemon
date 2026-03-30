@@ -61,12 +61,14 @@ func (pm *SystemD) Install(
 func (pm *SystemD) Uninstall(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	s, err := pm.status(ctx, pm.serviceName(server), out)
+	resolvedServiceName := pm.resolveServiceName(server)
+
+	s, err := pm.status(ctx, resolvedServiceName, out)
 	if err != nil {
 		_, _ = out.Write([]byte("Failed to get service status: " + err.Error() + "\n"))
 		logger.WithError(ctx, err).Warn("failed to get service status")
 	} else if s == domain.SuccessResult {
-		_, _ = out.Write([]byte("Service " + pm.serviceName(server) + " is running, stopping it first\n"))
+		_, _ = out.Write([]byte("Service " + resolvedServiceName + " is running, stopping it first\n"))
 
 		result, err := pm.Stop(ctx, server, out)
 		if err != nil {
@@ -80,18 +82,21 @@ func (pm *SystemD) Uninstall(
 		}
 	}
 
-	_, _ = out.Write([]byte("Removing socket file at " + pm.socketFile(server) + "\n"))
-	err = os.Remove(pm.socketFile(server))
-	if err != nil {
-		_, _ = out.Write([]byte("Failed to remove socket file: " + err.Error() + "\n"))
-		logger.WithError(ctx, err).Warn("failed to remove socket file")
+	// Remove both XID-based and legacy UUID-based files
+	for _, socketFile := range []string{pm.socketFile(server), pm.legacySocketFile(server)} {
+		_, _ = out.Write([]byte("Removing socket file at " + socketFile + "\n"))
+		if err := os.Remove(socketFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			_, _ = out.Write([]byte("Failed to remove socket file: " + err.Error() + "\n"))
+			logger.WithError(ctx, err).Warn("failed to remove socket file")
+		}
 	}
 
-	_, _ = out.Write([]byte("Removing service file at " + pm.serviceFile(server) + "\n"))
-	err = os.Remove(pm.serviceFile(server))
-	if err != nil {
-		_, _ = out.Write([]byte("Failed to remove service file: " + err.Error() + "\n"))
-		logger.WithError(ctx, err).Warn("failed to remove service file")
+	for _, serviceFile := range []string{pm.serviceFile(server), pm.legacyServiceFile(server)} {
+		_, _ = out.Write([]byte("Removing service file at " + serviceFile + "\n"))
+		if err := os.Remove(serviceFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			_, _ = out.Write([]byte("Failed to remove service file: " + err.Error() + "\n"))
+			logger.WithError(ctx, err).Warn("failed to remove service file")
+		}
 	}
 
 	err = pm.daemonReload(ctx)
@@ -104,6 +109,12 @@ func (pm *SystemD) Uninstall(
 }
 
 func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	// Clean up legacy UUID-based service/socket files if they differ from new XID-based names
+	if pm.legacyServiceFile(server) != pm.serviceFile(server) {
+		_ = os.Remove(pm.legacyServiceFile(server))
+		_ = os.Remove(pm.legacySocketFile(server))
+	}
+
 	logFile := pm.logFile(server)
 	_, err := os.Stat(logFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -136,9 +147,12 @@ func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writ
 }
 
 func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	socketName := pm.resolveSocketName(server)
+	serviceName := pm.resolveServiceName(server)
+
 	_, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl stop %s", pm.socketName(server)),
+		fmt.Sprintf("systemctl stop %s", socketName),
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
@@ -150,7 +164,7 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl stop %s", pm.serviceName(server)),
+		fmt.Sprintf("systemctl stop %s", serviceName),
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: pm.cfg.WorkDir(),
@@ -166,7 +180,7 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 
 	// Wait for service to stop
 	_, _ = out.Write([]byte("Waiting for service to stop...\n"))
-	if err := pm.waitForServiceStopped(ctx, server, out); err != nil {
+	if err := pm.waitForServiceStopped(ctx, server, serviceName, out); err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to wait for service to stop")
 	}
 
@@ -174,7 +188,7 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 	return domain.SuccessResult, nil
 }
 
-func (pm *SystemD) waitForServiceStopped(ctx context.Context, server *domain.Server, out io.Writer) error {
+func (pm *SystemD) waitForServiceStopped(ctx context.Context, _ *domain.Server, serviceName string, out io.Writer) error {
 	ticker := time.NewTicker(stopTickerInterval)
 	defer ticker.Stop()
 
@@ -187,7 +201,7 @@ func (pm *SystemD) waitForServiceStopped(ctx context.Context, server *domain.Ser
 		case <-timeout:
 			return errors.New("timeout waiting for service to stop")
 		case <-ticker.C:
-			status, _ := pm.status(ctx, pm.serviceName(server), out)
+			status, _ := pm.status(ctx, serviceName, out)
 			if status == domain.ErrorResult {
 				// Service is not running (stopped)
 				return nil
@@ -203,6 +217,20 @@ func (pm *SystemD) Restart(ctx context.Context, server *domain.Server, out io.Wr
 func (pm *SystemD) command(
 	ctx context.Context, server *domain.Server, command string, out io.Writer,
 ) (domain.Result, error) {
+	// Stop and remove legacy UUID-based service/socket if they differ from new XID-based names
+	if pm.legacyServiceFile(server) != pm.serviceFile(server) {
+		legacyServiceName := pm.legacyServiceName(server)
+		legacySocketName := pm.legacySocketName(server)
+		if _, err := os.Stat(pm.legacyServiceFile(server)); err == nil {
+			_, _ = pm.executor.ExecWithWriter(ctx, fmt.Sprintf("systemctl stop %s", legacySocketName), out,
+				contracts.ExecutorOptions{WorkDir: pm.cfg.WorkDir()})
+			_, _ = pm.executor.ExecWithWriter(ctx, fmt.Sprintf("systemctl stop %s", legacyServiceName), out,
+				contracts.ExecutorOptions{WorkDir: pm.cfg.WorkDir()})
+			_ = os.Remove(pm.legacyServiceFile(server))
+			_ = os.Remove(pm.legacySocketFile(server))
+		}
+	}
+
 	err := pm.makeService(ctx, server, out)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessagef(err, "failed to make service for server %d", server.ID())
@@ -269,7 +297,7 @@ func (pm *SystemD) daemonReload(ctx context.Context) error {
 }
 
 func (pm *SystemD) Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	return pm.status(ctx, pm.serviceName(server), out)
+	return pm.status(ctx, pm.resolveServiceName(server), out)
 }
 
 func (pm *SystemD) status(ctx context.Context, name string, out io.Writer) (domain.Result, error) {
@@ -299,7 +327,7 @@ func (pm *SystemD) status(ctx context.Context, name string, out io.Writer) (doma
 }
 
 func (pm *SystemD) GetOutput(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	f, err := os.Open(pm.logFile(server))
+	f, err := os.Open(pm.resolveLogFile(server))
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to open file")
 	}
@@ -334,7 +362,7 @@ func (pm *SystemD) GetOutput(ctx context.Context, server *domain.Server, out io.
 func (pm *SystemD) SendInput(
 	ctx context.Context, input string, server *domain.Server, _ io.Writer,
 ) (domain.Result, error) {
-	f, err := os.OpenFile(pm.stdinFile(server), os.O_WRONLY, 0)
+	f, err := os.OpenFile(pm.resolveStdinFile(server), os.O_WRONLY, 0)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to open file")
 	}
@@ -393,7 +421,7 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	builder.WriteString("[Unit]\n")
 
 	builder.WriteString("Description=GameAP Server service (UUID ")
-	builder.WriteString(server.UUID())
+	builder.WriteString(server.XID())
 	builder.WriteString(")\n")
 
 	builder.WriteString("After=network.target\n")
@@ -414,7 +442,7 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	builder.WriteString("\n")
 
 	builder.WriteString("Sockets=")
-	builder.WriteString(server.UUID())
+	builder.WriteString(server.XID())
 	builder.WriteString(".socket\n")
 
 	builder.WriteString("StandardInput=socket\n")
@@ -548,7 +576,7 @@ func (pm *SystemD) buildSocketConfig(server *domain.Server) string {
 	builder.WriteString("[Unit]\n")
 
 	builder.WriteString("Description=GameAP Server socket (UUID ")
-	builder.WriteString(server.UUID())
+	builder.WriteString(server.XID())
 	builder.WriteString(")\n\n")
 
 	// [Socket]
@@ -560,7 +588,7 @@ func (pm *SystemD) buildSocketConfig(server *domain.Server) string {
 
 	builder.WriteString("Service=")
 	builder.WriteString(servicePrefix)
-	builder.WriteString(server.UUID())
+	builder.WriteString(server.XID())
 	builder.WriteString(".service\n")
 
 	return builder.String()
@@ -575,7 +603,7 @@ func (pm *SystemD) logFile(server *domain.Server) string {
 	builder.WriteRune(filepath.Separator)
 	builder.WriteString(systemdFilesDir)
 	builder.WriteRune(filepath.Separator)
-	builder.WriteString(server.UUID())
+	builder.WriteString(server.XID())
 	builder.WriteString(".log")
 
 	return builder.String()
@@ -590,7 +618,7 @@ func (pm *SystemD) stdinFile(server *domain.Server) string {
 	builder.WriteRune(filepath.Separator)
 	builder.WriteString(systemdFilesDir)
 	builder.WriteRune(filepath.Separator)
-	builder.WriteString(server.UUID())
+	builder.WriteString(server.XID())
 	builder.WriteString(".stdin")
 
 	return builder.String()
@@ -601,7 +629,7 @@ func (pm *SystemD) serviceName(server *domain.Server) string {
 	builder.Grow(50)
 
 	builder.WriteString(servicePrefix)
-	builder.WriteString(server.UUID())
+	builder.WriteString(server.XID())
 	builder.WriteString(".service")
 
 	return builder.String()
@@ -616,7 +644,7 @@ func (pm *SystemD) socketName(server *domain.Server) string {
 	builder.Grow(50)
 
 	builder.WriteString(servicePrefix)
-	builder.WriteString(server.UUID())
+	builder.WriteString(server.XID())
 	builder.WriteString(".socket")
 
 	return builder.String()
@@ -624,6 +652,88 @@ func (pm *SystemD) socketName(server *domain.Server) string {
 
 func (pm *SystemD) socketFile(server *domain.Server) string {
 	return filepath.Join(systemdServicesDir, pm.socketName(server))
+}
+
+func (pm *SystemD) legacyServiceName(server *domain.Server) string {
+	return servicePrefix + server.UUID() + ".service"
+}
+
+func (pm *SystemD) legacySocketName(server *domain.Server) string {
+	return servicePrefix + server.UUID() + ".socket"
+}
+
+func (pm *SystemD) legacyServiceFile(server *domain.Server) string {
+	return filepath.Join(systemdServicesDir, pm.legacyServiceName(server))
+}
+
+func (pm *SystemD) legacySocketFile(server *domain.Server) string {
+	return filepath.Join(systemdServicesDir, pm.legacySocketName(server))
+}
+
+func (pm *SystemD) legacyLogFile(server *domain.Server) string {
+	return filepath.Join(pm.cfg.WorkDir(), systemdFilesDir, server.UUID()+".log")
+}
+
+func (pm *SystemD) legacyStdinFile(server *domain.Server) string {
+	return filepath.Join(pm.cfg.WorkDir(), systemdFilesDir, server.UUID()+".stdin")
+}
+
+// resolveServiceName returns the name of the existing systemd service for this server.
+// Checks XID-based name first, then falls back to legacy UUID-based name.
+func (pm *SystemD) resolveServiceName(server *domain.Server) string {
+	name := pm.serviceName(server)
+	if _, err := os.Stat(pm.serviceFile(server)); err == nil {
+		return name
+	}
+
+	legacyName := pm.legacyServiceName(server)
+	if _, err := os.Stat(pm.legacyServiceFile(server)); err == nil {
+		return legacyName
+	}
+
+	return name
+}
+
+func (pm *SystemD) resolveSocketName(server *domain.Server) string {
+	name := pm.socketName(server)
+	if _, err := os.Stat(pm.socketFile(server)); err == nil {
+		return name
+	}
+
+	legacyName := pm.legacySocketName(server)
+	if _, err := os.Stat(pm.legacySocketFile(server)); err == nil {
+		return legacyName
+	}
+
+	return name
+}
+
+func (pm *SystemD) resolveLogFile(server *domain.Server) string {
+	logFile := pm.logFile(server)
+	if _, err := os.Stat(logFile); err == nil {
+		return logFile
+	}
+
+	legacyLogFile := pm.legacyLogFile(server)
+	if _, err := os.Stat(legacyLogFile); err == nil {
+		return legacyLogFile
+	}
+
+	return logFile
+}
+
+func (pm *SystemD) resolveStdinFile(server *domain.Server) string {
+	stdinFile := pm.stdinFile(server)
+	if _, err := os.Stat(stdinFile); err == nil {
+		return stdinFile
+	}
+
+	legacyStdinFile := pm.legacyStdinFile(server)
+	if _, err := os.Stat(legacyStdinFile); err == nil {
+		return legacyStdinFile
+	}
+
+	return stdinFile
 }
 
 func (pm *SystemD) userAndGroup(server *domain.Server) (string, string, error) {

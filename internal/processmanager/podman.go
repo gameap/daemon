@@ -175,7 +175,7 @@ func (pm *Podman) runInstallation(
 	}()
 
 	// 3. Create temp container name
-	tempName := fmt.Sprintf("gameap-install-%s", server.UUID())
+	tempName := fmt.Sprintf("gameap-install-%s", server.XID())
 
 	// 4. Build environment from server.EnvironmentVars()
 	env := server.EnvironmentVars()
@@ -294,7 +294,7 @@ func (pm *Podman) pullImageByName(ctx context.Context, imageName string, out io.
 }
 
 func (pm *Podman) Uninstall(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 	_, _ = out.Write([]byte(fmt.Sprintf("Removing container %s...\n", containerName)))
 
 	// Stop container if running
@@ -305,16 +305,27 @@ func (pm *Podman) Uninstall(ctx context.Context, server *domain.Server, out io.W
 		return domain.ErrorResult, errors.Wrap(err, "failed to remove container")
 	}
 
+	// Also clean up container with the other name if different
+	legacyName := pm.legacyContainerName(server)
+	if legacyName != containerName {
+		_ = pm.stopContainer(ctx, legacyName)
+		_ = pm.removeContainer(ctx, legacyName)
+	}
+
 	_, _ = out.Write([]byte("Container removed successfully\n"))
 	return domain.SuccessResult, nil
 }
 
 func (pm *Podman) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	containerName := pm.containerName(server)
+	legacyName := pm.legacyContainerName(server)
 
-	// Remove existing container
+	// Remove existing container (both new XID-based and legacy UUID-based names)
 	_, _ = out.Write([]byte(fmt.Sprintf("Removing existing container %s if present...\n", containerName)))
 	_ = pm.removeContainer(ctx, containerName)
+	if legacyName != containerName {
+		_ = pm.removeContainer(ctx, legacyName)
+	}
 
 	// Pull image if missing
 	imageName := normalizeImageName(pm.getConfig(server, keyPodmanImage))
@@ -353,7 +364,7 @@ func (pm *Podman) Start(ctx context.Context, server *domain.Server, out io.Write
 }
 
 func (pm *Podman) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 	_, _ = out.Write([]byte(fmt.Sprintf("Stopping container %s...\n", containerName)))
 
 	if err := pm.stopContainer(ctx, containerName); err != nil && !isPodmanNotFoundError(err) {
@@ -380,7 +391,7 @@ func (pm *Podman) Restart(ctx context.Context, server *domain.Server, out io.Wri
 }
 
 func (pm *Podman) Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 	running, status, err := pm.inspectContainer(ctx, containerName)
 	if err != nil {
 		if isPodmanNotFoundError(err) {
@@ -400,7 +411,7 @@ func (pm *Podman) Status(ctx context.Context, server *domain.Server, out io.Writ
 }
 
 func (pm *Podman) GetOutput(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 	logs, err := pm.getLogs(ctx, containerName, podmanMaxLogTailLines)
 	if err != nil {
 		if isPodmanNotFoundError(err) {
@@ -416,7 +427,7 @@ func (pm *Podman) GetOutput(ctx context.Context, server *domain.Server, out io.W
 func (pm *Podman) SendInput(
 	ctx context.Context, input string, server *domain.Server, _ io.Writer,
 ) (domain.Result, error) {
-	containerName := pm.containerName(server)
+	containerName := pm.resolveContainerName(ctx, server)
 
 	// Use exec to send input (simpler than attach for single commands)
 	execSpec := map[string]interface{}{
@@ -763,7 +774,34 @@ func (pm *Podman) containerName(server *domain.Server) string {
 	if name := pm.getConfig(server, keyPodmanContainerName); name != "" {
 		return name
 	}
+	return server.XID()
+}
+
+func (pm *Podman) legacyContainerName(server *domain.Server) string {
+	if name := pm.getConfig(server, keyPodmanContainerName); name != "" {
+		return name
+	}
 	return server.UUID()
+}
+
+func (pm *Podman) resolveContainerName(ctx context.Context, server *domain.Server) string {
+	name := pm.containerName(server)
+	legacyName := pm.legacyContainerName(server)
+	if name == legacyName {
+		return name
+	}
+
+	_, _, err := pm.inspectContainer(ctx, name)
+	if err == nil {
+		return name
+	}
+
+	_, _, err = pm.inspectContainer(ctx, legacyName)
+	if err == nil {
+		return legacyName
+	}
+
+	return name
 }
 
 func (pm *Podman) getUserIDs(server *domain.Server) (string, string, error) {
