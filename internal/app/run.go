@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -30,12 +32,29 @@ func Run(args []string) {
 			},
 		},
 		Action: initialize,
+		Commands: []*cli.Command{
+			{
+				Name:    "version",
+				Aliases: []string{"v"},
+				Usage:   "Display gameap version",
+				Action:  showVersion,
+			},
+		},
 	}
 
 	err := app.Run(args)
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func showVersion(c *cli.Context) error {
+	fmt.Println("GameAP Daemon version:", build.Version)
+	fmt.Println("Build Date:", build.BuildDate)
+	fmt.Println("Go OS/Arch:", runtime.GOOS, runtime.GOARCH)
+	fmt.Println("Go Version:", runtime.Version())
+
+	return nil
 }
 
 func initialize(c *cli.Context) error {
