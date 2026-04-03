@@ -49,10 +49,10 @@ func Run(args []string) {
 }
 
 func showVersion(c *cli.Context) error {
-	fmt.Println("GameAP Daemon version:", build.Version)
-	fmt.Println("Build Date:", build.BuildDate)
-	fmt.Println("Go OS/Arch:", runtime.GOOS, runtime.GOARCH)
-	fmt.Println("Go Version:", runtime.Version())
+	fmt.Println("GameAP Daemon version:", build.Version)     //nolint:forbidigo
+	fmt.Println("Build Date:", build.BuildDate)              //nolint:forbidigo
+	fmt.Println("Go OS/Arch:", runtime.GOOS, runtime.GOARCH) //nolint:forbidigo
+	fmt.Println("Go Version:", runtime.Version())            //nolint:forbidigo
 
 	return nil
 }
