@@ -85,6 +85,9 @@ func CreateConnectionManager(
 	)
 	client.SetConsoleLogHandler(consoleLogHandler)
 
+	httpProxyHandler := grpcclient.NewGRPCHTTPProxyHandler()
+	client.SetHTTPProxyHandler(httpProxyHandler)
+
 	c.Services().GdTaskManager(ctx).SetTaskStatusSender(client)
 
 	cm := grpcclient.NewConnectionManager(cfg, client)

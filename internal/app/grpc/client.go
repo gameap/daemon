@@ -60,6 +60,10 @@ type ConsoleLogHandler interface {
 	HandleConsoleLogRequest(ctx context.Context, requestID string, req *pb.ConsoleLogRequest) (*pb.ConsoleLogResponse, error)
 }
 
+type HTTPProxyHandler interface {
+	HandleHTTPProxy(ctx context.Context, requestID string, req *pb.HTTPProxyRequest) (*pb.HTTPProxyResponse, error)
+}
+
 type ResponseSender interface {
 	Send(msg *pb.DaemonMessage)
 }
@@ -80,6 +84,7 @@ type GatewayClient struct {
 	transferHandler      TransferHandler
 	attachHandler        AttachHandler
 	consoleLogHandler    ConsoleLogHandler
+	httpProxyHandler     HTTPProxyHandler
 	inFlightTaskProvider InFlightTasksProvider
 	gameStore            *GameStore
 
@@ -171,7 +176,7 @@ func (c *GatewayClient) register(ctx context.Context) error {
 				NodeId:        uint64(c.cfg.NodeID),
 				ApiKey:        c.cfg.APIKey,
 				Version:       build.Version,
-				Capabilities:  []string{"grpc", "file_transfer", "server_status", "attach"},
+				Capabilities:  []string{"grpc", "file_transfer", "server_status", "attach", "http_proxy"},
 				InFlightTasks: inFlightTasks,
 			},
 		},
@@ -473,6 +478,31 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 			},
 		})
 
+	case *pb.GatewayMessage_HttpProxy:
+		if c.httpProxyHandler != nil {
+			resp, err := c.httpProxyHandler.HandleHTTPProxy(ctx, msg.RequestId, payload.HttpProxy)
+			if err != nil {
+				log.WithError(err).Error("Failed to handle http proxy request")
+				c.Send(&pb.DaemonMessage{
+					RequestId: msg.RequestId,
+					Payload: &pb.DaemonMessage_HttpProxyResponse{
+						HttpProxyResponse: &pb.HTTPProxyResponse{
+							RequestId: msg.RequestId,
+							Error:     err.Error(),
+						},
+					},
+				})
+
+				return
+			}
+			c.Send(&pb.DaemonMessage{
+				RequestId: msg.RequestId,
+				Payload: &pb.DaemonMessage_HttpProxyResponse{
+					HttpProxyResponse: resp,
+				},
+			})
+		}
+
 	default:
 		log.WithField("type", msg.Payload).Warn("Unknown message type received")
 	}
@@ -580,4 +610,8 @@ func (c *GatewayClient) SetAttachHandler(h AttachHandler) {
 
 func (c *GatewayClient) SetConsoleLogHandler(h ConsoleLogHandler) {
 	c.consoleLogHandler = h
+}
+
+func (c *GatewayClient) SetHTTPProxyHandler(h HTTPProxyHandler) {
+	c.httpProxyHandler = h
 }
