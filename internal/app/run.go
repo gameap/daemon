@@ -30,6 +30,45 @@ func Run(args []string) {
 			},
 		},
 		Action: initialize,
+		Commands: []*cli.Command{
+			{
+				Name:  "enroll",
+				Usage: "Enroll this daemon with the GameAP panel",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "connect",
+						Usage:    "Connect URL (grpc://host:port/setupKey)",
+						Required: true,
+					},
+					&cli.StringFlag{
+						Name:  "config-path",
+						Value: "/etc/gameap-daemon/gameap-daemon.yaml",
+						Usage: "Path to write config file",
+					},
+					&cli.StringFlag{
+						Name:  "certs-dir",
+						Value: "/etc/gameap-daemon/certs",
+						Usage: "Directory to save TLS certificates",
+					},
+					&cli.StringFlag{
+						Name:  "listen-ip",
+						Value: "0.0.0.0",
+						Usage: "IP address the daemon listens on",
+					},
+					&cli.IntFlag{
+						Name:  "listen-port",
+						Value: 31717,
+						Usage: "Port the daemon listens on",
+					},
+					&cli.StringFlag{
+						Name:  "work-path",
+						Value: "/srv/gameap",
+						Usage: "Working directory for game servers",
+					},
+				},
+				Action: enrollAction,
+			},
+		},
 	}
 
 	err := app.Run(args)

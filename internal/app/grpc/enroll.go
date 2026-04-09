@@ -27,7 +27,7 @@ func Enroll(ctx context.Context, conn *grpc.ClientConn, setupKey, host string, p
 		Port:         port,
 		Os:           runtime.GOOS,
 		Version:      build.Version,
-		Capabilities: []string{"grpc", "file_transfer", "server_status"},
+		Capabilities: []string{"grpc", "file_transfer", "server_status", "attach", "http_proxy"},
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "enroll RPC failed")

@@ -158,12 +158,14 @@ func (cfg *Config) validate() error {
 		return ErrEmptyNodeID
 	}
 
-	if cfg.APIHost == "" {
-		return ErrEmptyAPIHost
-	}
+	if !cfg.GRPC.Enabled {
+		if cfg.APIHost == "" {
+			return ErrEmptyAPIHost
+		}
 
-	if cfg.APIKey == "" {
-		return ErrEmptyAPIKey
+		if cfg.APIKey == "" {
+			return ErrEmptyAPIKey
+		}
 	}
 
 	if !cfg.IsInsecure() {
