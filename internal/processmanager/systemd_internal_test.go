@@ -173,6 +173,23 @@ func Test_makeCommand(t *testing.T) {
 	}
 }
 
+func Test_makeCommand_emptyScriptsStart(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "")
+	require.NoError(t, err)
+
+	server := makeServerWithStartCommandAndDir("env --help", tempDir)
+	systemd := NewSystemD(&config.Config{
+		WorkPath: "",
+		Scripts: config.Scripts{
+			Start: "",
+		},
+	}, nil, nil)
+
+	_, err = systemd.makeStartCommand(server)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrEmptyCommand)
+}
+
 func makeServerWithStartCommandAndDir(startCommand, dir string) *domain.Server {
 	return domain.NewServer(
 		1337,
