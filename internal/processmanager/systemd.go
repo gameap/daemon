@@ -188,7 +188,9 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 	return domain.SuccessResult, nil
 }
 
-func (pm *SystemD) waitForServiceStopped(ctx context.Context, _ *domain.Server, serviceName string, out io.Writer) error {
+func (pm *SystemD) waitForServiceStopped(
+	ctx context.Context, _ *domain.Server, serviceName string, out io.Writer,
+) error {
 	ticker := time.NewTicker(stopTickerInterval)
 	defer ticker.Stop()
 
