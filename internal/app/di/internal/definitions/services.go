@@ -34,6 +34,10 @@ func CreateServicesResty(ctx context.Context, c Container) *resty.Client {
 }
 
 func CreateServicesAPICaller(ctx context.Context, c Container) contracts.APIRequestMaker {
+	if c.Cfg(ctx).GRPC.Enabled {
+		return &services.NoopAPICaller{}
+	}
+
 	client, err := services.NewAPICaller(
 		ctx,
 		c.Cfg(ctx),

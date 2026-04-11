@@ -22,7 +22,15 @@ const maxRefreshCount = 1
 var (
 	errInvalidRequestMethod       = errors.New("invalid request method")
 	errRefreshTokenActionIsLocked = errors.New("refresh token action is already locked")
+	errNoopAPICaller              = errors.New("HTTP API is not available in gRPC mode")
 )
+
+// NoopAPICaller is a stub APIRequestMaker used in gRPC mode where the HTTP API is not needed.
+type NoopAPICaller struct{}
+
+func (n *NoopAPICaller) Request(_ context.Context, _ domain.APIRequest) (contracts.APIResponse, error) {
+	return nil, errNoopAPICaller
+}
 
 type APIClient struct {
 	innerClient *resty.Client

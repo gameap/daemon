@@ -71,9 +71,11 @@ func (r *Runner) EnableGRPCMode() {
 }
 
 func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
-	err := r.initNodeConfigFromAPI(ctx, cfg)
-	if err != nil {
-		return err
+	if !cfg.GRPC.Enabled {
+		err := r.initNodeConfigFromAPI(ctx, cfg)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := config.UpdateEnvPath(cfg); err != nil {

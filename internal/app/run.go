@@ -117,6 +117,8 @@ func initialize(c *cli.Context) error {
 	group, ctx := errgroup.WithContext(ctx)
 
 	if cfg.GRPC.Enabled {
+		log.Info("Starting gRPC Client...")
+
 		connectionManager, err := container.ConnectionManager(ctx)
 		if err != nil {
 			return err
@@ -137,6 +139,8 @@ func initialize(c *cli.Context) error {
 
 		log.Info("Running in gRPC mode")
 	} else {
+		log.Info("Starting GDaemon Server...")
+
 		group.Go(processRunner.RunGDaemonServer(ctx, cfg))
 		group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))
 		group.Go(processRunner.RunServersLoop(ctx, cfg))
