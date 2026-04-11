@@ -35,7 +35,7 @@ const (
 	GDTaskGameServerReinstall GDTaskCommand = "gsreinst" // NOT Implemented
 	GDTaskGameServerUpdate    GDTaskCommand = "gsupd"
 	GDTaskGameServerDelete    GDTaskCommand = "gsdel"
-	GDTaskGameServerMove      GDTaskCommand = "gsdel"
+	GDTaskGameServerMove      GDTaskCommand = "gsmove" // NOT Implemented
 	GDTaskCommandExecute      GDTaskCommand = "cmdexec"
 )
 
