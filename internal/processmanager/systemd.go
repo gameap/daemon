@@ -20,7 +20,6 @@ import (
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -513,12 +512,6 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 }
 
 func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
-	log.WithFields(log.Fields{
-		"serverID":     server.ID(),
-		"startCommand": server.StartCommand(),
-		"gameModCmd":   server.GameMod().DefaultStartCMD(),
-	}).Info("makeStartCommand: server data")
-
 	startCMD := domain.ReplaceShortCodes(server.StartCommand(), pm.cfg, server)
 
 	if startCMD == "" {

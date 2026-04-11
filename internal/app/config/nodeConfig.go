@@ -124,6 +124,10 @@ func (ncu *NodeConfigInitializer) Initialize(ctx context.Context, cfg *Config) e
 }
 
 func (ncu *NodeConfigInitializer) initDefault(cfg *Config) {
+	InitDefaultScripts(cfg)
+}
+
+func InitDefaultScripts(cfg *Config) {
 	if cfg.Scripts.Start == "" {
 		cfg.Scripts.Start = DefaultGameServerScriptStart
 	}

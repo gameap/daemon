@@ -51,16 +51,6 @@ func (h *GRPCTaskHandler) HandleTask(ctx context.Context, task *pb.DaemonTask) e
 		}
 	}
 
-	if server != nil {
-		log.WithFields(log.Fields{
-			"taskID":       taskID,
-			"serverID":     server.ID(),
-			"startCommand": server.StartCommand(),
-		}).Info("HandleTask: server loaded from cache")
-	} else {
-		log.WithField("taskID", taskID).Warn("HandleTask: server is nil from cache")
-	}
-
 	domainTask := ProtoTaskToDomain(task, server)
 
 	h.taskQueue.InsertTask(domainTask)

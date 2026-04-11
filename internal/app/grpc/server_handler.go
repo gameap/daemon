@@ -39,13 +39,6 @@ func (h *GRPCServerHandler) HandleServerConfigUpdate(
 func (h *GRPCServerHandler) handleServerProto(srv *pb.Server, settings domain.Settings) error {
 	serverID := int(srv.Id)
 
-	log.WithFields(log.Fields{
-		"serverID":      serverID,
-		"startCommand":  srv.GetStartCommand(),
-		"gameModId":     srv.GameModId,
-		"settingsCount": len(settings),
-	}).Info("handleServerProto: received server data")
-
 	var lastProcessCheck time.Time
 	if srv.LastProcessCheck != nil {
 		lastProcessCheck = srv.GetLastProcessCheck().AsTime()
@@ -103,11 +96,6 @@ func (h *GRPCServerHandler) handleServerProto(srv *pb.Server, settings domain.Se
 			int64(srv.GetRamLimit()),
 		)
 
-		log.WithFields(log.Fields{
-			"serverID":       serverID,
-			"storedStartCmd": existing.StartCommand(),
-		}).Info("handleServerProto: existing server updated in cache")
-
 		h.serverRepo.SaveToCache(existing)
 	} else {
 		server := domain.NewServer(
@@ -139,11 +127,6 @@ func (h *GRPCServerHandler) handleServerProto(srv *pb.Server, settings domain.Se
 			int(srv.GetCpuLimit()),
 			int64(srv.GetRamLimit()),
 		)
-
-		log.WithFields(log.Fields{
-			"serverID":       serverID,
-			"storedStartCmd": server.StartCommand(),
-		}).Info("handleServerProto: new server stored to cache")
 
 		h.serverRepo.SaveToCache(server)
 	}
