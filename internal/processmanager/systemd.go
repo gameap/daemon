@@ -547,7 +547,12 @@ func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
 
 	startCommand := shellquote.Join(append([]string{foundPath}, args...)...)
 
-	return domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, startCommand), nil
+	result := domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, startCommand)
+	if result == "" {
+		return "", ErrEmptyCommand
+	}
+
+	return result, nil
 }
 
 func (pm *SystemD) makeSocket(ctx context.Context, server *domain.Server) error {
