@@ -57,7 +57,9 @@ type AttachHandler interface {
 }
 
 type ConsoleLogHandler interface {
-	HandleConsoleLogRequest(ctx context.Context, requestID string, req *pb.ConsoleLogRequest) (*pb.ConsoleLogResponse, error)
+	HandleConsoleLogRequest(
+		ctx context.Context, requestID string, req *pb.ConsoleLogRequest,
+	) (*pb.ConsoleLogResponse, error)
 }
 
 type HTTPProxyHandler interface {
@@ -393,26 +395,10 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		}
 
 	case *pb.GatewayMessage_ServerConfigBatch:
-		if payload.ServerConfigBatch != nil {
-			for _, srv := range payload.ServerConfigBatch.Servers {
-				if ctx.Err() != nil {
-					break
-				}
-				if err := c.serverHandler.HandleServerUpdate(ctx, srv); err != nil {
-					log.WithError(err).WithField("server_id", srv.Id).Error("Failed to handle server update from batch")
-				}
-			}
-		}
+		c.handleServerConfigBatch(ctx, payload.ServerConfigBatch)
 
 	case *pb.GatewayMessage_Shutdown:
-		log.WithField("reason", payload.Shutdown.Reason).
-			WithField("reconnect_delay", payload.Shutdown.ReconnectDelay).
-			Warn("Received shutdown notification from panel")
-		if payload.Shutdown.ReconnectDelay != nil {
-			delay := payload.Shutdown.ReconnectDelay.AsDuration()
-			c.shutdownDelay.Store(&delay)
-		}
-		c.closeStream()
+		c.handleShutdownMessage(payload.Shutdown)
 
 	case *pb.GatewayMessage_FileOperation:
 		resp, err := c.fileHandler.HandleFileOperation(ctx, payload.FileOperation)
@@ -427,18 +413,14 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		})
 
 	case *pb.GatewayMessage_FileUploadTask:
-		if c.transferHandler != nil {
-			go c.transferHandler.HandleFileUploadTask(ctx, msg.RequestId, payload.FileUploadTask)
-		} else {
-			log.Warn("FileUploadTask received but no transfer handler configured")
-		}
+		c.runFileTransfer("FileUploadTask", func() {
+			c.transferHandler.HandleFileUploadTask(ctx, msg.RequestId, payload.FileUploadTask)
+		})
 
 	case *pb.GatewayMessage_FileDownloadTask:
-		if c.transferHandler != nil {
-			go c.transferHandler.HandleFileDownloadTask(ctx, msg.RequestId, payload.FileDownloadTask)
-		} else {
-			log.Warn("FileDownloadTask received but no transfer handler configured")
-		}
+		c.runFileTransfer("FileDownloadTask", func() {
+			c.transferHandler.HandleFileDownloadTask(ctx, msg.RequestId, payload.FileDownloadTask)
+		})
 
 	case *pb.GatewayMessage_AttachRequest:
 		if c.attachHandler != nil {
@@ -456,19 +438,7 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		}
 
 	case *pb.GatewayMessage_ConsoleLogRequest:
-		if c.consoleLogHandler != nil {
-			resp, err := c.consoleLogHandler.HandleConsoleLogRequest(ctx, msg.RequestId, payload.ConsoleLogRequest)
-			if err != nil {
-				log.WithError(err).Error("Failed to handle console log request")
-				return
-			}
-			c.Send(&pb.DaemonMessage{
-				RequestId: msg.RequestId,
-				Payload: &pb.DaemonMessage_ConsoleLogResponse{
-					ConsoleLogResponse: resp,
-				},
-			})
-		}
+		c.handleConsoleLog(ctx, msg.RequestId, payload.ConsoleLogRequest)
 
 	case *pb.GatewayMessage_StatusRequest:
 		c.Send(&pb.DaemonMessage{
@@ -479,33 +449,91 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		})
 
 	case *pb.GatewayMessage_HttpProxy:
-		if c.httpProxyHandler != nil {
-			resp, err := c.httpProxyHandler.HandleHTTPProxy(ctx, msg.RequestId, payload.HttpProxy)
-			if err != nil {
-				log.WithError(err).Error("Failed to handle http proxy request")
-				c.Send(&pb.DaemonMessage{
-					RequestId: msg.RequestId,
-					Payload: &pb.DaemonMessage_HttpProxyResponse{
-						HttpProxyResponse: &pb.HTTPProxyResponse{
-							RequestId: msg.RequestId,
-							Error:     err.Error(),
-						},
-					},
-				})
-
-				return
-			}
-			c.Send(&pb.DaemonMessage{
-				RequestId: msg.RequestId,
-				Payload: &pb.DaemonMessage_HttpProxyResponse{
-					HttpProxyResponse: resp,
-				},
-			})
-		}
+		c.handleHTTPProxy(ctx, msg.RequestId, payload.HttpProxy)
 
 	default:
 		log.WithField("type", msg.Payload).Warn("Unknown message type received")
 	}
+}
+
+func (c *GatewayClient) handleServerConfigBatch(ctx context.Context, batch *pb.ServerConfigBatch) {
+	if batch == nil {
+		return
+	}
+	for _, srv := range batch.Servers {
+		if ctx.Err() != nil {
+			break
+		}
+		if err := c.serverHandler.HandleServerUpdate(ctx, srv); err != nil {
+			log.WithError(err).WithField("server_id", srv.Id).Error("Failed to handle server update from batch")
+		}
+	}
+}
+
+func (c *GatewayClient) runFileTransfer(name string, fn func()) {
+	if c.transferHandler == nil {
+		log.Warnf("%s received but no transfer handler configured", name)
+		return
+	}
+	go fn()
+}
+
+func (c *GatewayClient) handleShutdownMessage(shutdown *pb.ShutdownNotification) {
+	log.WithField("reason", shutdown.Reason).
+		WithField("reconnect_delay", shutdown.ReconnectDelay).
+		Warn("Received shutdown notification from panel")
+	if shutdown.ReconnectDelay != nil {
+		delay := shutdown.ReconnectDelay.AsDuration()
+		c.shutdownDelay.Store(&delay)
+	}
+	c.closeStream()
+}
+
+func (c *GatewayClient) handleConsoleLog(
+	ctx context.Context, requestID string, req *pb.ConsoleLogRequest,
+) {
+	if c.consoleLogHandler == nil {
+		return
+	}
+	resp, err := c.consoleLogHandler.HandleConsoleLogRequest(ctx, requestID, req)
+	if err != nil {
+		log.WithError(err).Error("Failed to handle console log request")
+		return
+	}
+	c.Send(&pb.DaemonMessage{
+		RequestId: requestID,
+		Payload: &pb.DaemonMessage_ConsoleLogResponse{
+			ConsoleLogResponse: resp,
+		},
+	})
+}
+
+func (c *GatewayClient) handleHTTPProxy(
+	ctx context.Context, requestID string, req *pb.HTTPProxyRequest,
+) {
+	if c.httpProxyHandler == nil {
+		return
+	}
+	resp, err := c.httpProxyHandler.HandleHTTPProxy(ctx, requestID, req)
+	if err != nil {
+		log.WithError(err).Error("Failed to handle http proxy request")
+		c.Send(&pb.DaemonMessage{
+			RequestId: requestID,
+			Payload: &pb.DaemonMessage_HttpProxyResponse{
+				HttpProxyResponse: &pb.HTTPProxyResponse{
+					RequestId: requestID,
+					Error:     err.Error(),
+				},
+			},
+		})
+		return
+	}
+	c.Send(&pb.DaemonMessage{
+		RequestId: requestID,
+		Payload: &pb.DaemonMessage_HttpProxyResponse{
+			HttpProxyResponse: resp,
+		},
+	})
 }
 
 func (c *GatewayClient) buildStatusResponse(requestID string) *pb.StatusResponse {

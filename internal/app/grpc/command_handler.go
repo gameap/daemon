@@ -20,7 +20,9 @@ func NewGRPCCommandHandler(executor contracts.Executor, workDir string) *GRPCCom
 	}
 }
 
-func (h *GRPCCommandHandler) HandleCommand(ctx context.Context, requestID string, cmd *pb.CommandRequest) (*pb.CommandResult, error) {
+func (h *GRPCCommandHandler) HandleCommand(
+	ctx context.Context, requestID string, cmd *pb.CommandRequest,
+) (*pb.CommandResult, error) {
 	workDir := h.workDir
 	if cmd.WorkDir != "" {
 		workDir = cmd.WorkDir

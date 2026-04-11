@@ -85,7 +85,7 @@ func (h *GRPCFileHandler) HandleFileRead(
 			}
 		}
 
-		var reader io.Reader = file
+		var reader io.Reader
 		if length > 0 {
 			reader = io.LimitReader(file, length)
 		} else {
@@ -280,40 +280,42 @@ func (h *GRPCFileHandler) listRecursive(
 	return files, err
 }
 
+func fileOpErrResp(requestID string, err error) (*pb.FileOperationResponse, error) {
+	return &pb.FileOperationResponse{
+		RequestId: requestID,
+		Success:   false,
+		Error:     err.Error(),
+	}, nil
+}
+
+func fileOpOkResp(requestID string) (*pb.FileOperationResponse, error) {
+	return &pb.FileOperationResponse{
+		RequestId: requestID,
+		Success:   true,
+	}, nil
+}
+
 func (h *GRPCFileHandler) HandleFileOperation(
 	_ context.Context, req *pb.FileOperationRequest,
 ) (*pb.FileOperationResponse, error) {
-	errResp := func(err error) (*pb.FileOperationResponse, error) {
-		return &pb.FileOperationResponse{
-			RequestId: req.GetRequestId(),
-			Success:   false,
-			Error:     err.Error(),
-		}, nil
-	}
-
-	okResp := func() (*pb.FileOperationResponse, error) {
-		return &pb.FileOperationResponse{
-			RequestId: req.GetRequestId(),
-			Success:   true,
-		}, nil
-	}
+	rid := req.GetRequestId()
 
 	switch req.GetOperation() {
 	case pb.FileOperationType_FILE_OPERATION_TYPE_STAT:
 		p := req.GetStatParams()
 		if p == nil {
-			return errResp(errors.New("stat_params required"))
+			return fileOpErrResp(rid, errors.New("stat_params required"))
 		}
 		resolved, err := h.resolvePath(p.GetPath())
 		if err != nil {
-			return errResp(err)
+			return fileOpErrResp(rid, err)
 		}
 		info, err := os.Lstat(resolved)
 		if err != nil {
-			return errResp(err)
+			return fileOpErrResp(rid, err)
 		}
 		return &pb.FileOperationResponse{
-			RequestId: req.GetRequestId(),
+			RequestId: rid,
 			Success:   true,
 			Result: &pb.FileOperationResponse_StatResult{
 				StatResult: &pb.StatResult{
@@ -325,15 +327,15 @@ func (h *GRPCFileHandler) HandleFileOperation(
 	case pb.FileOperationType_FILE_OPERATION_TYPE_EXISTS:
 		p := req.GetExistsParams()
 		if p == nil {
-			return errResp(errors.New("exists_params required"))
+			return fileOpErrResp(rid, errors.New("exists_params required"))
 		}
 		resolved, err := h.resolvePath(p.GetPath())
 		if err != nil {
-			return errResp(err)
+			return fileOpErrResp(rid, err)
 		}
 		_, err = os.Stat(resolved)
 		return &pb.FileOperationResponse{
-			RequestId: req.GetRequestId(),
+			RequestId: rid,
 			Success:   true,
 			Result: &pb.FileOperationResponse_ExistsResult{
 				ExistsResult: &pb.ExistsResult{
@@ -343,139 +345,164 @@ func (h *GRPCFileHandler) HandleFileOperation(
 		}, nil
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_DELETE:
-		p := req.GetDeleteParams()
-		if p == nil {
-			return errResp(errors.New("delete_params required"))
-		}
-		resolved, err := h.resolvePath(p.GetPath())
-		if err != nil {
-			return errResp(err)
-		}
-		if p.GetRecursive() {
-			err = os.RemoveAll(resolved)
-		} else {
-			err = os.Remove(resolved)
-		}
-		if err != nil {
-			return errResp(err)
-		}
-		return okResp()
+		return h.handleDeleteOp(rid, req.GetDeleteParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_MOVE:
-		p := req.GetMoveParams()
-		if p == nil {
-			return errResp(errors.New("move_params required"))
-		}
-		src, err := h.resolvePath(p.GetSource())
-		if err != nil {
-			return errResp(err)
-		}
-		dst, err := h.resolvePath(p.GetDestination())
-		if err != nil {
-			return errResp(err)
-		}
-		if err := os.Rename(src, dst); err != nil {
-			return errResp(err)
-		}
-		return okResp()
+		return h.handleMoveOp(rid, req.GetMoveParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_COPY:
-		p := req.GetCopyParams()
-		if p == nil {
-			return errResp(errors.New("copy_params required"))
-		}
-		src, err := h.resolvePath(p.GetSource())
-		if err != nil {
-			return errResp(err)
-		}
-		dst, err := h.resolvePath(p.GetDestination())
-		if err != nil {
-			return errResp(err)
-		}
-		if err := cp.Copy(src, dst); err != nil {
-			return errResp(err)
-		}
-		return okResp()
+		return h.handleCopyOp(rid, req.GetCopyParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_CHMOD:
 		p := req.GetChmodParams()
 		if p == nil {
-			return errResp(errors.New("chmod_params required"))
+			return fileOpErrResp(rid, errors.New("chmod_params required"))
 		}
 		resolved, err := h.resolvePath(p.GetPath())
 		if err != nil {
-			return errResp(err)
+			return fileOpErrResp(rid, err)
 		}
 		if err := os.Chmod(resolved, os.FileMode(p.GetMode())); err != nil {
-			return errResp(err)
+			return fileOpErrResp(rid, err)
 		}
-		return okResp()
+		return fileOpOkResp(rid)
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_CHOWN:
 		p := req.GetChownParams()
 		if p == nil {
-			return errResp(errors.New("chown_params required"))
+			return fileOpErrResp(rid, errors.New("chown_params required"))
 		}
 		resolved, err := h.resolvePath(p.GetPath())
 		if err != nil {
-			return errResp(err)
+			return fileOpErrResp(rid, err)
 		}
 		if err := os.Chown(resolved, int(p.GetUid()), int(p.GetGid())); err != nil {
-			return errResp(err)
+			return fileOpErrResp(rid, err)
 		}
-		return okResp()
+		return fileOpOkResp(rid)
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_MKDIR:
-		p := req.GetMkdirParams()
-		if p == nil {
-			return errResp(errors.New("mkdir_params required"))
-		}
-		resolved, err := h.resolvePath(p.GetPath())
-		if err != nil {
-			return errResp(err)
-		}
-		mode := os.FileMode(p.GetMode())
-		if mode == 0 {
-			mode = 0755
-		}
-		if p.GetRecursive() {
-			err = os.MkdirAll(resolved, mode)
-		} else {
-			err = os.Mkdir(resolved, mode)
-		}
-		if err != nil {
-			return errResp(err)
-		}
-		return okResp()
+		return h.handleMkdirOp(rid, req.GetMkdirParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_TOUCH:
-		p := req.GetTouchParams()
-		if p == nil {
-			return errResp(errors.New("touch_params required"))
-		}
-		resolved, err := h.resolvePath(p.GetPath())
-		if err != nil {
-			return errResp(err)
-		}
-		if _, err := os.Stat(resolved); os.IsNotExist(err) {
-			f, createErr := os.Create(resolved)
-			if createErr != nil {
-				return errResp(createErr)
-			}
-			f.Close()
-		} else if err != nil {
-			return errResp(err)
-		} else {
-			now := time.Now()
-			if err := os.Chtimes(resolved, now, now); err != nil {
-				return errResp(err)
-			}
-		}
-		return okResp()
+		return h.handleTouchOp(rid, req.GetTouchParams())
 
 	default:
-		return errResp(errors.Errorf("unsupported file operation: %s", req.GetOperation()))
+		return fileOpErrResp(rid, errors.Errorf("unsupported file operation: %s", req.GetOperation()))
 	}
+}
+
+func (h *GRPCFileHandler) handleDeleteOp(
+	rid string, p *pb.DeleteParams,
+) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("delete_params required"))
+	}
+	resolved, err := h.resolvePath(p.GetPath())
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	if p.GetRecursive() {
+		err = os.RemoveAll(resolved)
+	} else {
+		err = os.Remove(resolved)
+	}
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	return fileOpOkResp(rid)
+}
+
+func (h *GRPCFileHandler) handleMoveOp(
+	rid string, p *pb.MoveParams,
+) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("move_params required"))
+	}
+	src, err := h.resolvePath(p.GetSource())
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	dst, err := h.resolvePath(p.GetDestination())
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	return fileOpOkResp(rid)
+}
+
+func (h *GRPCFileHandler) handleCopyOp(
+	rid string, p *pb.CopyParams,
+) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("copy_params required"))
+	}
+	src, err := h.resolvePath(p.GetSource())
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	dst, err := h.resolvePath(p.GetDestination())
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	if err := cp.Copy(src, dst); err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	return fileOpOkResp(rid)
+}
+
+func (h *GRPCFileHandler) handleMkdirOp(
+	rid string, p *pb.MkdirParams,
+) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("mkdir_params required"))
+	}
+	resolved, err := h.resolvePath(p.GetPath())
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	mode := os.FileMode(p.GetMode())
+	if mode == 0 {
+		mode = 0755
+	}
+	if p.GetRecursive() {
+		err = os.MkdirAll(resolved, mode)
+	} else {
+		err = os.Mkdir(resolved, mode)
+	}
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	return fileOpOkResp(rid)
+}
+
+func (h *GRPCFileHandler) handleTouchOp(
+	rid string, p *pb.TouchParams,
+) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("touch_params required"))
+	}
+	resolved, err := h.resolvePath(p.GetPath())
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	if _, err := os.Stat(resolved); os.IsNotExist(err) {
+		f, createErr := os.Create(resolved)
+		if createErr != nil {
+			return fileOpErrResp(rid, createErr)
+		}
+		f.Close()
+	} else if err != nil {
+		return fileOpErrResp(rid, err)
+	} else {
+		now := time.Now()
+		if err := os.Chtimes(resolved, now, now); err != nil {
+			return fileOpErrResp(rid, err)
+		}
+	}
+	return fileOpOkResp(rid)
 }
 
 func fileInfoToStat(path string, info os.FileInfo) *pb.FileStat {
@@ -517,41 +544,4 @@ func ResolvePath(workDir, path string) (string, error) {
 
 func (h *GRPCFileHandler) resolvePath(path string) (string, error) {
 	return ResolvePath(h.workDir, path)
-}
-
-type streamingFileReader struct {
-	file      *os.File
-	chunkSize int
-}
-
-func newStreamingFileReader(path string, chunkSize int) (*streamingFileReader, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-
-	if chunkSize <= 0 {
-		chunkSize = defaultFileChunkSize
-	}
-
-	return &streamingFileReader{
-		file:      file,
-		chunkSize: chunkSize,
-	}, nil
-}
-
-func (r *streamingFileReader) ReadChunk() ([]byte, error) {
-	buf := make([]byte, r.chunkSize)
-	n, err := r.file.Read(buf)
-	if err != nil {
-		if err == io.EOF {
-			return nil, io.EOF
-		}
-		return nil, err
-	}
-	return buf[:n], nil
-}
-
-func (r *streamingFileReader) Close() error {
-	return r.file.Close()
 }

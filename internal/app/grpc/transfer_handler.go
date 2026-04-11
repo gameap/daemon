@@ -136,7 +136,6 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 	if err != nil {
 		// If append failed (file was removed between stat and open), create fresh.
 		if offset > 0 {
-			offset = 0
 			hasher = sha256.New()
 			file, err = os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 		}

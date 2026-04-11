@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -107,7 +106,7 @@ func enrollAction(c *cli.Context) error {
 		return errors.Wrap(err, "failed to write config")
 	}
 
-	fmt.Printf("Enrollment successful. Node ID: %d\n", result.NodeID)
+	log.Infof("Enrollment successful. Node ID: %d", result.NodeID)
 
 	return nil
 }
