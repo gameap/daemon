@@ -165,6 +165,19 @@ func (c *FileTransferClient) UploadFileForTransfer(
 		}
 	}
 
+	if firstChunk {
+		if sendErr := stream.Send(&pb.UploadChunk{
+			Metadata: &pb.UploadMetadata{
+				TransferId: transferID,
+				Path:       transferID,
+				TotalSize:  fileSize,
+				Mode:       int32(fileMode),
+			},
+		}); sendErr != nil {
+			return "", errors.Wrap(sendErr, "failed to send metadata for empty file")
+		}
+	}
+
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 
 	if err := stream.Send(&pb.UploadChunk{

@@ -106,7 +106,9 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 	// Acquire semaphore.
 	if err := h.sem.Acquire(ctx, 1); err != nil {
 		l.WithError(err).Warn("Failed to acquire transfer semaphore")
-		return // context cancelled, temp file preserved for resume
+		h.sendResponse(requestID, false, "transfer semaphore busy: "+err.Error())
+
+		return
 	}
 	defer h.sem.Release(1)
 
@@ -270,6 +272,8 @@ func (h *GRPCTransferHandler) HandleFileDownloadTask(ctx context.Context, reques
 	// Acquire semaphore.
 	if err := h.sem.Acquire(ctx, 1); err != nil {
 		l.WithError(err).Warn("Failed to acquire transfer semaphore")
+		h.sendResponse(requestID, false, "transfer semaphore busy: "+err.Error())
+
 		return
 	}
 	defer h.sem.Release(1)
