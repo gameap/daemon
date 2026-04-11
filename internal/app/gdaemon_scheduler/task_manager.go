@@ -211,7 +211,9 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 	if err != nil {
 		logger.Logger(ctx).WithError(err).Error("task execution failed")
 
-		go manager.appendTaskOutput(ctx, task, []byte(err.Error()))
+		output := []byte(err.Error())
+		go manager.appendTaskOutput(ctx, task, output)
+		manager.notifyTaskOutput(task, output, true)
 		manager.failTask(ctx, task)
 	}
 
@@ -287,7 +289,9 @@ func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDT
 
 		if err != nil {
 			logger.Warn(ctx, err)
-			manager.appendTaskOutput(ctx, task, []byte(err.Error()))
+			output := []byte(err.Error())
+			manager.appendTaskOutput(ctx, task, output)
+			manager.notifyTaskOutput(task, output, true)
 			manager.failTask(ctx, task)
 		}
 	}()
@@ -312,11 +316,9 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 		err := cmdFunc.Execute(ctx, task.Server())
 		if err != nil {
 			logger.Warn(ctx, err)
-			manager.appendTaskOutput(
-				ctx,
-				task,
-				append(cmdFunc.ReadOutput(), err.Error()...),
-			)
+			output := append(cmdFunc.ReadOutput(), err.Error()...)
+			manager.appendTaskOutput(ctx, task, output)
+			manager.notifyTaskOutput(task, output, true)
 			manager.failTask(ctx, task)
 		}
 	}()
