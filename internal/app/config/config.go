@@ -130,7 +130,7 @@ func (cfg *Config) Init() error {
 	}
 
 	if cfg.ProcessManager.Name == "" {
-		cfg.ProcessManager.Name = defaultProcessManager
+		cfg.ProcessManager.Name = detectDefaultProcessManager()
 	}
 
 	// GRPC defaults

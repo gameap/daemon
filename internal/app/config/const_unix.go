@@ -12,7 +12,3 @@ const (
 	DefaultGameServerScriptGetOutput = "{command}"
 	DefaultGameServerScriptSendInput = "{command}"
 )
-
-const (
-	defaultProcessManager = "tmux"
-)

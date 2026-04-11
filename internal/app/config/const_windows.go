@@ -13,6 +13,6 @@ const (
 	DefaultGameServerScriptSendInput = "{command}"
 )
 
-const (
-	defaultProcessManager = "winsw"
-)
+func detectDefaultProcessManager() string {
+	return "winsw"
+}
