@@ -42,6 +42,7 @@ type FileHandler interface {
 
 type ServerHandler interface {
 	HandleServerUpdate(ctx context.Context, srv *pb.Server) error
+	HandleServerConfigUpdate(ctx context.Context, srv *pb.Server, settings []*pb.ServerSetting) error
 }
 
 type TransferHandler interface {
@@ -209,10 +210,11 @@ func (c *GatewayClient) register(ctx context.Context) error {
 
 func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.RegisterAck) {
 	log.WithFields(log.Fields{
-		"servers":  len(ack.Servers),
-		"tasks":    len(ack.PendingTasks),
-		"games":    len(ack.Games),
-		"gameMods": len(ack.GameMods),
+		"servers":         len(ack.Servers),
+		"tasks":           len(ack.PendingTasks),
+		"games":           len(ack.Games),
+		"gameMods":        len(ack.GameMods),
+		"server_settings": len(ack.ServerSettings),
 	}).Info("Processing RegisterAck from panel")
 
 	if ack.HeartbeatInterval != nil {
@@ -227,11 +229,16 @@ func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.Register
 		c.gameStore.UpdateGameMods(ack.GameMods)
 	}
 
+	settingsByServer := groupSettingsByServerID(ack.ServerSettings)
+
 	for _, srv := range ack.Servers {
 		if ctx.Err() != nil {
 			break
 		}
-		if err := c.serverHandler.HandleServerUpdate(ctx, srv); err != nil {
+
+		serverSettings := settingsByServer[srv.Id]
+
+		if err := c.serverHandler.HandleServerConfigUpdate(ctx, srv, serverSettings); err != nil {
 			log.WithError(err).WithField("server_id", srv.Id).
 				Warn("Failed to sync server from RegisterAck")
 		}
@@ -246,6 +253,15 @@ func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.Register
 				Warn("Failed to queue pending task from RegisterAck")
 		}
 	}
+}
+
+func groupSettingsByServerID(settings []*pb.ServerSetting) map[uint64][]*pb.ServerSetting {
+	result := make(map[uint64][]*pb.ServerSetting)
+	for _, s := range settings {
+		result[s.ServerId] = append(result[s.ServerId], s)
+	}
+
+	return result
 }
 
 func (c *GatewayClient) sendLoop(ctx context.Context) {
@@ -328,6 +344,7 @@ func (c *GatewayClient) sendHeartbeat() {
 	})
 }
 
+//nolint:gocyclo // message router switch
 func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessage) {
 	switch payload := msg.Payload.(type) {
 	case *pb.GatewayMessage_Task:
@@ -392,6 +409,12 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 	case *pb.GatewayMessage_ServerConfig:
 		if err := c.serverHandler.HandleServerUpdate(ctx, payload.ServerConfig); err != nil {
 			log.WithError(err).Error("Failed to handle server update")
+		}
+
+	case *pb.GatewayMessage_ServerConfigUpdate:
+		update := payload.ServerConfigUpdate
+		if err := c.serverHandler.HandleServerConfigUpdate(ctx, update.Server, update.Settings); err != nil {
+			log.WithError(err).Error("Failed to handle server config update")
 		}
 
 	case *pb.GatewayMessage_ServerConfigBatch:
@@ -460,11 +483,17 @@ func (c *GatewayClient) handleServerConfigBatch(ctx context.Context, batch *pb.S
 	if batch == nil {
 		return
 	}
+
+	settingsByServer := groupSettingsByServerID(batch.ServerSettings)
+
 	for _, srv := range batch.Servers {
 		if ctx.Err() != nil {
 			break
 		}
-		if err := c.serverHandler.HandleServerUpdate(ctx, srv); err != nil {
+
+		serverSettings := settingsByServer[srv.Id]
+
+		if err := c.serverHandler.HandleServerConfigUpdate(ctx, srv, serverSettings); err != nil {
 			log.WithError(err).WithField("server_id", srv.Id).Error("Failed to handle server update from batch")
 		}
 	}

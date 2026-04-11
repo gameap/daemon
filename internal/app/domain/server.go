@@ -419,6 +419,13 @@ func (s *Server) RestartCommand() string {
 	return s.restartCommand
 }
 
+func (s *Server) AllSettings() Settings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.settings
+}
+
 func (s *Server) Setting(key string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

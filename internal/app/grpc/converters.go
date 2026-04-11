@@ -213,6 +213,19 @@ func protoAnyMapToMetadata(m map[string]*anypb.Any) map[string]any {
 	return result
 }
 
+func parseProtoSettings(protoSettings []*pb.ServerSetting) domain.Settings {
+	if len(protoSettings) == 0 {
+		return nil
+	}
+
+	settings := make(domain.Settings, len(protoSettings))
+	for _, s := range protoSettings {
+		settings[s.Name] = s.Value
+	}
+
+	return settings
+}
+
 func parseVarsJSON(varsJSON string) map[string]string {
 	if varsJSON == "" {
 		return make(map[string]string)

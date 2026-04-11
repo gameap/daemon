@@ -27,6 +27,16 @@ func NewGRPCServerHandler(serverRepo ServerCacheRepository, gameStore *GameStore
 }
 
 func (h *GRPCServerHandler) HandleServerUpdate(_ context.Context, srv *pb.Server) error {
+	return h.handleServerProto(srv, nil)
+}
+
+func (h *GRPCServerHandler) HandleServerConfigUpdate(
+	_ context.Context, srv *pb.Server, settings []*pb.ServerSetting,
+) error {
+	return h.handleServerProto(srv, parseProtoSettings(settings))
+}
+
+func (h *GRPCServerHandler) handleServerProto(srv *pb.Server, settings domain.Settings) error {
 	serverID := int(srv.Id)
 
 	var lastProcessCheck time.Time
@@ -49,6 +59,12 @@ func (h *GRPCServerHandler) HandleServerUpdate(_ context.Context, srv *pb.Server
 		}
 		if !gameModFound {
 			gameMod = existing.GameMod()
+		}
+
+		// Preserve existing settings when not explicitly provided
+		// (backward compat with old server_config messages that don't include settings)
+		if settings == nil {
+			settings = existing.AllSettings()
 		}
 
 		existing.Set(
@@ -74,7 +90,7 @@ func (h *GRPCServerHandler) HandleServerUpdate(_ context.Context, srv *pb.Server
 			srv.ProcessActive,
 			lastProcessCheck,
 			parseVarsJSON(srv.GetVars()),
-			nil,
+			settings,
 			updatedAt,
 			int(srv.GetCpuLimit()),
 			int64(srv.GetRamLimit()),
@@ -106,7 +122,7 @@ func (h *GRPCServerHandler) HandleServerUpdate(_ context.Context, srv *pb.Server
 			srv.ProcessActive,
 			lastProcessCheck,
 			parseVarsJSON(srv.GetVars()),
-			nil,
+			settings,
 			updatedAt,
 			int(srv.GetCpuLimit()),
 			int64(srv.GetRamLimit()),
