@@ -402,7 +402,11 @@ func (s *Server) StartCommand() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.startCommand
+	if s.startCommand != "" {
+		return s.startCommand
+	}
+
+	return s.gameMod.DefaultStartCMD()
 }
 
 func (s *Server) StopCommand() string {

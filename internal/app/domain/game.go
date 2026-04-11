@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -101,4 +102,12 @@ type GameMod struct {
 	Vars                   []GameModVarTemplate `json:"vars"`
 	ID                     int                  `json:"id"`
 	Metadata               map[string]any       `json:"metadata"`
+}
+
+func (gm GameMod) DefaultStartCMD() string {
+	if runtime.GOOS == "windows" {
+		return gm.DefaultStartCMDWindows
+	}
+
+	return gm.DefaultStartCMDLinux
 }
