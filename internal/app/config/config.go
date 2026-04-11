@@ -87,6 +87,7 @@ type Config struct {
 	TaskManager struct {
 		UpdatePeriod  time.Duration `yaml:"update_period"`
 		RunTaskPeriod time.Duration `yaml:"run_task_period"`
+		TaskTimeout   time.Duration `yaml:"task_timeout"`
 		WorkersCount  int           `yaml:"workers_count"`
 	} `yaml:"task_manager"`
 
@@ -127,6 +128,10 @@ func (cfg *Config) Init() error {
 
 	if cfg.TaskManager.RunTaskPeriod == 0 {
 		cfg.TaskManager.RunTaskPeriod = 10 * time.Millisecond
+	}
+
+	if cfg.TaskManager.TaskTimeout == 0 {
+		cfg.TaskManager.TaskTimeout = 2 * time.Hour
 	}
 
 	if cfg.ProcessManager.Name == "" {

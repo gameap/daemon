@@ -92,10 +92,16 @@ func (task *GDTask) Command() string {
 }
 
 func (task *GDTask) Status() GDTaskStatus {
+	task.statusMutex.Lock()
+	defer task.statusMutex.Unlock()
+
 	return task.status
 }
 
 func (task *GDTask) StatusNum() uint8 {
+	task.statusMutex.Lock()
+	defer task.statusMutex.Unlock()
+
 	return GDTaskStatusNumMap[task.status]
 }
 
@@ -115,15 +121,17 @@ func (task *GDTask) SetStatus(status GDTaskStatus) error {
 }
 
 func (task *GDTask) affectServer() {
-	if task.IsInstallation() {
-		switch task.status {
-		case GDTaskStatusError, GDTaskStatusWaiting:
-			task.server.SetInstallationStatus(ServerNotInstalled)
-		case GDTaskStatusSuccess:
-			task.server.SetInstallationStatus(ServerInstalled)
-		case GDTaskStatusWorking:
-			task.server.SetInstallationStatus(ServerInstallInProcess)
-		}
+	if task.server == nil || !task.IsInstallation() {
+		return
+	}
+
+	switch task.status {
+	case GDTaskStatusError, GDTaskStatusWaiting:
+		task.server.SetInstallationStatus(ServerNotInstalled)
+	case GDTaskStatusSuccess:
+		task.server.SetInstallationStatus(ServerInstalled)
+	case GDTaskStatusWorking:
+		task.server.SetInstallationStatus(ServerInstallInProcess)
 	}
 }
 

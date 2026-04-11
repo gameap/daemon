@@ -85,7 +85,13 @@ func (h *GRPCTaskHandler) HandleTaskCancel(ctx context.Context, cancel *pb.TaskC
 		return errors.Wrapf(err, "failed to cancel task %d", taskID)
 	}
 
+	h.processedTasks.Delete(taskID)
+
 	log.WithField("taskID", taskID).Info("Task cancelled")
 
 	return nil
+}
+
+func (h *GRPCTaskHandler) TaskCompleted(taskID int) {
+	h.processedTasks.Delete(taskID)
 }

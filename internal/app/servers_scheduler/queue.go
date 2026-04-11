@@ -1,21 +1,22 @@
 package serversscheduler
 
 import (
+	"sort"
 	"sync"
 
-	"github.com/emirpasic/gods/trees/btree"
-	"github.com/emirpasic/gods/utils"
 	"github.com/gameap/daemon/internal/app/domain"
 )
 
 type taskQueue struct {
-	tree  *btree.Tree
+	tasks []*domain.ServerTask
+	ids   map[int]struct{}
 	mutex *sync.Mutex
 }
 
 func newTaskQueue() *taskQueue {
 	return &taskQueue{
-		tree:  btree.NewWith(3, utils.TimeComparator),
+		tasks: make([]*domain.ServerTask, 0),
+		ids:   make(map[int]struct{}),
 		mutex: &sync.Mutex{},
 	}
 }
@@ -24,54 +25,78 @@ func (q *taskQueue) Exists(task *domain.ServerTask) bool {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
-	_, found := q.tree.Get(task.ExecuteDate())
-	q.tree.Values()
-	return found
+	_, exists := q.ids[task.ID()]
+
+	return exists
 }
 
 func (q *taskQueue) Replace(task *domain.ServerTask) {
-	for _, v := range q.tree.Values() {
-		t := v.(*domain.ServerTask)
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
 
+	for i, t := range q.tasks {
 		if t.ID() == task.ID() {
-			q.Remove(t)
-			q.Put(task)
-			return
+			q.tasks = append(q.tasks[:i], q.tasks[i+1:]...)
+
+			break
 		}
 	}
+
+	q.insertSorted(task)
 }
 
 func (q *taskQueue) Put(task *domain.ServerTask) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
-	q.tree.Put(task.ExecuteDate(), task)
+	if _, exists := q.ids[task.ID()]; exists {
+		return
+	}
+
+	q.ids[task.ID()] = struct{}{}
+	q.insertSorted(task)
 }
 
+// Pop returns the earliest task without removing it from the queue.
 func (q *taskQueue) Pop() *domain.ServerTask {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
-	v := q.tree.LeftValue()
-	if v == nil {
+	if len(q.tasks) == 0 {
 		return nil
 	}
 
-	task := v.(*domain.ServerTask)
-
-	return task
+	return q.tasks[0]
 }
 
 func (q *taskQueue) Remove(task *domain.ServerTask) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
-	q.tree.Remove(task.ExecuteDate())
+	for i, t := range q.tasks {
+		if t.ID() == task.ID() {
+			q.tasks = append(q.tasks[:i], q.tasks[i+1:]...)
+			delete(q.ids, task.ID())
+
+			return
+		}
+	}
 }
 
 func (q *taskQueue) Empty() bool {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
-	return q.tree.Empty()
+	return len(q.tasks) == 0
+}
+
+func (q *taskQueue) insertSorted(task *domain.ServerTask) {
+	executeDate := task.ExecuteDate()
+	i := sort.Search(len(q.tasks), func(j int) bool {
+		return q.tasks[j].ExecuteDate().After(executeDate)
+	})
+
+	q.tasks = append(q.tasks, nil)
+	copy(q.tasks[i+1:], q.tasks[i:])
+	q.tasks[i] = task
 }

@@ -127,6 +127,13 @@ func (s *ServerTask) IncreaseCountersAndTime() {
 	s.counter++
 }
 
+func (s *ServerTask) ProlongTime() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.prolongTask()
+}
+
 func (s *ServerTask) RepeatEndlessly() bool {
 	return s.repeat == 0 || s.repeat == -1
 }

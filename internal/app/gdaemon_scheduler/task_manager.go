@@ -46,6 +46,8 @@ type TaskManager struct {
 	mutex                *sync.Mutex
 	queue                *taskQueue
 	commandsInProgress   sync.Map
+	wg                   sync.WaitGroup
+	consecutiveFailures  int
 	taskStatusSender     TaskStatusSender
 	grpcMode             bool
 }
@@ -106,13 +108,20 @@ func (manager *TaskManager) Run(ctx context.Context) error {
 
 	go manager.RunWorker(ctx)
 
+	updatePeriod := manager.config.TaskManager.UpdatePeriod
+	if updatePeriod <= 0 {
+		updatePeriod = 1 * time.Second
+	}
+
+	updateTicker := time.NewTicker(updatePeriod)
+	defer updateTicker.Stop()
+
 	for {
 		select {
-		case <-(ctx).Done():
+		case <-ctx.Done():
+			manager.wg.Wait()
 			return nil
-		default:
-			time.Sleep(manager.config.TaskManager.UpdatePeriod)
-
+		case <-updateTicker.C:
 			if !manager.grpcMode {
 				err := manager.updateTasksIfNeeded(ctx)
 				if err != nil {
@@ -224,6 +233,7 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 			task.Server().NoticeTaskCompleted()
 		}
 
+		manager.commandsInProgress.Delete(task.ID())
 		manager.queue.Remove(task)
 
 		if !manager.grpcMode {
@@ -278,12 +288,29 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDTask) error {
 	cmd := newExecuteCommand(manager.config, manager.executor)
 
-	manager.commandsInProgress.Store(*task, cmd)
+	manager.commandsInProgress.Store(task.ID(), cmd)
 
 	logger.Debug(ctx, "Running task command")
 
+	manager.wg.Add(1)
+
 	go func() {
-		err := cmd.Execute(ctx, task.Command(), contracts.ExecutorOptions{
+		defer manager.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Logger(ctx).Errorf("panic in task command execution: %v", r)
+				manager.failTask(ctx, task)
+			}
+		}()
+
+		taskCtx := ctx
+		if manager.config.TaskManager.TaskTimeout > 0 {
+			var cancel context.CancelFunc
+			taskCtx, cancel = context.WithTimeout(ctx, manager.config.TaskManager.TaskTimeout)
+			defer cancel()
+		}
+
+		err := cmd.Execute(taskCtx, task.Command(), contracts.ExecutorOptions{
 			WorkDir: manager.config.WorkDir(),
 		})
 
@@ -308,12 +335,29 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 
 	cmdFunc := manager.serverCommandFactory.LoadServerCommand(cmd, task.Server())
 
-	manager.commandsInProgress.Store(*task, cmdFunc)
+	manager.commandsInProgress.Store(task.ID(), cmdFunc)
 
 	logger.Debug(ctx, "Running task command")
 
+	manager.wg.Add(1)
+
 	go func() {
-		err := cmdFunc.Execute(ctx, task.Server())
+		defer manager.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Logger(ctx).Errorf("panic in game command execution: %v", r)
+				manager.failTask(ctx, task)
+			}
+		}()
+
+		taskCtx := ctx
+		if manager.config.TaskManager.TaskTimeout > 0 {
+			var cancel context.CancelFunc
+			taskCtx, cancel = context.WithTimeout(ctx, manager.config.TaskManager.TaskTimeout)
+			defer cancel()
+		}
+
+		err := cmdFunc.Execute(taskCtx, task.Server())
 		if err != nil {
 			logger.Warn(ctx, err)
 			output := append(cmdFunc.ReadOutput(), err.Error()...)
@@ -327,7 +371,7 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 }
 
 func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask) error {
-	c, ok := manager.commandsInProgress.Load(*task)
+	c, ok := manager.commandsInProgress.Load(task.ID())
 	if !ok {
 		return errors.New("[gdaemon_scheduler.TaskManager] task doesn't exist in working tasks")
 	}
@@ -338,7 +382,7 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 	isFinal := cmd.IsComplete()
 
 	if isFinal {
-		manager.commandsInProgress.Delete(*task)
+		manager.commandsInProgress.Delete(task.ID())
 
 		if cmd.Result() == gameservercommands.SuccessResult {
 			err := task.SetStatus(domain.GDTaskStatusSuccess)
@@ -397,14 +441,20 @@ func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 
-	if time.Since(manager.lastUpdated) <= updateTimeout {
+	backoff := updateTimeout * time.Duration(1<<min(manager.consecutiveFailures, 6))
+	if time.Since(manager.lastUpdated) <= backoff {
 		return nil
 	}
 
 	tasks, err := manager.repository.FindByStatus(ctx, domain.GDTaskStatusWaiting)
 	if err != nil {
+		manager.consecutiveFailures++
+		manager.lastUpdated = time.Now()
+
 		return err
 	}
+
+	manager.consecutiveFailures = 0
 
 	if len(tasks) > 0 {
 		manager.queue.Insert(tasks)

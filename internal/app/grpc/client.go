@@ -605,6 +605,12 @@ func (c *GatewayClient) SendTaskStatus(taskID int, status string, message string
 			},
 		},
 	})
+
+	if status == "success" || status == "error" || status == "canceled" {
+		if th, ok := c.taskHandler.(*GRPCTaskHandler); ok {
+			th.TaskCompleted(taskID)
+		}
+	}
 }
 
 func (c *GatewayClient) SendTaskOutput(taskID int, output []byte, isFinal bool) {

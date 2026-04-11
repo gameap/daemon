@@ -219,9 +219,6 @@ func runService(ctx context.Context, runFunc func(ctx context.Context) error) er
 		default:
 			err := runFunc(ctx)
 			if err != nil {
-				_, cancel := context.WithCancel(ctx)
-				defer cancel()
-
 				log.Error(errors.WithMessage(err, "service stopped unexpectedly with an error"))
 
 				return err

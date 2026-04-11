@@ -21,10 +21,11 @@ type Scheduler struct {
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 
 	// Runtime, state
-	mutex       *sync.Mutex
-	lastUpdated time.Time
-	queue       *taskQueue
-	grpcMode    bool
+	mutex               *sync.Mutex
+	lastUpdated         time.Time
+	consecutiveFailures int
+	queue               *taskQueue
+	grpcMode            bool
 }
 
 func NewScheduler(
@@ -53,11 +54,14 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		}
 	}
 
+	ticker := time.NewTicker(updateTimeout)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case <-(ctx).Done():
+		case <-ctx.Done():
 			return nil
-		default:
+		case <-ticker.C:
 			s.runNext(ctx)
 
 			if !s.grpcMode {
@@ -66,8 +70,6 @@ func (s *Scheduler) Run(ctx context.Context) error {
 					logger.Logger(ctx).WithError(err).Warn("Failed to update game server tasks")
 				}
 			}
-
-			time.Sleep(updateTimeout)
 		}
 	}
 }
@@ -87,20 +89,25 @@ func (s *Scheduler) runNext(ctx context.Context) {
 		s.queue.Remove(task)
 
 		if task.CanExecute() {
-			s.executeTask(ctx, task)
-			s.prolongTask(ctx, task)
+			success := s.executeTask(ctx, task)
+			s.prolongTask(ctx, task, success)
 		}
 	}
 }
 
-func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) {
+func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) bool {
 	cmd := s.serverCommandFactory.LoadServerCommand(taskCommandToServerCommand(task.Command()), task.Server())
+	if cmd == nil {
+		logger.Logger(ctx).Warn("Unknown server task command, skipping")
+
+		return false
+	}
 
 	err := cmd.Execute(ctx, task.Server())
 	if err != nil {
 		logger.Logger(ctx).WithError(err).Warn("Failed to execute server task")
 		s.saveFailInfo(ctx, task, err.Error())
-		return
+		return false
 	}
 
 	task.Server().NoticeTaskCompleted()
@@ -108,12 +115,18 @@ func (s *Scheduler) executeTask(ctx context.Context, task *domain.ServerTask) {
 	result := cmd.Result()
 	if result == gameservercommands.ErrorResult {
 		s.saveFailInfo(ctx, task, string(cmd.ReadOutput()))
-		return
+		return false
 	}
+
+	return true
 }
 
-func (s *Scheduler) prolongTask(ctx context.Context, task *domain.ServerTask) {
-	task.IncreaseCountersAndTime()
+func (s *Scheduler) prolongTask(ctx context.Context, task *domain.ServerTask, success bool) {
+	if success {
+		task.IncreaseCountersAndTime()
+	} else {
+		task.ProlongTime()
+	}
 
 	if !s.grpcMode {
 		err := s.repository.Save(ctx, task)
@@ -140,14 +153,20 @@ func (s *Scheduler) updateTasksIfNeeded(ctx context.Context) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if time.Since(s.lastUpdated) <= updateTimeout {
+	backoff := updateTimeout * time.Duration(1<<min(s.consecutiveFailures, 6))
+	if time.Since(s.lastUpdated) <= backoff {
 		return nil
 	}
 
 	tasks, err := s.repository.Find(ctx)
 	if err != nil {
+		s.consecutiveFailures++
+		s.lastUpdated = time.Now()
+
 		return errors.WithMessage(err, "failed to get server tasks")
 	}
+
+	s.consecutiveFailures = 0
 
 	for _, t := range tasks {
 		if !t.CanExecute() {
@@ -156,9 +175,9 @@ func (s *Scheduler) updateTasksIfNeeded(ctx context.Context) error {
 
 		if s.queue.Exists(t) {
 			s.queue.Replace(t)
+		} else {
+			s.queue.Put(t)
 		}
-
-		s.queue.Put(t)
 	}
 
 	s.lastUpdated = time.Now()
