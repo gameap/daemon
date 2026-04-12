@@ -10,4 +10,5 @@ var (
 	ErrEmptyCommand          = errors.New("empty command")
 	ErrNotImplemented        = errors.New("not implemented")
 	ErrContainerNotRunning   = errors.New("container is not running")
+	ErrServiceNotRunning     = errors.New("service is not running")
 )

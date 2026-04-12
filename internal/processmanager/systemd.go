@@ -20,6 +20,7 @@ import (
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -763,9 +764,136 @@ func (pm *SystemD) userAndGroup(server *domain.Server) (string, string, error) {
 }
 
 func (pm *SystemD) Attach(
-	_ context.Context, _ *domain.Server, _ io.Reader, _ io.Writer,
+	ctx context.Context, server *domain.Server, in io.Reader, out io.Writer,
 ) error {
-	return ErrNotImplemented
+	serviceName := pm.resolveServiceName(server)
+
+	status, err := pm.status(ctx, serviceName, io.Discard)
+	if err != nil {
+		return errors.WithMessage(err, "failed to check service status")
+	}
+	if status != domain.SuccessResult {
+		return ErrServiceNotRunning
+	}
+
+	logFile, err := os.Open(pm.resolveLogFile(server))
+	if err != nil {
+		return errors.WithMessage(err, "failed to open log file")
+	}
+	if _, err := logFile.Seek(0, io.SeekEnd); err != nil {
+		_ = logFile.Close()
+		return errors.WithMessage(err, "failed to seek log file")
+	}
+
+	stdinFile, err := pm.openFIFOWithTimeout(ctx, pm.resolveStdinFile(server), 5*time.Second)
+	if err != nil {
+		_ = logFile.Close()
+		return err
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		<-gctx.Done()
+		_ = stdinFile.Close()
+		_ = logFile.Close()
+		return nil
+	})
+
+	g.Go(func() error {
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := in.Read(buf)
+			if n > 0 {
+				if _, writeErr := stdinFile.Write(buf[:n]); writeErr != nil {
+					if errors.Is(writeErr, os.ErrClosed) {
+						return nil
+					}
+					return errors.WithMessage(writeErr, "failed to write to stdin FIFO")
+				}
+			}
+			if readErr != nil {
+				if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrClosedPipe) {
+					return nil
+				}
+				return errors.WithMessage(readErr, "stdin read failed")
+			}
+		}
+	})
+
+	g.Go(func() error {
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := logFile.Read(buf)
+			if n > 0 {
+				if _, writeErr := out.Write(buf[:n]); writeErr != nil {
+					return errors.WithMessage(writeErr, "failed to write output")
+				}
+			}
+			if readErr != nil {
+				if errors.Is(readErr, os.ErrClosed) {
+					return nil
+				}
+				if readErr == io.EOF {
+					select {
+					case <-gctx.Done():
+						return nil
+					case <-time.After(200 * time.Millisecond):
+						continue
+					}
+				}
+				return errors.WithMessage(readErr, "failed to read log file")
+			}
+		}
+	})
+
+	g.Go(func() error {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-gctx.Done():
+				return nil
+			case <-ticker.C:
+				s, _ := pm.status(gctx, serviceName, io.Discard)
+				if s != domain.SuccessResult {
+					return nil
+				}
+			}
+		}
+	})
+
+	err = g.Wait()
+	if err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+
+	return nil
+}
+
+func (pm *SystemD) openFIFOWithTimeout(
+	ctx context.Context, path string, timeout time.Duration,
+) (*os.File, error) {
+	type result struct {
+		file *os.File
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		f, err := os.OpenFile(path, os.O_WRONLY, 0)
+		ch <- result{f, err}
+	}()
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return nil, errors.WithMessage(r.err, "failed to open stdin FIFO")
+		}
+		return r.file, nil
+	case <-time.After(timeout):
+		return nil, errors.New("timeout opening stdin FIFO: service may not be running")
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (pm *SystemD) HasOwnInstallation(_ *domain.Server) bool {

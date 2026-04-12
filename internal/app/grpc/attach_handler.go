@@ -198,6 +198,9 @@ func (h *GRPCAttachHandler) resolveCloseReason(err error) (string, int32) {
 	if errors.Is(err, processmanager.ErrContainerNotRunning) {
 		return "server not running", -1
 	}
+	if errors.Is(err, processmanager.ErrServiceNotRunning) {
+		return "server not running", -1
+	}
 	return err.Error(), -1
 }
 
