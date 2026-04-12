@@ -3,6 +3,7 @@
 package processmanager
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -10,12 +11,14 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -317,9 +320,151 @@ func (pm *Tmux) resolveSessionName(
 }
 
 func (pm *Tmux) Attach(
-	_ context.Context, _ *domain.Server, _ io.Reader, _ io.Writer,
+	ctx context.Context, server *domain.Server, in io.Reader, out io.Writer,
 ) error {
-	return ErrNotImplemented
+	options, err := pm.executeOptions(server)
+	if err != nil {
+		return errors.WithMessage(err, "invalid server configuration")
+	}
+
+	sessionName := pm.resolveSessionName(ctx, server, options)
+
+	result, err := pm.detailedExecutor.ExecWithWriter(
+		ctx, fmt.Sprintf("tmux has-session -t %s", sessionName), io.Discard, options,
+	)
+	if err != nil {
+		return errors.WithMessage(err, "failed to check session status")
+	}
+	if domain.Result(result) != domain.SuccessResult {
+		return ErrServiceNotRunning
+	}
+
+	pipeFile, err := os.CreateTemp("", "gameap-tmux-attach-*")
+	if err != nil {
+		return errors.WithMessage(err, "failed to create pipe file")
+	}
+	pipePath := pipeFile.Name()
+
+	if err := os.Chmod(pipePath, 0666); err != nil {
+		_ = pipeFile.Close()
+		_ = os.Remove(pipePath)
+		return errors.WithMessage(err, "failed to chmod pipe file")
+	}
+
+	_, err = pm.detailedExecutor.ExecWithWriter(
+		ctx,
+		fmt.Sprintf("tmux pipe-pane -t %s 'cat >> %s'", sessionName, pipePath),
+		io.Discard,
+		options,
+	)
+	if err != nil {
+		_ = pipeFile.Close()
+		_ = os.Remove(pipePath)
+		return errors.WithMessage(err, "failed to start pipe-pane")
+	}
+
+	lines := make(chan string, 1)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(in)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+	}()
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		<-gctx.Done()
+		_ = pipeFile.Close()
+		return nil
+	})
+
+	g.Go(func() error {
+		for {
+			select {
+			case <-gctx.Done():
+				return nil
+			case line, ok := <-lines:
+				if !ok {
+					return nil
+				}
+				quoted := strconv.Quote(strings.ReplaceAll(line, `\"`, `"`))
+				_, sendErr := pm.detailedExecutor.ExecWithWriter(
+					gctx,
+					fmt.Sprintf("tmux send-keys -t %s %s ENTER", sessionName, quoted),
+					io.Discard,
+					options,
+				)
+				if sendErr != nil {
+					if errors.Is(sendErr, context.Canceled) {
+						return nil
+					}
+					return errors.WithMessage(sendErr, "failed to send input")
+				}
+			}
+		}
+	})
+
+	g.Go(func() error {
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := pipeFile.Read(buf)
+			if n > 0 {
+				if _, writeErr := out.Write(buf[:n]); writeErr != nil {
+					return errors.WithMessage(writeErr, "failed to write output")
+				}
+			}
+			if readErr != nil {
+				if errors.Is(readErr, os.ErrClosed) {
+					return nil
+				}
+				if readErr == io.EOF {
+					select {
+					case <-gctx.Done():
+						return nil
+					case <-time.After(200 * time.Millisecond):
+						continue
+					}
+				}
+				return errors.WithMessage(readErr, "failed to read pipe file")
+			}
+		}
+	})
+
+	g.Go(func() error {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-gctx.Done():
+				return nil
+			case <-ticker.C:
+				s, _ := pm.detailedExecutor.ExecWithWriter(
+					gctx, fmt.Sprintf("tmux has-session -t %s", sessionName), io.Discard, options,
+				)
+				if domain.Result(s) != domain.SuccessResult {
+					return nil
+				}
+			}
+		}
+	})
+
+	waitErr := g.Wait()
+
+	_, _ = pm.detailedExecutor.ExecWithWriter(
+		context.Background(),
+		fmt.Sprintf("tmux pipe-pane -t %s", sessionName),
+		io.Discard,
+		options,
+	)
+	_ = os.Remove(pipePath)
+
+	if waitErr != nil && !errors.Is(waitErr, context.Canceled) {
+		return waitErr
+	}
+
+	return nil
 }
 
 func (pm *Tmux) HasOwnInstallation(_ *domain.Server) bool {
