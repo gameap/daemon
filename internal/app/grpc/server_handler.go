@@ -53,6 +53,12 @@ func (h *GRPCServerHandler) handleServerProto(srv *pb.Server, settings domain.Se
 	gameMod, gameModFound := h.gameStore.FindGameMod(srv.GameModId)
 
 	existing, found := h.serverRepo.FindByIDFromCache(serverID)
+	if !gameFound && !found {
+		log.WithFields(log.Fields{
+			"server_id": serverID,
+			"game_id":   srv.GameId,
+		}).Warn("server references unknown game — installation will fail until game is synced")
+	}
 	if found {
 		if !gameFound {
 			game = existing.Game()

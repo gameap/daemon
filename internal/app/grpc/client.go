@@ -413,6 +413,12 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 
 	case *pb.GatewayMessage_ServerConfigUpdate:
 		update := payload.ServerConfigUpdate
+		if update.Game != nil {
+			c.gameStore.UpdateGames([]*pb.Game{update.Game})
+		}
+		if update.GameMod != nil {
+			c.gameStore.UpdateGameMods([]*pb.GameMod{update.GameMod})
+		}
 		if err := c.serverHandler.HandleServerConfigUpdate(ctx, update.Server, update.Settings); err != nil {
 			log.WithError(err).Error("Failed to handle server config update")
 		}

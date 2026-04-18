@@ -8,7 +8,7 @@ require (
 	github.com/emirpasic/gods v1.18.1
 	github.com/et-nik/binngo v0.3.0
 	github.com/gabriel-vasile/mimetype v1.4.13
-	github.com/gameap/gameap v0.0.0-20260411173002-72c6eb5df802
+	github.com/gameap/gameap v0.0.0-20260418173619-583dbe29e251
 	github.com/gameap/gameapctl v0.22.2
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/goccy/go-yaml v1.19.2
