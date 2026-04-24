@@ -7,6 +7,7 @@ jobs:
     name: Release Go Binary
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         goos: ["linux", "windows"]
         goarch: ["amd64", "386", "arm64", "arm", "mips", "mips64"]
@@ -14,6 +15,8 @@ jobs:
           - goarch: "mips"
             goos: windows
           - goarch: "mips64"
+            goos: windows
+          - goarch: "arm"
             goos: windows
     steps:
       - uses: actions/checkout@v2

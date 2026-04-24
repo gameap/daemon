@@ -1,7 +1,40 @@
+# GameAP Daemon configuration
+
+# ------------------------------------------------------------------
+# Node
+# ------------------------------------------------------------------
+
+# Dedicated server ID (required, must match the node ID in GameAP panel)
 ds_id: 1
+
+# ------------------------------------------------------------------
+# Listener
+# ------------------------------------------------------------------
+
+listen_ip: 0.0.0.0
+# listen_port: 31717
+
+# ------------------------------------------------------------------
+# GameAP API
+# ------------------------------------------------------------------
 
 api_host: http://localhost:2080
 api_key: KxL6shP6Q4aEJeLXIaoe8mXpkIrTTFSQMKWt1qAfBZ2TQe42YvzDzrlwVZ2F5pgH
+
+# ------------------------------------------------------------------
+# Authentication
+# ------------------------------------------------------------------
+
+daemon_login: sEcreT-L0gin
+daemon_password: seCrEt-PaSSW0rD
+
+# Enable login/password authentication for the daemon RPC (default: false).
+# password_authentication: false
+
+# ------------------------------------------------------------------
+# TLS / Certificates
+# Relative paths are resolved against the config file directory.
+# ------------------------------------------------------------------
 
 # Certificates can be specified as file paths:
 ca_certificate_file: ./certs_panel/ca.crt
@@ -28,6 +61,12 @@ private_key_file: ./certs_panel/server.key
 # If your private key is encrypted, you can specify the password here:
 # private_key_password: abracadabra
 
+dh_file: /etc/gameap-daemon/certs_panel/dh2048.pem
+
+# ------------------------------------------------------------------
+# Statistics
+# ------------------------------------------------------------------
+
 if_list:
   - eth0
   - eth1
@@ -39,5 +78,115 @@ drives_list:
 stats_update_period: 60
 stats_db_update_period: 300
 
-#output_log: /var/log/gameap-daemon/output.log
+# ------------------------------------------------------------------
+# Logging
+# log_level is parsed by the first character: trace / debug / info /
+# warning / error / fatal. Default: info.
+# ------------------------------------------------------------------
+
+# output_log: /var/log/gameap-daemon/output.log
+# error_log: /var/log/gameap-daemon/error.log
 log_level: debug
+
+# ------------------------------------------------------------------
+# Game server paths
+# ------------------------------------------------------------------
+
+# Base directory where game servers are installed.
+# work_path: /srv/gameap
+
+# Directory for additional tools (added to PATH). Defaults to {work_path}/tools.
+# tools_path: /srv/gameap/tools
+
+# Path to the steamcmd executable used for game installations.
+# steamcmd_path: /srv/gameap/steamcmd/steamcmd.sh
+
+# Windows-only paths:
+# path_7zip: C:\gameap\tools\7zip\7za.exe
+# path_starter: C:\gameap\daemon\gameap-starter.exe
+
+# ------------------------------------------------------------------
+# Steam credentials (optional; leave empty for anonymous SteamCMD)
+# ------------------------------------------------------------------
+
+# steam_config:
+#   login: your-steam-user
+#   password: your-steam-pass
+
+# ------------------------------------------------------------------
+# Task manager
+# ------------------------------------------------------------------
+
+# task_manager:
+#   update_period: 1s       # how often to poll the API for new tasks
+#   run_task_period: 10ms   # delay between dequeued task executions
+#   workers_count: 4
+
+# ------------------------------------------------------------------
+# Process manager
+# Choose one backend. Available values:
+#   Linux/macOS: tmux (default), systemd, simple, docker, podman
+#   Windows:     winsw (default), shawl, simple, docker
+# The `config` block provides defaults that are overridden by
+# server.Vars / GameMod.Metadata / Game.Metadata (in that order).
+# ------------------------------------------------------------------
+
+# --- tmux (Linux/macOS, default) ----------------------------------
+# process_manager:
+#   name: tmux
+
+# --- systemd (Linux) -----------------------------------------------
+# process_manager:
+#   name: systemd
+
+# --- simple (all platforms) ----------------------------------------
+# process_manager:
+#   name: simple
+
+# --- docker (all platforms) ----------------------------------------
+# process_manager:
+#   name: docker
+#   config:
+#     image: debian:bookworm-slim
+#     network_mode: bridge
+#     dns: 8.8.8.8,1.1.1.1
+#     workdir: /server
+#     # capabilities: NET_RAW,SYS_NICE
+#     # privileged: "false"
+#     # memory_limit: 2g
+#     # cpu_limit: "1.0"
+#     # volumes: '["/shared/maps:/server/maps:ro"]'
+#     # installation_image: ghcr.io/parkervcp/installers:alpine
+#     # installation_entrypoint: ash
+#     # installation_user: root
+
+# --- podman (Linux/macOS) ------------------------------------------
+# process_manager:
+#   name: podman
+#   config:
+#     image: debian:bookworm-slim
+#     # Rootless default: unix:///run/user/<UID>/podman/podman.sock
+#     # Root default:     unix:///run/podman/podman.sock
+#     socket_path: unix:///run/user/1000/podman/podman.sock
+
+# --- winsw (Windows) -----------------------------------------------
+# process_manager:
+#   name: winsw
+
+# --- shawl (Windows) -----------------------------------------------
+# process_manager:
+#   name: shawl
+
+# ------------------------------------------------------------------
+# Windows: users map used by winsw/shawl to start services under a
+# local account. Key = OS user, value = password (prefix with
+# "base64:" to store the password base64-encoded).
+# ------------------------------------------------------------------
+
+# users:
+#   gameap: base64:cGFzc3dvcmQ=
+#   srcds: MySecretPassword
+
+# If true, Windows services run under "NT AUTHORITY\NETWORK SERVICE"
+# and the `users` map is ignored. Default: false.
+# use_network_service_user: false

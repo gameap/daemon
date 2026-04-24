@@ -310,12 +310,16 @@ func (s *Server) Vars() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	vars := make(map[string]string)
+	vars := make(map[string]string, len(s.gameMod.Vars)+len(s.vars)+len(s.settings))
 	for _, v := range s.gameMod.Vars {
 		vars[v.Key] = v.DefaultValue
 	}
 
 	for k, v := range s.vars {
+		vars[k] = v
+	}
+
+	for k, v := range s.settings {
 		vars[k] = v
 	}
 
