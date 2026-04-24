@@ -34,9 +34,10 @@ func (suite *Suite) TestSuccess() {
 	suite.Equal("gameap", server.User())
 	suite.Equal("./hlds_run -game cstrike +ip {ip} +port {port} +map {default_map} +maxplayers {maxplayers} +sys_ticrate {fps} +rcon_password {rcon_password}", server.StartCommand())
 	suite.Equal(map[string]string{
-		"default_map": "de_dust2",
-		"fps":         "500",
-		"maxplayers":  "32",
+		"default_map":       "de_dust2",
+		"fps":               "500",
+		"maxplayers":        "32",
+		"autostart_current": "1",
 	}, server.Vars())
 	suite.Equal(true, server.AutoStart())
 	suite.Equal("cstrike", server.Game().Code)
@@ -96,12 +97,11 @@ func (suite *Suite) TestFactorioServerParsing() {
 	suite.Equal("20", server.Setting("MAX_SLOTS"))
 	suite.Equal("gamesave", server.Setting("SAVE_NAME"))
 
-	// Null vars handled properly - Vars() should return only gameMod.Vars defaults
 	vars := server.Vars()
-	suite.Equal("latest", vars["FACTORIO_VERSION"])
-	suite.Equal("10", vars["MAX_SLOTS"])
-	suite.Equal("world", vars["SAVE_NAME"])
-	suite.Equal("A Factorio Server", vars["SERVER_DESC"])
+	suite.Equal("1.1.100", vars["FACTORIO_VERSION"])
+	suite.Equal("20", vars["MAX_SLOTS"])
+	suite.Equal("gamesave", vars["SAVE_NAME"])
+	suite.Equal("Description", vars["SERVER_DESC"])
 
 	// Game info
 	suite.Equal("factorio", server.Game().Code)
