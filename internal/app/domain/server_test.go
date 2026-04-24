@@ -2,9 +2,46 @@ package domain
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func newTestServerForVars(
+	gameModVars []GameModVarTemplate,
+	vars map[string]string,
+	settings Settings,
+) *Server {
+	return NewServer(
+		1,
+		true,
+		ServerInstalled,
+		false,
+		"test",
+		"test-uuid",
+		"test",
+		Game{StartCode: "game"},
+		GameMod{Vars: gameModVars},
+		"127.0.0.1",
+		27015,
+		27016,
+		27017,
+		"rconpass",
+		"server-dir",
+		"",
+		"",
+		"",
+		"",
+		"",
+		false,
+		time.Time{},
+		vars,
+		settings,
+		time.Time{},
+		0,
+		0,
+	)
+}
 
 func TestNormalizeEnvKey(t *testing.T) {
 	tests := []struct {
@@ -95,4 +132,113 @@ func TestNormalizeEnvKey(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestServer_Vars_ReturnsGameModDefaults(t *testing.T) {
+	server := newTestServerForVars(
+		[]GameModVarTemplate{
+			{Key: "hostname", DefaultValue: "Default Hostname"},
+			{Key: "maxplayers", DefaultValue: "16"},
+		},
+		map[string]string{},
+		Settings{},
+	)
+
+	vars := server.Vars()
+
+	assert.Equal(t, "Default Hostname", vars["hostname"])
+	assert.Equal(t, "16", vars["maxplayers"])
+}
+
+func TestServer_Vars_ServerVarsOverrideGameModDefaults(t *testing.T) {
+	server := newTestServerForVars(
+		[]GameModVarTemplate{
+			{Key: "hostname", DefaultValue: "Default Hostname"},
+			{Key: "maxplayers", DefaultValue: "16"},
+		},
+		map[string]string{
+			"hostname": "Vars Hostname",
+		},
+		Settings{},
+	)
+
+	vars := server.Vars()
+
+	assert.Equal(t, "Vars Hostname", vars["hostname"])
+	assert.Equal(t, "16", vars["maxplayers"])
+}
+
+func TestServer_Vars_SettingsOverrideVarsAndGameModDefaults(t *testing.T) {
+	server := newTestServerForVars(
+		[]GameModVarTemplate{
+			{Key: "hostname", DefaultValue: "Default Hostname"},
+			{Key: "maxplayers", DefaultValue: "16"},
+		},
+		map[string]string{
+			"hostname":   "Vars Hostname",
+			"maxplayers": "32",
+		},
+		Settings{
+			"hostname": "Settings Hostname",
+		},
+	)
+
+	vars := server.Vars()
+
+	assert.Equal(t, "Settings Hostname", vars["hostname"])
+	assert.Equal(t, "32", vars["maxplayers"])
+}
+
+func TestServer_Vars_EmptyWhenNoSources(t *testing.T) {
+	server := newTestServerForVars(nil, map[string]string{}, Settings{})
+
+	vars := server.Vars()
+
+	assert.Empty(t, vars)
+}
+
+func TestServer_EnvironmentVars_NormalizesKeys(t *testing.T) {
+	server := newTestServerForVars(
+		[]GameModVarTemplate{
+			{Key: "max-players", DefaultValue: "16"},
+		},
+		map[string]string{},
+		Settings{},
+	)
+
+	envVars := server.EnvironmentVars()
+
+	assert.Equal(t, "16", envVars["MAX_PLAYERS"])
+}
+
+func TestServer_EnvironmentVars_SettingsOverrideVarsAndGameModDefaults(t *testing.T) {
+	server := newTestServerForVars(
+		[]GameModVarTemplate{
+			{Key: "hostname", DefaultValue: "Default Hostname"},
+			{Key: "maxplayers", DefaultValue: "16"},
+		},
+		map[string]string{
+			"hostname":   "Vars Hostname",
+			"maxplayers": "32",
+		},
+		Settings{
+			"hostname": "Settings Hostname",
+		},
+	)
+
+	envVars := server.EnvironmentVars()
+
+	assert.Equal(t, "Settings Hostname", envVars["HOSTNAME"])
+	assert.Equal(t, "32", envVars["MAXPLAYERS"])
+}
+
+func TestServer_EnvironmentVars_AlwaysIncludesPortVars(t *testing.T) {
+	server := newTestServerForVars(nil, map[string]string{}, Settings{})
+
+	envVars := server.EnvironmentVars()
+
+	assert.Equal(t, "27015", envVars["SERVER_PORT"])
+	assert.Equal(t, "27015", envVars["PORT"])
+	assert.Equal(t, "27016", envVars["QUERY_PORT"])
+	assert.Equal(t, "27017", envVars["RCON_PORT"])
 }
