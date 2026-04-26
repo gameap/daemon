@@ -231,3 +231,10 @@ func (pm *Simple) Attach(
 func (pm *Simple) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }
+
+// Metrics returns only the cached process-active gauge for now. PID-based
+// resource collection (cpu/memory/io via gopsutil/process) is tracked as a
+// follow-up since the simple process manager does not persist PIDs.
+func (pm *Simple) Metrics(_ context.Context, server *domain.Server) ([]domain.Metric, error) {
+	return []domain.Metric{livenessMetric(server, time.Now())}, nil
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/app/metrics"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -26,6 +27,7 @@ type Container interface {
 	ProcessRunner(ctx context.Context) *services.Runner
 	CacheManager(ctx context.Context) contracts.Cache
 	ServerCommandFactory(ctx context.Context) *gameservercommands.ServerCommandFactory
+	MetricsService(ctx context.Context) *metrics.Service
 
 	Services() ServicesContainer
 	Repositories() RepositoryContainer

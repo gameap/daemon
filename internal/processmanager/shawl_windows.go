@@ -590,3 +590,9 @@ func (pm *Shawl) Attach(
 func (pm *Shawl) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }
+
+// Metrics returns only the cached process-active gauge for now. Resource
+// stats via Windows performance counters / WMI are tracked as a follow-up.
+func (pm *Shawl) Metrics(_ context.Context, server *domain.Server) ([]domain.Metric, error) {
+	return []domain.Metric{livenessMetric(server, time.Now())}, nil
+}

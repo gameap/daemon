@@ -154,6 +154,18 @@ func initialize(c *cli.Context) error {
 		group.Go(processRunner.RunServersLoopWithReporter(ctx, cfg))
 		group.Go(processRunner.RunServerScheduler(ctx, cfg))
 
+		if cfg.Metrics.IsEnabled() {
+			metricsService, err := container.MetricsService(ctx)
+			if err != nil {
+				return err
+			}
+			group.Go(func() error { return metricsService.Run(ctx) })
+			log.WithFields(log.Fields{
+				"interval":  cfg.Metrics.CollectionInterval,
+				"retention": cfg.Metrics.RetentionDuration,
+			}).Info("Starting metrics collector")
+		}
+
 		log.Info("Running in gRPC mode")
 	} else {
 		log.Info("Starting GDaemon Server...")

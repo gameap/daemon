@@ -123,6 +123,19 @@ log_level: debug
 #   workers_count: 4
 
 # ------------------------------------------------------------------
+# Metrics
+# Pull-mode Prometheus-like metrics (cpu, ram, network, disk, ...) are
+# exposed to the panel over the gRPC bidi stream. The daemon collects
+# samples on a tick and keeps them in an in-memory ring buffer; the
+# panel pulls either the latest snapshot or a recent history window.
+# ------------------------------------------------------------------
+
+# metrics:
+#   enabled: true                  # default: true (set to false to disable)
+#   collection_interval: 5s        # default: 5s
+#   retention_duration: 10m        # default: 10m, clamped to [10m, 60m]
+
+# ------------------------------------------------------------------
 # Process manager
 # Choose one backend. Available values:
 #   Linux/macOS: tmux (default), systemd, simple, docker, podman

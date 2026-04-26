@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
@@ -510,4 +511,10 @@ func (pm *WinSW) Attach(
 
 func (pm *WinSW) HasOwnInstallation(_ *domain.Server) bool {
 	return false
+}
+
+// Metrics returns only the cached process-active gauge for now. Resource
+// stats via Windows performance counters / WMI are tracked as a follow-up.
+func (pm *WinSW) Metrics(_ context.Context, server *domain.Server) ([]domain.Metric, error) {
+	return []domain.Metric{livenessMetric(server, time.Now())}, nil
 }

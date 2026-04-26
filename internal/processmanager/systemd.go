@@ -900,6 +900,12 @@ func (pm *SystemD) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }
 
+// Metrics returns only the cached process-active gauge for now. Pulling the
+// MainPID via systemctl + cgroup-based stats is tracked as a follow-up.
+func (pm *SystemD) Metrics(_ context.Context, server *domain.Server) ([]domain.Metric, error) {
+	return []domain.Metric{livenessMetric(server, time.Now())}, nil
+}
+
 // escapeSystemdEnv formats and escapes an environment variable for systemd.
 // Systemd requires proper quoting and escaping of special characters.
 // Format: "KEY=value" with proper escaping of quotes, backslashes, and special chars.

@@ -470,3 +470,10 @@ func (pm *Tmux) Attach(
 func (pm *Tmux) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }
+
+// Metrics returns only the cached process-active gauge for now. Tmux sessions
+// hold child PIDs needed for resource stats; richer metrics are tracked as a
+// follow-up.
+func (pm *Tmux) Metrics(_ context.Context, server *domain.Server) ([]domain.Metric, error) {
+	return []domain.Metric{livenessMetric(server, time.Now())}, nil
+}

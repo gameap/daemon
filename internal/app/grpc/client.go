@@ -67,6 +67,10 @@ type HTTPProxyHandler interface {
 	HandleHTTPProxy(ctx context.Context, requestID string, req *pb.HTTPProxyRequest) (*pb.HTTPProxyResponse, error)
 }
 
+type MetricsHandler interface {
+	HandleMetricsRequest(ctx context.Context, requestID string, req *pb.MetricsRequest) *pb.MetricsResponse
+}
+
 type ResponseSender interface {
 	Send(msg *pb.DaemonMessage)
 }
@@ -88,6 +92,7 @@ type GatewayClient struct {
 	attachHandler        AttachHandler
 	consoleLogHandler    ConsoleLogHandler
 	httpProxyHandler     HTTPProxyHandler
+	metricsHandler       MetricsHandler
 	inFlightTaskProvider InFlightTasksProvider
 	gameStore            *GameStore
 
@@ -179,7 +184,7 @@ func (c *GatewayClient) register(ctx context.Context) error {
 				NodeId:        uint64(c.cfg.NodeID),
 				ApiKey:        c.cfg.APIKey,
 				Version:       build.Version,
-				Capabilities:  []string{"grpc", "file_transfer", "server_status", "attach", "http_proxy"},
+				Capabilities:  []string{"grpc", "file_transfer", "server_status", "attach", "http_proxy", "metrics"},
 				InFlightTasks: inFlightTasks,
 			},
 		},
@@ -480,9 +485,33 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 	case *pb.GatewayMessage_HttpProxy:
 		c.handleHTTPProxy(ctx, msg.RequestId, payload.HttpProxy)
 
+	case *pb.GatewayMessage_MetricsRequest:
+		c.handleMetricsRequest(ctx, msg.RequestId, payload.MetricsRequest)
+
 	default:
 		log.WithField("type", msg.Payload).Warn("Unknown message type received")
 	}
+}
+
+func (c *GatewayClient) handleMetricsRequest(
+	ctx context.Context, requestID string, req *pb.MetricsRequest,
+) {
+	if c.metricsHandler == nil {
+		log.WithField("request_id", requestID).Warn("Received metrics request but no handler registered")
+		return
+	}
+
+	resp := c.metricsHandler.HandleMetricsRequest(ctx, requestID, req)
+	if resp == nil {
+		return
+	}
+
+	c.Send(&pb.DaemonMessage{
+		RequestId: requestID,
+		Payload: &pb.DaemonMessage_MetricsResponse{
+			MetricsResponse: resp,
+		},
+	})
 }
 
 func (c *GatewayClient) handleServerConfigBatch(ctx context.Context, batch *pb.ServerConfigBatch) {
@@ -683,4 +712,8 @@ func (c *GatewayClient) SetConsoleLogHandler(h ConsoleLogHandler) {
 
 func (c *GatewayClient) SetHTTPProxyHandler(h HTTPProxyHandler) {
 	c.httpProxyHandler = h
+}
+
+func (c *GatewayClient) SetMetricsHandler(h MetricsHandler) {
+	c.metricsHandler = h
 }

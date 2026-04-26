@@ -68,6 +68,14 @@ type ProcessManager interface {
 	// Blocks until ctx is cancelled, in is closed, or an error occurs.
 	Attach(ctx context.Context, server *domain.Server, in io.Reader, out io.Writer) error
 
+	// Metrics collects runtime metrics for the given server (cpu, memory,
+	// network, ...). Returns structured samples instead of writing text
+	// because they are forwarded to the panel via Prometheus-like proto
+	// messages, not displayed to a human. Implementations should not
+	// return an error for "metrics unavailable" — they should return an
+	// empty slice (or only liveness metrics) and log on debug instead.
+	Metrics(ctx context.Context, server *domain.Server) ([]domain.Metric, error)
+
 	// HasOwnInstallation checks if the ProcessManager can install server files itself.
 	HasOwnInstallation(server *domain.Server) bool
 }

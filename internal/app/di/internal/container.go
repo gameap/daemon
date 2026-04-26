@@ -7,6 +7,7 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
+	"github.com/gameap/daemon/internal/app/metrics"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -30,6 +31,7 @@ type Container struct {
 	connectionManager    *grpcclient.ConnectionManager
 	fileTransferClient   *grpcclient.FileTransferClient
 	serverStatusReporter *grpcclient.ServerStatusReporter
+	metricsService       *metrics.Service
 
 	services     *ServicesContainer
 	repositories *RepositoryContainer
@@ -137,6 +139,13 @@ func (c *Container) ServerStatusReporter(ctx context.Context) *grpcclient.Server
 		c.serverStatusReporter = definitions.CreateServerStatusReporter(ctx, c, client)
 	}
 	return c.serverStatusReporter
+}
+
+func (c *Container) MetricsService(ctx context.Context) *metrics.Service {
+	if c.metricsService == nil && c.err == nil {
+		c.metricsService = definitions.CreateMetricsService(ctx, c)
+	}
+	return c.metricsService
 }
 
 func (c *Container) Services() definitions.ServicesContainer {

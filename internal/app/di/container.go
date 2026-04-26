@@ -13,6 +13,7 @@ import (
 	"github.com/gameap/daemon/internal/app/di/internal"
 	"github.com/gameap/daemon/internal/app/domain"
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
+	"github.com/gameap/daemon/internal/app/metrics"
 	"github.com/gameap/daemon/internal/app/services"
 	"github.com/sirupsen/logrus"
 )
@@ -151,6 +152,19 @@ func (c *Container) ServerStatusReporter(ctx context.Context) (*grpcclient.Serve
 	defer c.mu.Unlock()
 
 	s := c.c.ServerStatusReporter(ctx)
+	err := c.c.Error()
+	if err != nil {
+		return nil, err
+	}
+
+	return s, err
+}
+
+func (c *Container) MetricsService(ctx context.Context) (*metrics.Service, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	s := c.c.MetricsService(ctx)
 	err := c.c.Error()
 	if err != nil {
 		return nil, err

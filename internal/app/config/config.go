@@ -38,6 +38,29 @@ type GRPCConfig struct {
 	MaxReconnectDelay     time.Duration `yaml:"max_reconnect_delay"`
 }
 
+type MetricsConfig struct {
+	Enabled            *bool         `yaml:"enabled"`
+	CollectionInterval time.Duration `yaml:"collection_interval"`
+	RetentionDuration  time.Duration `yaml:"retention_duration"`
+}
+
+// IsEnabled reports whether metrics collection should run. Defaults to true
+// when the field is absent from the yaml config.
+func (m MetricsConfig) IsEnabled() bool {
+	if m.Enabled == nil {
+		return true
+	}
+	return *m.Enabled
+}
+
+const (
+	MetricsDefaultCollectionInterval = 5 * time.Second
+	MetricsDefaultRetentionDuration  = 10 * time.Minute
+	MetricsMinRetentionDuration      = 10 * time.Minute
+	MetricsMaxRetentionDuration      = 60 * time.Minute
+	MetricsMinCollectionInterval     = 1 * time.Second
+)
+
 //nolint:govet
 type Config struct {
 	NodeID uint `yaml:"ds_id"`
@@ -98,6 +121,8 @@ type Config struct {
 
 	GRPC GRPCConfig `yaml:"grpc"`
 
+	Metrics MetricsConfig `yaml:"metrics"`
+
 	Users map[string]string `yaml:"users"`
 
 	// Windows specific settings
@@ -155,7 +180,27 @@ func (cfg *Config) Init() error {
 		cfg.GRPC.MaxReconnectDelay = 60 * time.Second
 	}
 
+	cfg.initMetricsDefaults()
+
 	return cfg.validate()
+}
+
+func (cfg *Config) initMetricsDefaults() {
+	if cfg.Metrics.CollectionInterval <= 0 {
+		cfg.Metrics.CollectionInterval = MetricsDefaultCollectionInterval
+	} else if cfg.Metrics.CollectionInterval < MetricsMinCollectionInterval {
+		cfg.Metrics.CollectionInterval = MetricsMinCollectionInterval
+	}
+
+	if cfg.Metrics.RetentionDuration <= 0 {
+		cfg.Metrics.RetentionDuration = MetricsDefaultRetentionDuration
+	}
+	if cfg.Metrics.RetentionDuration < MetricsMinRetentionDuration {
+		cfg.Metrics.RetentionDuration = MetricsMinRetentionDuration
+	}
+	if cfg.Metrics.RetentionDuration > MetricsMaxRetentionDuration {
+		cfg.Metrics.RetentionDuration = MetricsMaxRetentionDuration
+	}
 }
 
 func (cfg *Config) validate() error {

@@ -88,6 +88,10 @@ func CreateConnectionManager(
 	httpProxyHandler := grpcclient.NewGRPCHTTPProxyHandler()
 	client.SetHTTPProxyHandler(httpProxyHandler)
 
+	if cfg.Metrics.IsEnabled() {
+		AttachMetricsHandler(client, c.MetricsService(ctx))
+	}
+
 	c.Services().GdTaskManager(ctx).SetTaskStatusSender(client)
 
 	cm := grpcclient.NewConnectionManager(cfg, client)

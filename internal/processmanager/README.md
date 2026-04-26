@@ -14,6 +14,21 @@ This package provides process manager implementations for managing game server l
 | `docker` | All | Docker container-based process management |
 | `podman` | Linux, macOS | Podman container-based process management |
 
+## Metrics support
+
+The `Metrics(ctx, server)` method returns Prometheus-style samples (see
+`internal/app/metrics`) that the daemon's metrics collector aggregates and
+forwards to the panel via gRPC.
+
+| PM | `gameap_server_up` | `gameap_server_cpu_usage_percent` | `gameap_server_memory_*` | `gameap_server_network_*_bytes_total` | `gameap_server_block_io_*_bytes_total` | `gameap_server_process_pids` |
+|----|:---:|:---:|:---:|:---:|:---:|:---:|
+| `docker` | yes | yes | yes | yes | yes (Linux) | yes |
+| `podman` | yes | yes | yes | yes | yes | yes |
+| `tmux` / `systemd` / `simple` / `winsw` / `shawl` | yes | — | — | — | — | — |
+
+Container-backed managers tag their metrics with `{server_id, server_uuid, container}`.
+PID-based stats for the non-container managers are tracked as a follow-up.
+
 ## Configuration
 
 Process manager is configured in the daemon configuration file:
