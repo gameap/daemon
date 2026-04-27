@@ -61,35 +61,33 @@ func dockerStatsToMetrics(ts time.Time, containerName string, stats *container.S
 	}
 
 	memUsed := dockerEffectiveMemoryUsage(&stats.MemoryStats)
-	if memUsed > 0 || stats.MemoryStats.Limit > 0 {
-		out = append(out, domain.Metric{
-			Name:      metricServerMemoryUsageBytes,
-			Type:      domain.MetricTypeGauge,
-			Unit:      domain.MetricUnitBytes,
-			Labels:    cloneLabelMap(labels),
-			Timestamp: ts,
-			Value:     domain.Uint64Value(memUsed),
-		})
-		if stats.MemoryStats.Limit > 0 {
-			out = append(out,
-				domain.Metric{
-					Name:      metricServerMemoryLimitBytes,
-					Type:      domain.MetricTypeGauge,
-					Unit:      domain.MetricUnitBytes,
-					Labels:    cloneLabelMap(labels),
-					Timestamp: ts,
-					Value:     domain.Uint64Value(stats.MemoryStats.Limit),
-				},
-				domain.Metric{
-					Name:      metricServerMemoryUsagePercent,
-					Type:      domain.MetricTypeGauge,
-					Unit:      domain.MetricUnitPercent,
-					Labels:    cloneLabelMap(labels),
-					Timestamp: ts,
-					Value:     domain.Float64Value(float64(memUsed) / float64(stats.MemoryStats.Limit) * 100),
-				},
-			)
-		}
+	out = append(out, domain.Metric{
+		Name:      metricServerMemoryUsageBytes,
+		Type:      domain.MetricTypeGauge,
+		Unit:      domain.MetricUnitBytes,
+		Labels:    cloneLabelMap(labels),
+		Timestamp: ts,
+		Value:     domain.Uint64Value(memUsed),
+	})
+	if stats.MemoryStats.Limit > 0 {
+		out = append(out,
+			domain.Metric{
+				Name:      metricServerMemoryLimitBytes,
+				Type:      domain.MetricTypeGauge,
+				Unit:      domain.MetricUnitBytes,
+				Labels:    cloneLabelMap(labels),
+				Timestamp: ts,
+				Value:     domain.Uint64Value(stats.MemoryStats.Limit),
+			},
+			domain.Metric{
+				Name:      metricServerMemoryUsagePercent,
+				Type:      domain.MetricTypeGauge,
+				Unit:      domain.MetricUnitPercent,
+				Labels:    cloneLabelMap(labels),
+				Timestamp: ts,
+				Value:     domain.Float64Value(float64(memUsed) / float64(stats.MemoryStats.Limit) * 100),
+			},
+		)
 	}
 
 	var rx, tx uint64
@@ -97,47 +95,44 @@ func dockerStatsToMetrics(ts time.Time, containerName string, stats *container.S
 		rx += n.RxBytes
 		tx += n.TxBytes
 	}
-	if len(stats.Networks) > 0 {
-		out = append(out,
-			domain.Metric{
-				Name:      metricServerNetworkReceiveBytesTotal,
-				Type:      domain.MetricTypeCounter,
-				Unit:      domain.MetricUnitBytes,
-				Labels:    cloneLabelMap(labels),
-				Timestamp: ts,
-				Value:     domain.Uint64Value(rx),
-			},
-			domain.Metric{
-				Name:      metricServerNetworkTransmitBytesTotal,
-				Type:      domain.MetricTypeCounter,
-				Unit:      domain.MetricUnitBytes,
-				Labels:    cloneLabelMap(labels),
-				Timestamp: ts,
-				Value:     domain.Uint64Value(tx),
-			},
-		)
-	}
+	out = append(out,
+		domain.Metric{
+			Name:      metricServerNetworkReceiveBytesTotal,
+			Type:      domain.MetricTypeCounter,
+			Unit:      domain.MetricUnitBytes,
+			Labels:    cloneLabelMap(labels),
+			Timestamp: ts,
+			Value:     domain.Uint64Value(rx),
+		},
+		domain.Metric{
+			Name:      metricServerNetworkTransmitBytesTotal,
+			Type:      domain.MetricTypeCounter,
+			Unit:      domain.MetricUnitBytes,
+			Labels:    cloneLabelMap(labels),
+			Timestamp: ts,
+			Value:     domain.Uint64Value(tx),
+		},
+	)
 
-	if read, write, ok := dockerBlockIOTotals(&stats.BlkioStats); ok {
-		out = append(out,
-			domain.Metric{
-				Name:      metricServerBlockIOReadBytesTotal,
-				Type:      domain.MetricTypeCounter,
-				Unit:      domain.MetricUnitBytes,
-				Labels:    cloneLabelMap(labels),
-				Timestamp: ts,
-				Value:     domain.Uint64Value(read),
-			},
-			domain.Metric{
-				Name:      metricServerBlockIOWriteBytesTotal,
-				Type:      domain.MetricTypeCounter,
-				Unit:      domain.MetricUnitBytes,
-				Labels:    cloneLabelMap(labels),
-				Timestamp: ts,
-				Value:     domain.Uint64Value(write),
-			},
-		)
-	}
+	read, write := dockerBlockIOTotals(&stats.BlkioStats)
+	out = append(out,
+		domain.Metric{
+			Name:      metricServerBlockIOReadBytesTotal,
+			Type:      domain.MetricTypeCounter,
+			Unit:      domain.MetricUnitBytes,
+			Labels:    cloneLabelMap(labels),
+			Timestamp: ts,
+			Value:     domain.Uint64Value(read),
+		},
+		domain.Metric{
+			Name:      metricServerBlockIOWriteBytesTotal,
+			Type:      domain.MetricTypeCounter,
+			Unit:      domain.MetricUnitBytes,
+			Labels:    cloneLabelMap(labels),
+			Timestamp: ts,
+			Value:     domain.Uint64Value(write),
+		},
+	)
 
 	out = append(out, domain.Metric{
 		Name:      metricServerProcessPIDs,
@@ -202,10 +197,11 @@ func dockerEffectiveMemoryUsage(m *container.MemoryStats) uint64 {
 	return m.Usage
 }
 
-func dockerBlockIOTotals(b *container.BlkioStats) (read, write uint64, ok bool) {
-	if len(b.IoServiceBytesRecursive) == 0 {
-		return 0, 0, false
-	}
+// dockerBlockIOTotals sums per-op block-IO bytes from cgroups v1 stats.
+// Returns zeros when IoServiceBytesRecursive is empty (cgroups v2 or no IO
+// since container start) — callers should still emit the metrics so the
+// series stays continuous.
+func dockerBlockIOTotals(b *container.BlkioStats) (read, write uint64) {
 	for _, e := range b.IoServiceBytesRecursive {
 		switch strings.ToLower(e.Op) {
 		case "read":
@@ -214,7 +210,7 @@ func dockerBlockIOTotals(b *container.BlkioStats) (read, write uint64, ok bool) 
 			write += e.Value
 		}
 	}
-	return read, write, true
+	return read, write
 }
 
 func cloneLabelMap(in map[string]string) map[string]string {

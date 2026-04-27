@@ -88,35 +88,33 @@ func podmanStatsToMetrics(ts time.Time, containerName string, s *podmanStatsEntr
 		Value:     domain.Float64Value(s.CPU),
 	})
 
-	if s.MemUsage > 0 || s.MemLimit > 0 {
-		out = append(out, domain.Metric{
-			Name:      metricServerMemoryUsageBytes,
-			Type:      domain.MetricTypeGauge,
-			Unit:      domain.MetricUnitBytes,
-			Labels:    cloneLabelMap(labels),
-			Timestamp: ts,
-			Value:     domain.Uint64Value(s.MemUsage),
-		})
-		if s.MemLimit > 0 {
-			out = append(out,
-				domain.Metric{
-					Name:      metricServerMemoryLimitBytes,
-					Type:      domain.MetricTypeGauge,
-					Unit:      domain.MetricUnitBytes,
-					Labels:    cloneLabelMap(labels),
-					Timestamp: ts,
-					Value:     domain.Uint64Value(s.MemLimit),
-				},
-				domain.Metric{
-					Name:      metricServerMemoryUsagePercent,
-					Type:      domain.MetricTypeGauge,
-					Unit:      domain.MetricUnitPercent,
-					Labels:    cloneLabelMap(labels),
-					Timestamp: ts,
-					Value:     domain.Float64Value(s.MemPerc),
-				},
-			)
-		}
+	out = append(out, domain.Metric{
+		Name:      metricServerMemoryUsageBytes,
+		Type:      domain.MetricTypeGauge,
+		Unit:      domain.MetricUnitBytes,
+		Labels:    cloneLabelMap(labels),
+		Timestamp: ts,
+		Value:     domain.Uint64Value(s.MemUsage),
+	})
+	if s.MemLimit > 0 {
+		out = append(out,
+			domain.Metric{
+				Name:      metricServerMemoryLimitBytes,
+				Type:      domain.MetricTypeGauge,
+				Unit:      domain.MetricUnitBytes,
+				Labels:    cloneLabelMap(labels),
+				Timestamp: ts,
+				Value:     domain.Uint64Value(s.MemLimit),
+			},
+			domain.Metric{
+				Name:      metricServerMemoryUsagePercent,
+				Type:      domain.MetricTypeGauge,
+				Unit:      domain.MetricUnitPercent,
+				Labels:    cloneLabelMap(labels),
+				Timestamp: ts,
+				Value:     domain.Float64Value(s.MemPerc),
+			},
+		)
 	}
 
 	out = append(out,
