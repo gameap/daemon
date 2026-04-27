@@ -154,16 +154,14 @@ func podmanStatsToMetrics(ts time.Time, containerName string, s *podmanStatsEntr
 		},
 	)
 
-	if s.PIDs > 0 {
-		out = append(out, domain.Metric{
-			Name:      metricServerProcessPIDs,
-			Type:      domain.MetricTypeGauge,
-			Unit:      domain.MetricUnitCount,
-			Labels:    cloneLabelMap(labels),
-			Timestamp: ts,
-			Value:     domain.Uint64Value(s.PIDs),
-		})
-	}
+	out = append(out, domain.Metric{
+		Name:      metricServerProcessPIDs,
+		Type:      domain.MetricTypeGauge,
+		Unit:      domain.MetricUnitCount,
+		Labels:    cloneLabelMap(labels),
+		Timestamp: ts,
+		Value:     domain.Uint64Value(s.PIDs),
+	})
 
 	return out
 }

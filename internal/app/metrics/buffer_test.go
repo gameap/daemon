@@ -117,6 +117,34 @@ func TestBuffer_HistoryReturnsAllPointsInWindow(t *testing.T) {
 	assert.Len(t, history, 3, "window covers t-0, t-1, t-2 (with margin for History's time.Now)")
 }
 
+func TestBuffer_AcceptsZeroValuesViaConstructors(t *testing.T) {
+	buf := NewBuffer(time.Minute)
+	now := time.Now()
+
+	buf.Append([]domain.Metric{
+		{
+			Name:      "gameap_server_cpu_usage_percent",
+			Type:      domain.MetricTypeGauge,
+			Unit:      domain.MetricUnitPercent,
+			Timestamp: now,
+			Value:     domain.Float64Value(0),
+		},
+		{
+			Name:      "gameap_server_process_pids",
+			Type:      domain.MetricTypeGauge,
+			Unit:      domain.MetricUnitCount,
+			Timestamp: now,
+			Value:     domain.Uint64Value(0),
+		},
+	})
+
+	current := buf.Current()
+	require.Len(t, current, 2, "explicit zero values must be retained, only truly unset ones are skipped")
+	for _, m := range current {
+		assert.True(t, m.Value.IsSet())
+	}
+}
+
 func TestBuffer_EmptyValueIsSkipped(t *testing.T) {
 	buf := NewBuffer(time.Minute)
 

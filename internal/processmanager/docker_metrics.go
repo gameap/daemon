@@ -139,30 +139,40 @@ func dockerStatsToMetrics(ts time.Time, containerName string, stats *container.S
 		)
 	}
 
-	if stats.PidsStats.Current > 0 {
-		out = append(out, domain.Metric{
-			Name:      metricServerProcessPIDs,
-			Type:      domain.MetricTypeGauge,
-			Unit:      domain.MetricUnitCount,
-			Labels:    cloneLabelMap(labels),
-			Timestamp: ts,
-			Value:     domain.Uint64Value(stats.PidsStats.Current),
-		})
-	}
+	out = append(out, domain.Metric{
+		Name:      metricServerProcessPIDs,
+		Type:      domain.MetricTypeGauge,
+		Unit:      domain.MetricUnitCount,
+		Labels:    cloneLabelMap(labels),
+		Timestamp: ts,
+		Value:     domain.Uint64Value(stats.PidsStats.Current),
+	})
 
 	return out
 }
 
 func computeDockerCPUPercent(stats *container.StatsResponse) (float64, bool) {
-	cpuTotal := stats.CPUStats.CPUUsage.TotalUsage
-	preCPUTotal := stats.PreCPUStats.CPUUsage.TotalUsage
-	if cpuTotal <= preCPUTotal {
+	// PreRead is unset when the daemon couldn't capture a prior sample
+	// (e.g. container started < IncludePreviousSample interval ago).
+	// Without a baseline the delta is meaningless, so suppress.
+	if stats.PreRead.IsZero() {
 		return 0, false
 	}
+
+	cpuTotal := stats.CPUStats.CPUUsage.TotalUsage
+	preCPUTotal := stats.PreCPUStats.CPUUsage.TotalUsage
+	// Counter went backwards (container restart between samples).
+	if cpuTotal < preCPUTotal {
+		return 0, false
+	}
+	// cpuDelta == 0 is legitimate: container was idle since prior sample.
 	cpuDelta := float64(cpuTotal - preCPUTotal)
 
 	system := stats.CPUStats.SystemUsage
 	preSystem := stats.PreCPUStats.SystemUsage
+	// Need a positive system-time delta to avoid division by zero. If
+	// system time hasn't advanced, the two samples are from the same
+	// instant or SystemUsage is unpopulated (Windows containers).
 	if system <= preSystem {
 		return 0, false
 	}

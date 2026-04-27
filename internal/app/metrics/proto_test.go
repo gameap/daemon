@@ -117,3 +117,45 @@ func TestToMetricsResponse_ActualWindow(t *testing.T) {
 	resp := ToMetricsResponse(nil, 90*time.Second)
 	assert.Equal(t, uint32(90), resp.ActualWindowSeconds)
 }
+
+func TestToMetricsResponse_PreservesZeroValues(t *testing.T) {
+	now := time.Now()
+	samples := []domain.Metric{
+		{
+			Name:      "gameap_server_cpu_usage_percent",
+			Type:      domain.MetricTypeGauge,
+			Unit:      domain.MetricUnitPercent,
+			Timestamp: now,
+			Value:     domain.Float64Value(0),
+		},
+		{
+			Name:      "gameap_server_network_receive_bytes_total",
+			Type:      domain.MetricTypeCounter,
+			Unit:      domain.MetricUnitBytes,
+			Timestamp: now,
+			Value:     domain.Uint64Value(0),
+		},
+	}
+
+	resp := ToMetricsResponse(samples, 0)
+	require.Len(t, resp.Series, 2)
+
+	byName := map[string]*pb.MetricSeries{}
+	for _, s := range resp.Series {
+		byName[s.Name] = s
+	}
+
+	cpu := byName["gameap_server_cpu_usage_percent"]
+	require.NotNil(t, cpu)
+	require.Len(t, cpu.Points, 1)
+	dv, ok := cpu.Points[0].Value.(*pb.MetricPoint_DoubleValue)
+	require.True(t, ok, "0 float must use double_value oneof, not be left unset")
+	assert.Equal(t, 0.0, dv.DoubleValue)
+
+	net := byName["gameap_server_network_receive_bytes_total"]
+	require.NotNil(t, net)
+	require.Len(t, net.Points, 1)
+	uv, ok := net.Points[0].Value.(*pb.MetricPoint_UintValue)
+	require.True(t, ok, "0 uint must use uint_value oneof, not be left unset")
+	assert.Equal(t, uint64(0), uv.UintValue)
+}
