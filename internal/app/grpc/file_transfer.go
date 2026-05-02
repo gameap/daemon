@@ -244,33 +244,10 @@ func (c *FileTransferClient) DownloadFile(ctx context.Context, remotePath, local
 	defer file.Close()
 
 	hasher := sha256.New()
-	var receivedChecksum string
-
-	for {
-		chunk, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			os.Remove(localPath)
-			return errors.Wrap(err, "failed to receive chunk")
-		}
-
-		if chunk.ChecksumSha256 != "" {
-			receivedChecksum = chunk.ChecksumSha256
-		}
-
-		if chunk.IsFinal {
-			continue
-		}
-
-		if len(chunk.Data) > 0 {
-			if _, err := file.Write(chunk.Data); err != nil {
-				os.Remove(localPath)
-				return errors.Wrap(err, "failed to write chunk")
-			}
-			hasher.Write(chunk.Data)
-		}
+	receivedChecksum, streamErr := consumeDownloadStream(stream, file, hasher)
+	if streamErr != nil {
+		os.Remove(localPath)
+		return errors.Wrap(streamErr, "failed to receive chunk")
 	}
 
 	if receivedChecksum != "" {

@@ -148,42 +148,16 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 		}
 	}
 
-	var receivedChecksum string
-
-	// Stream chunks.
-	for {
-		chunk, recvErr := stream.Recv()
-		if recvErr == io.EOF {
-			break
+	receivedChecksum, streamErr := consumeDownloadStream(stream, file, hasher)
+	if streamErr != nil {
+		file.Close()
+		if ctx.Err() != nil {
+			l.Info("Transfer interrupted by context cancellation, temp file preserved")
+			return // temp file preserved for resume, no error response
 		}
-		if recvErr != nil {
-			file.Close()
-			if ctx.Err() != nil {
-				l.Info("Transfer interrupted by context cancellation, temp file preserved")
-				return // temp file preserved for resume, no error response
-			}
-			l.WithError(recvErr).Error("Failed to receive chunk")
-			h.sendResponse(requestID, false, recvErr.Error())
-			return
-		}
-
-		if chunk.ChecksumSha256 != "" {
-			receivedChecksum = chunk.ChecksumSha256
-		}
-
-		if chunk.IsFinal {
-			continue
-		}
-
-		if len(chunk.Data) > 0 {
-			if _, writeErr := file.Write(chunk.Data); writeErr != nil {
-				file.Close()
-				l.WithError(writeErr).Error("Failed to write chunk to temp file")
-				h.sendResponse(requestID, false, writeErr.Error())
-				return // keep temp file for resume
-			}
-			hasher.Write(chunk.Data)
-		}
+		l.WithError(streamErr).Error("Failed to receive chunk")
+		h.sendResponse(requestID, false, streamErr.Error())
+		return
 	}
 
 	if err := file.Close(); err != nil {
