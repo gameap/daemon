@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
@@ -43,12 +44,16 @@ const (
 type SystemD struct {
 	cfg      *config.Config
 	executor contracts.Executor
+
+	cpuSamplesMu sync.Mutex
+	cpuSamples   map[string]systemdCPUSample
 }
 
 func NewSystemD(cfg *config.Config, _, detailedExecutor contracts.Executor) *SystemD {
 	return &SystemD{
-		cfg:      cfg,
-		executor: detailedExecutor,
+		cfg:        cfg,
+		executor:   detailedExecutor,
+		cpuSamples: make(map[string]systemdCPUSample),
 	}
 }
 
@@ -465,6 +470,16 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	builder.WriteString("\n")
 
 	builder.WriteString("Restart=always\n")
+
+	// Enable cgroup accounting so the daemon can read CPU/memory/IO/IP/tasks
+	// counters via `systemctl show` for metrics. Without these directives
+	// systemd reports `[not set]` (or UINT64_MAX) for the corresponding
+	// properties.
+	builder.WriteString("CPUAccounting=yes\n")
+	builder.WriteString("MemoryAccounting=yes\n")
+	builder.WriteString("TasksAccounting=yes\n")
+	builder.WriteString("IOAccounting=yes\n")
+	builder.WriteString("IPAccounting=yes\n")
 
 	runAsUser, group, err := pm.userAndGroup(server)
 	if err != nil {
@@ -898,12 +913,6 @@ func (pm *SystemD) openFIFOWithTimeout(
 
 func (pm *SystemD) HasOwnInstallation(_ *domain.Server) bool {
 	return false
-}
-
-// Metrics returns only the cached process-active gauge for now. Pulling the
-// MainPID via systemctl + cgroup-based stats is tracked as a follow-up.
-func (pm *SystemD) Metrics(_ context.Context, server *domain.Server) ([]domain.Metric, error) {
-	return []domain.Metric{livenessMetric(server, time.Now())}, nil
 }
 
 // escapeSystemdEnv formats and escapes an environment variable for systemd.

@@ -22,6 +22,7 @@ const (
 	metricServerProcessPIDs               = "gameap_server_process_pids"
 
 	metricLabelContainer = "container"
+	metricLabelService   = "service"
 )
 
 // livenessMetric returns a single 0/1 gauge reflecting the cached

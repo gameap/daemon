@@ -24,10 +24,22 @@ forwards to the panel via gRPC.
 |----|:---:|:---:|:---:|:---:|:---:|:---:|
 | `docker` | yes | yes | yes | yes | yes (Linux) | yes |
 | `podman` | yes | yes | yes | yes | yes | yes |
-| `tmux` / `systemd` / `simple` / `winsw` / `shawl` | yes | — | — | — | — | — |
+| `systemd` | yes | yes | yes | yes | yes | yes |
+| `tmux` / `simple` / `winsw` / `shawl` | yes | — | — | — | — | — |
 
 Container-backed managers tag their metrics with `{server_id, server_uuid, container}`.
-PID-based stats for the non-container managers are tracked as a follow-up.
+The systemd manager tags its metrics with `{server_id, server_uuid, service}`.
+
+The systemd manager reads metrics from `systemctl show` and relies on the
+`CPUAccounting=yes`, `MemoryAccounting=yes`, `IOAccounting=yes`,
+`IPAccounting=yes` and `TasksAccounting=yes` directives that the daemon
+writes into every generated unit file. Game servers running on units
+created before these directives existed will report zeros (and a suppressed
+CPU%) until the next start/restart regenerates the unit. Metrics are also
+suppressed for the first sample after each restart, since the cumulative
+CPU counter has no baseline yet.
+
+PID-based stats for `tmux` / `simple` / `winsw` / `shawl` are tracked as a follow-up.
 
 ## Configuration
 

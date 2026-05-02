@@ -684,6 +684,15 @@ func (c *GatewayClient) closeStream() {
 	}
 
 	c.mu.Lock()
+	stream := c.stream
+	c.mu.Unlock()
+	if stream != nil {
+		if err := stream.CloseSend(); err != nil {
+			log.WithError(err).Debug("CloseSend error during shutdown")
+		}
+	}
+
+	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	select {
