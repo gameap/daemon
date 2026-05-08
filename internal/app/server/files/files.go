@@ -18,9 +18,11 @@ import (
 )
 
 const (
-	uploadStreamBaseDeadline = 60 * time.Second
-	uploadStreamMaxDeadline  = 30 * time.Minute
-	uploadStreamMinBytesPS   = 256 * 1024
+	// uploadStreamIdleTimeout caps the gap between two successful Reads from
+	// the client. As long as bytes keep flowing it never trips, regardless of
+	// total upload duration. Tuned for slow networks (Tailscale, NAT) where
+	// 13 MB at 17 KB/s legitimately takes 13+ minutes.
+	uploadStreamIdleTimeout = 60 * time.Second
 )
 
 type connDeadlineSetter interface {
@@ -349,14 +351,13 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 		return errors.WithMessage(err, "failed to write ready to transfer response")
 	}
 
-	deadline := uploadStreamDeadline(message.FileSize)
 	if d, ok := readWriter.(connDeadlineSetter); ok {
-		if dErr := d.SetDeadline(time.Now().Add(deadline)); dErr != nil {
-			logger.Error(ctx, errors.WithMessage(dErr, "failed to extend upload deadline"))
+		if dErr := d.SetDeadline(time.Now().Add(uploadStreamIdleTimeout)); dErr != nil {
+			logger.Error(ctx, errors.WithMessage(dErr, "failed to set initial upload deadline"))
 		} else {
 			logger.Logger(ctx).WithFields(log.Fields{
-				"deadline": deadline.String(),
-			}).Debug("upload: deadline extended for file body read")
+				"idle_timeout": uploadStreamIdleTimeout.String(),
+			}).Debug("upload: deadline set with idle-refresh policy")
 		}
 	} else {
 		logger.Logger(ctx).WithFields(log.Fields{
@@ -365,7 +366,7 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 	}
 
 	copyStart := time.Now()
-	n, err := copyWithProgress(ctx, tmpFile, readWriter, int64(message.FileSize))
+	n, err := copyWithProgress(ctx, tmpFile, readWriter, int64(message.FileSize), uploadStreamIdleTimeout)
 	copyDuration := time.Since(copyStart)
 	logger.Logger(ctx).WithFields(log.Fields{
 		"copied":   n,
@@ -470,26 +471,29 @@ func chmod(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	})
 }
 
-func uploadStreamDeadline(size uint64) time.Duration {
-	extraSecs := size / uploadStreamMinBytesPS
-	maxExtra := uint64(uploadStreamMaxDeadline / time.Second)
-	if extraSecs > maxExtra {
-		extraSecs = maxExtra
-	}
-
-	return min(
-		uploadStreamBaseDeadline+time.Duration(extraSecs)*time.Second,
-		uploadStreamMaxDeadline,
-	)
-}
-
-// copyWithProgress mirrors io.CopyN but logs throughput every 5 seconds, so we
-// can tell whether daemon is genuinely stalled (no progress) or merely slow.
-func copyWithProgress(ctx context.Context, dst io.Writer, src io.Reader, n int64) (int64, error) {
+// copyWithProgress mirrors io.CopyN with two extras:
+//   - logs throughput every 5 seconds so we can tell stalls from slow streams.
+//   - if src is a connDeadlineSetter, refreshes the deadline on every successful
+//     Read so genuinely-slow networks (e.g. Tailscale, VPN) can take as long as
+//     they need provided bytes keep flowing. Idle stalls still trigger timeout.
+func copyWithProgress(
+	ctx context.Context,
+	dst io.Writer,
+	src io.Reader,
+	n int64,
+	idleTimeout time.Duration,
+) (int64, error) {
 	const (
 		bufSize     = 32 * 1024
 		logInterval = 5 * time.Second
 	)
+
+	var deadlineConn connDeadlineSetter
+	if idleTimeout > 0 {
+		if c, ok := src.(connDeadlineSetter); ok {
+			deadlineConn = c
+		}
+	}
 
 	buf := make([]byte, bufSize)
 	var copied int64
@@ -505,6 +509,10 @@ func copyWithProgress(ctx context.Context, dst io.Writer, src io.Reader, n int64
 		readStart := time.Now()
 		nr, rerr := src.Read(buf[:toRead])
 		if nr > 0 {
+			if deadlineConn != nil {
+				_ = deadlineConn.SetDeadline(time.Now().Add(idleTimeout))
+			}
+
 			nw, werr := dst.Write(buf[:nr])
 			copied += int64(nw)
 			if werr != nil {
