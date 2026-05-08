@@ -335,6 +335,12 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 		}
 	}(tmpFile)
 
+	logger.Logger(ctx).WithFields(log.Fields{
+		"filepath":    message.FilePath,
+		"filesize":    message.FileSize,
+		"writer_type": fmt.Sprintf("%T", readWriter),
+	}).Debug("upload: ready to transfer, sending response")
+
 	err = response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusReadyToTransfer,
 		Info: "File is ready to transfer",
@@ -343,13 +349,35 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 		return errors.WithMessage(err, "failed to write ready to transfer response")
 	}
 
+	deadline := uploadStreamDeadline(message.FileSize)
 	if d, ok := readWriter.(connDeadlineSetter); ok {
-		if dErr := d.SetDeadline(time.Now().Add(uploadStreamDeadline(message.FileSize))); dErr != nil {
+		if dErr := d.SetDeadline(time.Now().Add(deadline)); dErr != nil {
 			logger.Error(ctx, errors.WithMessage(dErr, "failed to extend upload deadline"))
+		} else {
+			logger.Logger(ctx).WithFields(log.Fields{
+				"deadline": deadline.String(),
+			}).Debug("upload: deadline extended for file body read")
 		}
+	} else {
+		logger.Logger(ctx).WithFields(log.Fields{
+			"writer_type": fmt.Sprintf("%T", readWriter),
+		}).Warn("upload: readWriter does not implement SetDeadline; using inherited 5s deadline")
 	}
 
-	_, err = io.CopyN(tmpFile, readWriter, int64(message.FileSize))
+	copyStart := time.Now()
+	n, err := io.CopyN(tmpFile, readWriter, int64(message.FileSize))
+	copyDuration := time.Since(copyStart)
+	logger.Logger(ctx).WithFields(log.Fields{
+		"copied":   n,
+		"expected": message.FileSize,
+		"duration": copyDuration.String(),
+		"rate_kbps": func() int64 {
+			if copyDuration.Seconds() > 0 {
+				return n / 1024 / int64(max(int(copyDuration.Seconds()), 1))
+			}
+			return 0
+		}(),
+	}).Debug("upload: io.CopyN finished")
 	if err != nil {
 		logger.Error(ctx, err)
 		return writeError(readWriter, "Failed to transfer file")
