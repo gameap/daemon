@@ -365,17 +365,18 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 	}
 
 	copyStart := time.Now()
-	n, err := io.CopyN(tmpFile, readWriter, int64(message.FileSize))
+	n, err := copyWithProgress(ctx, tmpFile, readWriter, int64(message.FileSize))
 	copyDuration := time.Since(copyStart)
 	logger.Logger(ctx).WithFields(log.Fields{
 		"copied":   n,
 		"expected": message.FileSize,
 		"duration": copyDuration.String(),
 		"rate_kbps": func() int64 {
-			if copyDuration.Seconds() > 0 {
-				return n / 1024 / int64(max(int(copyDuration.Seconds()), 1))
+			secs := int64(copyDuration.Seconds())
+			if secs <= 0 {
+				secs = 1
 			}
-			return 0
+			return n / 1024 / secs
 		}(),
 	}).Debug("upload: io.CopyN finished")
 	if err != nil {
@@ -480,4 +481,65 @@ func uploadStreamDeadline(size uint64) time.Duration {
 		uploadStreamBaseDeadline+time.Duration(extraSecs)*time.Second,
 		uploadStreamMaxDeadline,
 	)
+}
+
+// copyWithProgress mirrors io.CopyN but logs throughput every 5 seconds, so we
+// can tell whether daemon is genuinely stalled (no progress) or merely slow.
+func copyWithProgress(ctx context.Context, dst io.Writer, src io.Reader, n int64) (int64, error) {
+	const (
+		bufSize     = 32 * 1024
+		logInterval = 5 * time.Second
+	)
+
+	buf := make([]byte, bufSize)
+	var copied int64
+	lastLog := time.Now()
+	lastBytes := int64(0)
+
+	for copied < n {
+		toRead := int64(bufSize)
+		if remaining := n - copied; remaining < toRead {
+			toRead = remaining
+		}
+
+		readStart := time.Now()
+		nr, rerr := src.Read(buf[:toRead])
+		if nr > 0 {
+			nw, werr := dst.Write(buf[:nr])
+			copied += int64(nw)
+			if werr != nil {
+				return copied, werr
+			}
+			if nw != nr {
+				return copied, io.ErrShortWrite
+			}
+		}
+
+		if time.Since(lastLog) >= logInterval {
+			elapsed := time.Since(lastLog)
+			delta := copied - lastBytes
+			rateKBps := float64(delta) / elapsed.Seconds() / 1024.0
+			logger.Logger(ctx).WithFields(log.Fields{
+				"copied":            copied,
+				"expected":          n,
+				"delta_since_last":  delta,
+				"interval":          elapsed.String(),
+				"rate_kbps":         fmt.Sprintf("%.1f", rateKBps),
+				"last_read_size":    nr,
+				"last_read_latency": time.Since(readStart).String(),
+			}).Debug("upload: progress")
+			lastLog = time.Now()
+			lastBytes = copied
+		}
+
+		if rerr != nil {
+			if rerr == io.EOF && copied == n {
+				return copied, nil
+			}
+
+			return copied, rerr
+		}
+	}
+
+	return copied, nil
 }
