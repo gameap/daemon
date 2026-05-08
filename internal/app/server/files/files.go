@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/et-nik/binngo/decode"
 	"github.com/gameap/daemon/internal/app/server/response"
@@ -15,6 +16,16 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
+
+const (
+	uploadStreamBaseDeadline = 60 * time.Second
+	uploadStreamMaxDeadline  = 30 * time.Minute
+	uploadStreamMinBytesPS   = 256 * 1024
+)
+
+type connDeadlineSetter interface {
+	SetDeadline(t time.Time) error
+}
 
 type operationHandlerFunc func(ctx context.Context, message anyMessage, readWriter io.ReadWriter) error
 
@@ -332,6 +343,12 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 		return errors.WithMessage(err, "failed to write ready to transfer response")
 	}
 
+	if d, ok := readWriter.(connDeadlineSetter); ok {
+		if dErr := d.SetDeadline(time.Now().Add(uploadStreamDeadline(message.FileSize))); dErr != nil {
+			logger.Error(ctx, errors.WithMessage(dErr, "failed to extend upload deadline"))
+		}
+	}
+
 	_, err = io.CopyN(tmpFile, readWriter, int64(message.FileSize))
 	if err != nil {
 		logger.Error(ctx, err)
@@ -422,4 +439,17 @@ func chmod(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	return response.WriteResponse(readWriter, response.Response{
 		Code: response.StatusOK,
 	})
+}
+
+func uploadStreamDeadline(size uint64) time.Duration {
+	extraSecs := size / uploadStreamMinBytesPS
+	maxExtra := uint64(uploadStreamMaxDeadline / time.Second)
+	if extraSecs > maxExtra {
+		extraSecs = maxExtra
+	}
+
+	return min(
+		uploadStreamBaseDeadline+time.Duration(extraSecs)*time.Second,
+		uploadStreamMaxDeadline,
+	)
 }
