@@ -2,6 +2,7 @@ package gdaemonscheduler
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -45,6 +46,7 @@ type TaskManager struct {
 	serverCommandFactory *gameservercommands.ServerCommandFactory
 	mutex                *sync.Mutex
 	queue                *taskQueue
+	completed            *completionTracker
 	commandsInProgress   sync.Map
 	wg                   sync.WaitGroup
 	consecutiveFailures  int
@@ -64,6 +66,7 @@ func NewTaskManager(
 		repository:           repository,
 		cache:                cache,
 		queue:                newTaskQueue(),
+		completed:            newCompletionTracker(completionTrackerCapacity),
 		serverCommandFactory: serverCommandFactory,
 		mutex:                &sync.Mutex{},
 		executor:             executor,
@@ -206,8 +209,16 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithField("gameServerID", task.Server().ID()))
 	}
 
-	if manager.shouldTaskWaitForAnotherToComplete(task) {
+	decision, reason := manager.checkPredecessor(ctx, task)
+	switch decision {
+	case predecessorWait:
 		return
+	case predecessorFail:
+		output := []byte(reason)
+		go manager.appendTaskOutput(ctx, task, output)
+		manager.notifyTaskOutput(task, output, true)
+		manager.failTask(ctx, task)
+	case predecessorProceed:
 	}
 
 	var err error
@@ -233,6 +244,7 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 			task.Server().NoticeTaskCompleted()
 		}
 
+		manager.completed.Record(task.ID(), task.Status())
 		manager.commandsInProgress.Delete(task.ID())
 		manager.queue.Remove(task)
 
@@ -246,20 +258,70 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 	}
 }
 
-func (manager *TaskManager) shouldTaskWaitForAnotherToComplete(task *domain.GDTask) bool {
-	if task.RunAfterID() > 0 {
-		t := manager.queue.FindByID(task.RunAfterID())
+type predecessorDecision int
 
-		if t == nil {
-			return false
-		}
+const (
+	predecessorWait predecessorDecision = iota
+	predecessorProceed
+	predecessorFail
+)
 
-		if !t.IsComplete() {
-			return true
-		}
+func (manager *TaskManager) checkPredecessor(
+	ctx context.Context, task *domain.GDTask,
+) (predecessorDecision, string) {
+	runAfterID := task.RunAfterID()
+	if runAfterID <= 0 {
+		return predecessorProceed, ""
 	}
 
-	return false
+	if t := manager.queue.FindByID(runAfterID); t != nil {
+		if !t.IsComplete() {
+			return predecessorWait, ""
+		}
+		return manager.evaluatePredecessorStatus(ctx, runAfterID, t.Status())
+	}
+
+	if status, ok := manager.completed.Status(runAfterID); ok {
+		return manager.evaluatePredecessorStatus(ctx, runAfterID, status)
+	}
+
+	predecessor, err := manager.repository.FindByID(ctx, runAfterID)
+	if err != nil {
+		logger.Logger(ctx).WithError(err).
+			Warnf("failed to fetch predecessor task %d, will retry", runAfterID)
+		return predecessorWait, ""
+	}
+	if predecessor == nil {
+		return predecessorFail, fmt.Sprintf("predecessor task %d not found", runAfterID)
+	}
+
+	manager.completed.Record(predecessor.ID(), predecessor.Status())
+	return manager.evaluatePredecessorStatus(ctx, runAfterID, predecessor.Status())
+}
+
+func (manager *TaskManager) evaluatePredecessorStatus(
+	ctx context.Context, runAfterID int, status domain.GDTaskStatus,
+) (predecessorDecision, string) {
+	switch status {
+	case domain.GDTaskStatusSuccess:
+		return predecessorProceed, ""
+	case domain.GDTaskStatusError:
+		return predecessorFail, fmt.Sprintf("predecessor task %d failed", runAfterID)
+	case domain.GDTaskStatusCanceled:
+		return predecessorFail, fmt.Sprintf("predecessor task %d was canceled", runAfterID)
+	case domain.GDTaskStatusWaiting, domain.GDTaskStatusWorking:
+		logger.Logger(ctx).Warnf(
+			"predecessor task %d has unexpected non-terminal status %q while being evaluated",
+			runAfterID, status,
+		)
+		return predecessorWait, ""
+	default:
+		logger.Logger(ctx).Warnf(
+			"predecessor task %d has unknown status %q",
+			runAfterID, status,
+		)
+		return predecessorWait, ""
+	}
 }
 
 func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask) error {
