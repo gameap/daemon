@@ -95,19 +95,6 @@ func (c *Container) ServerRepository(ctx context.Context) (domain.ServerReposito
 	return s, err
 }
 
-func (c *Container) ServerTaskRepository(ctx context.Context) (domain.ServerTaskRepository, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	s := c.c.Repositories().(*internal.RepositoryContainer).ServerTaskRepository(ctx)
-	err := c.c.Error()
-	if err != nil {
-		return nil, err
-	}
-
-	return s, err
-}
-
 func (c *Container) GatewayClient(ctx context.Context) (*grpcclient.GatewayClient, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

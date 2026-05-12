@@ -5,6 +5,7 @@ import (
 
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/repositories"
+	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 )
 
 func CreateGameStore() *grpcclient.GameStore {
@@ -93,6 +94,16 @@ func CreateConnectionManager(
 	}
 
 	c.Services().GdTaskManager(ctx).SetTaskStatusSender(client)
+
+	scheduler := serversscheduler.NewScheduler(
+		cfg,
+		c.ServerCommandFactory(ctx),
+		serverRepo,
+		client,
+	)
+	client.SetServerTaskFlow(scheduler)
+	c.SetServersScheduler(scheduler)
+	c.ProcessRunner(ctx).SetServersScheduler(scheduler)
 
 	cm := grpcclient.NewConnectionManager(cfg, client)
 	cm.OnConnect(fileTransferClient.SetConnection)

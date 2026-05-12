@@ -21,15 +21,15 @@ import (
 type Runner struct {
 	cfg *config.Config
 
-	executor             contracts.Executor
-	commandFactory       *gameservercommands.ServerCommandFactory
-	apiClient            contracts.APIRequestMaker
-	gdTaskManager        *gdaemonscheduler.TaskManager
-	serverRepository     domain.ServerRepository
-	serverTaskRepository domain.ServerTaskRepository
-	connectionManager    *grpcclient.ConnectionManager
-	statusReporter       *grpcclient.ServerStatusReporter
-	grpcMode             bool
+	executor          contracts.Executor
+	commandFactory    *gameservercommands.ServerCommandFactory
+	apiClient         contracts.APIRequestMaker
+	gdTaskManager     *gdaemonscheduler.TaskManager
+	serverRepository  domain.ServerRepository
+	serversScheduler  *serversscheduler.Scheduler
+	connectionManager *grpcclient.ConnectionManager
+	statusReporter    *grpcclient.ServerStatusReporter
+	grpcMode          bool
 }
 
 func NewProcessRunner(
@@ -39,17 +39,19 @@ func NewProcessRunner(
 	apiClient contracts.APIRequestMaker,
 	gdTaskManager *gdaemonscheduler.TaskManager,
 	serverRepository domain.ServerRepository,
-	serverTaskRepository domain.ServerTaskRepository,
 ) (*Runner, error) {
 	return &Runner{
-		cfg:                  cfg,
-		executor:             executor,
-		commandFactory:       commandFactory,
-		apiClient:            apiClient,
-		gdTaskManager:        gdTaskManager,
-		serverRepository:     serverRepository,
-		serverTaskRepository: serverTaskRepository,
+		cfg:              cfg,
+		executor:         executor,
+		commandFactory:   commandFactory,
+		apiClient:        apiClient,
+		gdTaskManager:    gdTaskManager,
+		serverRepository: serverRepository,
 	}, nil
+}
+
+func (r *Runner) SetServersScheduler(scheduler *serversscheduler.Scheduler) {
+	r.serversScheduler = scheduler
 }
 
 func (r *Runner) SetGRPCComponents(
@@ -155,16 +157,14 @@ func (r *Runner) RunServersLoop(ctx context.Context, cfg *config.Config) func() 
 	}
 }
 
-func (r *Runner) RunServerScheduler(ctx context.Context, cfg *config.Config) func() error {
+func (r *Runner) RunServerScheduler(ctx context.Context, _ *config.Config) func() error {
 	return func() error {
-		scheduler := serversscheduler.NewScheduler(
-			cfg,
-			r.serverTaskRepository,
-			r.commandFactory,
-		)
-
-		if r.grpcMode {
-			scheduler.SetGRPCMode(true)
+		if !r.grpcMode {
+			log.Info("Server task scheduling disabled in legacy HTTP mode")
+			return nil
+		}
+		if r.serversScheduler == nil {
+			return errors.New("servers scheduler not wired")
 		}
 
 		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
@@ -172,7 +172,7 @@ func (r *Runner) RunServerScheduler(ctx context.Context, cfg *config.Config) fun
 		}))
 
 		log.Trace("Running server tasks scheduler...")
-		return runService(ctx, scheduler.Run)
+		return runService(ctx, r.serversScheduler.Run)
 	}
 }
 

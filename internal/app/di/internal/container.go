@@ -15,6 +15,7 @@ import (
 	"github.com/gameap/daemon/internal/app/di/internal/definitions"
 	"github.com/gameap/daemon/internal/app/domain"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
+	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 )
 
 type Container struct {
@@ -32,6 +33,7 @@ type Container struct {
 	fileTransferClient   *grpcclient.FileTransferClient
 	serverStatusReporter *grpcclient.ServerStatusReporter
 	metricsService       *metrics.Service
+	serversScheduler     *serversscheduler.Scheduler
 
 	services     *ServicesContainer
 	repositories *RepositoryContainer
@@ -71,9 +73,8 @@ type ServicesContainer struct {
 type RepositoryContainer struct {
 	*Container
 
-	gdTaskRepository     domain.GDTaskRepository
-	serverRepository     domain.ServerRepository
-	serverTaskRepository domain.ServerTaskRepository
+	gdTaskRepository domain.GDTaskRepository
+	serverRepository domain.ServerRepository
 }
 
 func (c *Container) Cfg(_ context.Context) *config.Config {
@@ -148,6 +149,14 @@ func (c *Container) MetricsService(ctx context.Context) *metrics.Service {
 	return c.metricsService
 }
 
+func (c *Container) ServersScheduler(_ context.Context) *serversscheduler.Scheduler {
+	return c.serversScheduler
+}
+
+func (c *Container) SetServersScheduler(s *serversscheduler.Scheduler) {
+	c.serversScheduler = s
+}
+
 func (c *Container) Services() definitions.ServicesContainer {
 	return c.services
 }
@@ -211,13 +220,6 @@ func (c *RepositoryContainer) ServerRepository(ctx context.Context) domain.Serve
 		c.serverRepository = definitions.CreateRepositoriesServerRepository(ctx, c)
 	}
 	return c.serverRepository
-}
-
-func (c *RepositoryContainer) ServerTaskRepository(ctx context.Context) domain.ServerTaskRepository {
-	if c.serverTaskRepository == nil && c.err == nil {
-		c.serverTaskRepository = definitions.CreateRepositoriesServerTaskRepository(ctx, c)
-	}
-	return c.serverTaskRepository
 }
 
 func (c *Container) SetCfg(s *config.Config) {

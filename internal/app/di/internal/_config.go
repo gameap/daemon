@@ -36,7 +36,6 @@ type ServicesContainer struct {
 }
 
 type RepositoryContainer struct {
-	gdTaskRepository     domain.GDTaskRepository     `di:"public, set"`
-	serverRepository     domain.ServerRepository     `di:"public, set"`
-	serverTaskRepository domain.ServerTaskRepository `di:"public, set"`
+	gdTaskRepository domain.GDTaskRepository `di:"public, set"`
+	serverRepository domain.ServerRepository `di:"public, set"`
 }

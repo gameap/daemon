@@ -25,6 +25,14 @@ type TaskHandler interface {
 	HandleTaskCancel(ctx context.Context, cancel *pb.TaskCancel) error
 }
 
+type ServerTaskFlow interface {
+	ApplySnapshot(snap *pb.ServerTaskSnapshot)
+	ApplyDelta(delta *pb.ServerTaskDelta)
+	CancelExecution(req *pb.ServerTaskExecutionCancel)
+	AckExecution(ack *pb.ServerTaskExecutionAck)
+	InFlightExecutions() []*pb.InFlightServerTaskExecution
+}
+
 type CommandHandler interface {
 	HandleCommand(ctx context.Context, requestID string, cmd *pb.CommandRequest) (*pb.CommandResult, error)
 }
@@ -85,6 +93,7 @@ type GatewayClient struct {
 	mu     sync.RWMutex
 
 	taskHandler          TaskHandler
+	serverTaskFlow       ServerTaskFlow
 	commandHandler       CommandHandler
 	fileHandler          FileHandler
 	serverHandler        ServerHandler
@@ -178,14 +187,21 @@ func (c *GatewayClient) register(ctx context.Context) error {
 		inFlightTasks = c.inFlightTaskProvider.InFlightTasks()
 	}
 
+	var inFlightServerTaskExecutions []*pb.InFlightServerTaskExecution
+	if c.serverTaskFlow != nil {
+		inFlightServerTaskExecutions = c.serverTaskFlow.InFlightExecutions()
+	}
+
 	registerReq := &pb.DaemonMessage{
 		Payload: &pb.DaemonMessage_Register{
 			Register: &pb.RegisterRequest{
-				NodeId:        uint64(c.cfg.NodeID),
-				ApiKey:        c.cfg.APIKey,
-				Version:       build.Version,
-				Capabilities:  []string{"grpc", "file_transfer", "server_status", "attach", "http_proxy", "metrics"},
-				InFlightTasks: inFlightTasks,
+				NodeId:                       uint64(c.cfg.NodeID),
+				ApiKey:                       c.cfg.APIKey,
+				Version:                      build.Version,
+				Capabilities:                 []string{"grpc", "file_transfer", "server_status", "attach", "http_proxy", "metrics"},
+				InFlightTasks:                inFlightTasks,
+				ServerTaskSnapshotVersion:    0,
+				InFlightServerTaskExecutions: inFlightServerTaskExecutions,
 			},
 		},
 	}
@@ -257,6 +273,10 @@ func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.Register
 			log.WithError(err).WithField("task_id", task.Id).
 				Warn("Failed to queue pending task from RegisterAck")
 		}
+	}
+
+	if ack.ServerTaskSnapshot != nil && c.serverTaskFlow != nil {
+		c.serverTaskFlow.ApplySnapshot(ack.ServerTaskSnapshot)
 	}
 }
 
@@ -360,6 +380,26 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 	case *pb.GatewayMessage_TaskCancel:
 		if err := c.taskHandler.HandleTaskCancel(ctx, payload.TaskCancel); err != nil {
 			log.WithError(err).Error("Failed to handle task cancel")
+		}
+
+	case *pb.GatewayMessage_ServerTaskSnapshot:
+		if c.serverTaskFlow != nil {
+			c.serverTaskFlow.ApplySnapshot(payload.ServerTaskSnapshot)
+		}
+
+	case *pb.GatewayMessage_ServerTaskDelta:
+		if c.serverTaskFlow != nil {
+			c.serverTaskFlow.ApplyDelta(payload.ServerTaskDelta)
+		}
+
+	case *pb.GatewayMessage_ServerTaskExecutionCancel:
+		if c.serverTaskFlow != nil {
+			c.serverTaskFlow.CancelExecution(payload.ServerTaskExecutionCancel)
+		}
+
+	case *pb.GatewayMessage_ServerTaskExecutionAck:
+		if c.serverTaskFlow != nil {
+			c.serverTaskFlow.AckExecution(payload.ServerTaskExecutionAck)
 		}
 
 	case *pb.GatewayMessage_Command:
@@ -721,6 +761,10 @@ func (c *GatewayClient) SetConsoleLogHandler(h ConsoleLogHandler) {
 
 func (c *GatewayClient) SetHTTPProxyHandler(h HTTPProxyHandler) {
 	c.httpProxyHandler = h
+}
+
+func (c *GatewayClient) SetServerTaskFlow(f ServerTaskFlow) {
+	c.serverTaskFlow = f
 }
 
 func (c *GatewayClient) SetMetricsHandler(h MetricsHandler) {

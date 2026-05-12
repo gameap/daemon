@@ -16,6 +16,7 @@ import (
 
 	"github.com/gameap/daemon/internal/app/domain"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
+	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 )
 
 type Container interface {
@@ -28,6 +29,8 @@ type Container interface {
 	CacheManager(ctx context.Context) contracts.Cache
 	ServerCommandFactory(ctx context.Context) *gameservercommands.ServerCommandFactory
 	MetricsService(ctx context.Context) *metrics.Service
+
+	SetServersScheduler(s *serversscheduler.Scheduler)
 
 	Services() ServicesContainer
 	Repositories() RepositoryContainer
@@ -45,5 +48,4 @@ type ServicesContainer interface {
 type RepositoryContainer interface {
 	GdTaskRepository(ctx context.Context) domain.GDTaskRepository
 	ServerRepository(ctx context.Context) domain.ServerRepository
-	ServerTaskRepository(ctx context.Context) domain.ServerTaskRepository
 }

@@ -16,7 +16,6 @@ func CreateProcessRunner(ctx context.Context, c Container) *services.Runner {
 		c.Services().APICaller(ctx),
 		c.Services().GdTaskManager(ctx),
 		c.Repositories().ServerRepository(ctx),
-		c.Repositories().ServerTaskRepository(ctx),
 	)
 	if err != nil {
 		c.SetError(err)
