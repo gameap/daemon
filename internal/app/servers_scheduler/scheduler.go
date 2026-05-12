@@ -9,7 +9,7 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
 	pb "github.com/gameap/gameap/pkg/proto"
-	"github.com/google/uuid"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -111,7 +111,7 @@ func (s *Scheduler) fire(ctx context.Context, task *domain.ServerTask, server *d
 	}
 
 	rec := &executionRecord{
-		execID:      uuid.NewString(),
+		execID:      xid.New().String(),
 		taskID:      task.ID(),
 		taskVersion: task.Version(),
 		serverID:    task.ServerID(),
