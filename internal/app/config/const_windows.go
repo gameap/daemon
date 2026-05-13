@@ -14,5 +14,5 @@ const (
 )
 
 func detectDefaultProcessManager() string {
-	return "winsw"
+	return "shawl"
 }
