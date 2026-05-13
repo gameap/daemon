@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Scripts struct {
@@ -161,6 +163,11 @@ func (cfg *Config) Init() error {
 
 	if cfg.ProcessManager.Name == "" {
 		cfg.ProcessManager.Name = detectDefaultProcessManager()
+
+		log.Infof(
+			"process manager not specified, detected and set to '%s'",
+			cfg.ProcessManager.Name,
+		)
 	}
 
 	if scope, ok := cfg.ProcessManager.Config["scope"]; ok {
