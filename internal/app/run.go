@@ -50,12 +50,12 @@ func Run(args []string) {
 					},
 					&cli.StringFlag{
 						Name:  "config-path",
-						Value: "/etc/gameap-daemon/gameap-daemon.yaml",
+						Value: defaultEnrollConfigPath,
 						Usage: "Path to write config file",
 					},
 					&cli.StringFlag{
 						Name:  "certs-dir",
-						Value: "/etc/gameap-daemon/certs",
+						Value: defaultEnrollCertsDir,
 						Usage: "Directory to save TLS certificates",
 					},
 					&cli.StringFlag{
@@ -70,7 +70,7 @@ func Run(args []string) {
 					},
 					&cli.StringFlag{
 						Name:  "work-path",
-						Value: "/srv/gameap",
+						Value: defaultEnrollWorkPath,
 						Usage: "Working directory for game servers",
 					},
 				},

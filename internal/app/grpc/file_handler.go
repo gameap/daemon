@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -532,14 +533,50 @@ func fileInfoToStat(path string, info os.FileInfo) *pb.FileStat {
 	}
 }
 
-// ResolvePath resolves a relative path against workDir and validates it stays within bounds.
+// ResolvePath resolves a caller-supplied path against workDir and validates it stays within bounds.
+// Defensively strips volume names and leading separators so an absolute path from a mis-
+// configured client cannot be joined onto workDir a second time (which on Windows produces
+// e.g. C:\gameap\C:\gameap\servers\x).
 func ResolvePath(workDir, path string) (string, error) {
-	resolved := filepath.Clean(filepath.Join(workDir, path))
-	if !strings.HasPrefix(resolved, workDir) {
+	cleanWorkDir := filepath.Clean(workDir)
+
+	sanitized := filepath.FromSlash(path)
+	if vol := filepath.VolumeName(sanitized); vol != "" {
+		sanitized = sanitized[len(vol):]
+	}
+	sanitized = strings.TrimLeft(sanitized, `\/`)
+
+	resolved := filepath.Clean(filepath.Join(cleanWorkDir, sanitized))
+
+	if !pathWithin(resolved, cleanWorkDir) {
 		return "", errPathOutsideWorkDir
 	}
 
 	return resolved, nil
+}
+
+// pathWithin reports whether resolved is equal to or under base, respecting OS path
+// case rules (case-insensitive on Windows) and requiring a separator boundary so that
+// /a/foo is not considered within /a/foobar.
+func pathWithin(resolved, base string) bool {
+	eq := strings.EqualFold
+	if runtime.GOOS != "windows" {
+		eq = func(a, b string) bool { return a == b }
+	}
+
+	if eq(resolved, base) {
+		return true
+	}
+
+	if len(resolved) <= len(base) {
+		return false
+	}
+
+	if !eq(resolved[:len(base)], base) {
+		return false
+	}
+
+	return resolved[len(base)] == filepath.Separator
 }
 
 func (h *GRPCFileHandler) resolvePath(path string) (string, error) {
