@@ -149,8 +149,26 @@ log_level: debug
 #   name: tmux
 
 # --- systemd (Linux) -----------------------------------------------
+# Default scope is "system": units written to /etc/systemd/system,
+# requires root (or polkit rules) to manage units. Game servers run
+# under the User= / Group= named in their panel record.
 # process_manager:
 #   name: systemd
+
+# --- systemd, user-mode (Linux) ------------------------------------
+# Daemon runs under a regular user; all game servers run under that
+# same user — systemctl --user cannot switch identities.
+# Requirements:
+#   - daemon process owned by a regular (non-root) user
+#   - lingering enabled for that user:  sudo loginctl enable-linger <user>
+#   - XDG_RUNTIME_DIR available (auto-resolved from /run/user/<uid>)
+# Units are written to ~/.config/systemd/user/ and managed via
+# `systemctl --user`. If a panel-side server.user differs from the
+# daemon's OS user, start/restart/uninstall fail with ErrUserMismatch.
+# process_manager:
+#   name: systemd
+#   config:
+#     scope: user
 
 # --- simple (all platforms) ----------------------------------------
 # process_manager:

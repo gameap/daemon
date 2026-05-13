@@ -68,6 +68,22 @@ func TestValidate(t *testing.T) {
 			},
 			ErrNoPrivateKey,
 		},
+		{
+			"invalid systemd scope",
+			func(cfg *Config) {
+				cfg.ProcessManager.Name = "systemd"
+				cfg.ProcessManager.Config = map[string]string{"scope": "bogus"}
+			},
+			ErrInvalidSystemDScope,
+		},
+		{
+			"scope set for non-systemd backend",
+			func(cfg *Config) {
+				cfg.ProcessManager.Name = "tmux"
+				cfg.ProcessManager.Config = map[string]string{"scope": "user"}
+			},
+			ErrScopeOnlyForSystemD,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -77,6 +93,20 @@ func TestValidate(t *testing.T) {
 			err := cfg.Init()
 
 			assert.ErrorIs(t, err, test.expectedError)
+		})
+	}
+}
+
+func TestValidate_SystemDScope_AcceptsValidValues(t *testing.T) {
+	for _, scope := range []string{"system", "user", "SYSTEM", "  user  "} {
+		t.Run("scope="+scope, func(t *testing.T) {
+			cfg := givenValidConfig(t)
+			cfg.ProcessManager.Name = "systemd"
+			cfg.ProcessManager.Config = map[string]string{"scope": scope}
+
+			err := cfg.Init()
+
+			assert.NoError(t, err)
 		})
 	}
 }

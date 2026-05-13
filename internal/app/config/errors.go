@@ -15,6 +15,12 @@ var (
 	ErrNoCACertificate         = errors.New("either ca_certificate or ca_certificate_file must be set")
 	ErrNoCertificateChain      = errors.New("either certificate_chain or certificate_chain_file must be set")
 	ErrNoPrivateKey            = errors.New("either private_key or private_key_file must be set")
+	ErrInvalidSystemDScope     = errors.New(
+		"process_manager.config.scope must be 'user' or 'system'",
+	)
+	ErrScopeOnlyForSystemD = errors.New(
+		"process_manager.config.scope is only valid for process_manager.name=systemd",
+	)
 )
 
 type InvalidFileError struct {
