@@ -5,11 +5,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	cp "github.com/otiai10/copy"
 
+	"github.com/gameap/daemon/internal/app/osowner"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -144,14 +146,37 @@ func (h *GRPCFileHandler) HandleFileWrite(
 		}, nil
 	}
 
+	owner := osowner.Options{
+		User: req.OwnerUser,
+		UID:  req.OwnerUid,
+		GID:  req.OwnerGid,
+	}
+
 	if req.CreateDirs {
 		dir := filepath.Dir(filePath)
+		newDirs, segErr := osowner.MissingSegments(dir)
+		if segErr != nil {
+			return &pb.FileWriteResponse{
+				RequestId: requestID,
+				Success:   false,
+				Error:     errors.Wrap(segErr, "failed to inspect target directory").Error(),
+			}, nil
+		}
 		if err = os.MkdirAll(dir, 0755); err != nil {
 			return &pb.FileWriteResponse{
 				RequestId: requestID,
 				Success:   false,
 				Error:     errors.Wrap(err, "failed to create directory").Error(),
 			}, nil
+		}
+		for _, segment := range newDirs {
+			if chErr := osowner.ApplyToPath(segment, owner); chErr != nil {
+				return &pb.FileWriteResponse{
+					RequestId: requestID,
+					Success:   false,
+					Error:     errors.Wrap(chErr, "failed to chown new parent directory").Error(),
+				}, nil
+			}
 		}
 	}
 
@@ -165,6 +190,14 @@ func (h *GRPCFileHandler) HandleFileWrite(
 			RequestId: requestID,
 			Success:   false,
 			Error:     err.Error(),
+		}, nil
+	}
+
+	if chErr := osowner.ApplyToPath(filePath, owner); chErr != nil {
+		return &pb.FileWriteResponse{
+			RequestId: requestID,
+			Success:   false,
+			Error:     errors.Wrap(chErr, "failed to chown written file").Error(),
 		}, nil
 	}
 
@@ -463,18 +496,45 @@ func (h *GRPCFileHandler) handleMkdirOp(
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
+
+	owner := osowner.Options{
+		User: p.GetOwnerUser(),
+		UID:  p.GetOwnerUid(),
+		GID:  p.GetOwnerGid(),
+	}
+
 	mode := os.FileMode(p.GetMode())
 	if mode == 0 {
 		mode = 0755
 	}
+
+	var newDirs []string
 	if p.GetRecursive() {
+		newDirs, err = osowner.MissingSegments(resolved)
+		if err != nil {
+			return fileOpErrResp(rid, errors.Wrap(err, "failed to inspect target directory"))
+		}
 		err = os.MkdirAll(resolved, mode)
 	} else {
+		if _, statErr := os.Lstat(resolved); statErr == nil {
+			newDirs = nil
+		} else if errors.Is(statErr, os.ErrNotExist) {
+			newDirs = []string{resolved}
+		} else {
+			return fileOpErrResp(rid, errors.Wrap(statErr, "failed to inspect target directory"))
+		}
 		err = os.Mkdir(resolved, mode)
 	}
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
+
+	for _, segment := range newDirs {
+		if chErr := osowner.ApplyToPath(segment, owner); chErr != nil {
+			return fileOpErrResp(rid, errors.Wrap(chErr, "failed to chown new directory"))
+		}
+	}
+
 	return fileOpOkResp(rid)
 }
 
@@ -532,14 +592,50 @@ func fileInfoToStat(path string, info os.FileInfo) *pb.FileStat {
 	}
 }
 
-// ResolvePath resolves a relative path against workDir and validates it stays within bounds.
+// ResolvePath resolves a caller-supplied path against workDir and validates it stays within bounds.
+// Defensively strips volume names and leading separators so an absolute path from a mis-
+// configured client cannot be joined onto workDir a second time (which on Windows produces
+// e.g. C:\gameap\C:\gameap\servers\x).
 func ResolvePath(workDir, path string) (string, error) {
-	resolved := filepath.Clean(filepath.Join(workDir, path))
-	if !strings.HasPrefix(resolved, workDir) {
+	cleanWorkDir := filepath.Clean(workDir)
+
+	sanitized := filepath.FromSlash(path)
+	if vol := filepath.VolumeName(sanitized); vol != "" {
+		sanitized = sanitized[len(vol):]
+	}
+	sanitized = strings.TrimLeft(sanitized, `\/`)
+
+	resolved := filepath.Clean(filepath.Join(cleanWorkDir, sanitized))
+
+	if !pathWithin(resolved, cleanWorkDir) {
 		return "", errPathOutsideWorkDir
 	}
 
 	return resolved, nil
+}
+
+// pathWithin reports whether resolved is equal to or under base, respecting OS path
+// case rules (case-insensitive on Windows) and requiring a separator boundary so that
+// /a/foo is not considered within /a/foobar.
+func pathWithin(resolved, base string) bool {
+	eq := strings.EqualFold
+	if runtime.GOOS != "windows" {
+		eq = func(a, b string) bool { return a == b }
+	}
+
+	if eq(resolved, base) {
+		return true
+	}
+
+	if len(resolved) <= len(base) {
+		return false
+	}
+
+	if !eq(resolved[:len(base)], base) {
+		return false
+	}
+
+	return resolved[len(base)] == filepath.Separator
 }
 
 func (h *GRPCFileHandler) resolvePath(path string) (string, error) {

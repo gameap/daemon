@@ -9,7 +9,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/osowner"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/hashicorp/go-getter"
 	"github.com/otiai10/copy"
@@ -639,27 +639,11 @@ func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) 
 }
 
 func (in *installator) chown(ctx context.Context, dst string, userName string) error {
-	if !isRootUser() {
-		return nil
-	}
-
-	systemUser, err := user.Lookup(userName)
+	err := osowner.ApplyRecursive(dst, osowner.Options{User: userName})
 	if err != nil {
-		err = errors.WithMessage(err, "[game_server_commands.installator] failed to lookup user")
+		err = errors.WithMessage(err, "[game_server_commands.installator] chown failed")
 		in.writeOutput(ctx, err.Error())
-		return err
-	}
 
-	uid, err := strconv.Atoi(systemUser.Uid)
-	if err != nil {
-		return errors.WithMessage(err, "[game_server_commands.installator] invalid user uid")
-	}
-	gid, err := strconv.Atoi(systemUser.Uid)
-	if err != nil {
-		return errors.WithMessage(err, "[game_server_commands.installator] invalid user gid")
-	}
-	err = chownR(dst, uid, gid)
-	if err != nil {
 		return err
 	}
 

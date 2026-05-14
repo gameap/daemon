@@ -41,6 +41,45 @@ CPU counter has no baseline yet.
 
 PID-based stats for `tmux` / `simple` / `winsw` / `shawl` are tracked as a follow-up.
 
+## SystemD scopes
+
+The `systemd` backend supports two scopes selected via
+`process_manager.config.scope`:
+
+- `system` (default): writes units to `/etc/systemd/system` and calls
+  `systemctl <action>`. Requires the daemon to run as root or to have
+  polkit rules permitting unit management. Each generated `.service`
+  carries `User=` / `Group=` derived from the panel-side `server.user`
+  field, so the daemon can host multiple servers under different
+  identities. `[Install] WantedBy=multi-user.target`.
+
+- `user`: writes units to `~/.config/systemd/user/` and calls
+  `systemctl --user <action>`. The daemon must run as a non-root regular
+  user; **all game servers run under that same user** — user-mode
+  systemd cannot switch identities. The user must have lingering enabled
+  (`sudo loginctl enable-linger <user>`) so units survive logout, and
+  `XDG_RUNTIME_DIR` (typically `/run/user/<uid>`) must be accessible. The
+  daemon resolves it automatically from the process environment or
+  `/run/user/<uid>` and passes it to every `systemctl --user` call. If a
+  panel-side server has a `user` field that does not match the daemon's
+  OS user, start/restart/uninstall fail with `ErrUserMismatch`. The
+  generated unit omits `User=` / `Group=` (systemd rejects them in user
+  units) and uses `[Install] WantedBy=default.target`.
+
+The metrics suppression note above (units predating the `*Accounting=yes`
+directives report zeros until restart) applies to both scopes equally.
+
+Configuration example:
+
+```yaml
+process_manager:
+  name: systemd
+  config:
+    scope: user      # default: system
+```
+
+PID-based stats and metric collection paths are identical in both scopes.
+
 ## Configuration
 
 Process manager is configured in the daemon configuration file:

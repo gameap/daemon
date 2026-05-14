@@ -1,23 +1,28 @@
 //go:build windows
 
-package gameservercommands
+package osowner
 
 import (
-	"os"
 	"os/user"
 
 	log "github.com/sirupsen/logrus"
 )
 
-func mkdirAllWithFinalPerm(path string, finalPerm os.FileMode) error {
-	return os.MkdirAll(path, finalPerm)
-}
-
 func isRootUser() bool {
 	currentUser, err := user.Current()
 	if err != nil {
 		log.Error("Failed to check current user")
+
 		return false
 	}
+
 	return currentUser.Username == "System" || currentUser.Username == "Administrator"
+}
+
+func lchown(_ string, _, _ int) error {
+	return nil
+}
+
+func chownTree(_ string, _, _ int) error {
+	return nil
 }

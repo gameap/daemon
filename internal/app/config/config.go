@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Scripts struct {
@@ -161,6 +163,15 @@ func (cfg *Config) Init() error {
 
 	if cfg.ProcessManager.Name == "" {
 		cfg.ProcessManager.Name = detectDefaultProcessManager()
+
+		log.Infof(
+			"process manager not specified, detected and set to '%s'",
+			cfg.ProcessManager.Name,
+		)
+	}
+
+	if scope, ok := cfg.ProcessManager.Config["scope"]; ok {
+		cfg.ProcessManager.Config["scope"] = strings.ToLower(strings.TrimSpace(scope))
 	}
 
 	// GRPC defaults
@@ -208,6 +219,10 @@ func (cfg *Config) validate() error {
 		return ErrEmptyNodeID
 	}
 
+	if err := cfg.validateProcessManager(); err != nil {
+		return err
+	}
+
 	if !cfg.GRPC.Enabled {
 		if cfg.APIHost == "" {
 			return ErrEmptyAPIHost
@@ -245,6 +260,23 @@ func (cfg *Config) validate() error {
 				return NewInvalidFileError("invalid private key file (private_key_file)", err)
 			}
 		}
+	}
+
+	return nil
+}
+
+func (cfg *Config) validateProcessManager() error {
+	scope, hasScope := cfg.ProcessManager.Config["scope"]
+	if !hasScope || scope == "" {
+		return nil
+	}
+
+	if cfg.ProcessManager.Name != "systemd" {
+		return ErrScopeOnlyForSystemD
+	}
+
+	if scope != "system" && scope != "user" {
+		return ErrInvalidSystemDScope
 	}
 
 	return nil

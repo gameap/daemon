@@ -25,9 +25,16 @@ import (
 )
 
 const (
-	systemdFilesDir    = ".systemd-services"
-	systemdServicesDir = "/etc/systemd/system"
-	servicePrefix      = "gameap-server-"
+	systemdFilesDir        = ".systemd-services"
+	systemdServicesDir     = "/etc/systemd/system"
+	systemdUserUnitSubpath = ".config/systemd/user"
+	servicePrefix          = "gameap-server-"
+
+	scopeSystem = "system"
+	scopeUser   = "user"
+
+	systemTarget = "multi-user.target"
+	userTarget   = "default.target"
 
 	// https://www.freedesktop.org/software/systemd/man/latest/systemctl.html#Exit%20status
 	statusIsDeadPidExists  = 1
@@ -45,28 +52,182 @@ type SystemD struct {
 	cfg      *config.Config
 	executor contracts.Executor
 
+	scope          string
+	servicesDir    string
+	runtimeEnv     map[string]string
+	daemonUsername string
+
+	lingerOnce sync.Once
+
 	cpuSamplesMu sync.Mutex
 	cpuSamples   map[string]systemdCPUSample
 }
 
 func NewSystemD(cfg *config.Config, _, detailedExecutor contracts.Executor) *SystemD {
-	return &SystemD{
-		cfg:        cfg,
-		executor:   detailedExecutor,
-		cpuSamples: make(map[string]systemdCPUSample),
+	pm := &SystemD{
+		cfg:         cfg,
+		executor:    detailedExecutor,
+		scope:       scopeSystem,
+		servicesDir: systemdServicesDir,
+		cpuSamples:  make(map[string]systemdCPUSample),
 	}
+
+	if cfg != nil && cfg.ProcessManager.Config["scope"] == scopeUser {
+		pm.scope = scopeUser
+		pm.initUserScope()
+	}
+
+	return pm
+}
+
+func (pm *SystemD) initUserScope() {
+	cur, err := user.Current()
+	if err != nil {
+		logger.Warn(context.Background(), errors.WithMessage(err, "failed to resolve current user for systemd user scope"))
+		return
+	}
+
+	pm.daemonUsername = cur.Username
+	pm.servicesDir = filepath.Join(cur.HomeDir, systemdUserUnitSubpath)
+	if err := os.MkdirAll(pm.servicesDir, 0o755); err != nil {
+		logger.Warn(
+			context.Background(),
+			errors.WithMessagef(err, "failed to create systemd user unit dir %s", pm.servicesDir),
+		)
+	}
+
+	pm.runtimeEnv = resolveSystemdUserEnv(cur)
+}
+
+func resolveSystemdUserEnv(cur *user.User) map[string]string {
+	env := map[string]string{}
+
+	if v := os.Getenv("XDG_RUNTIME_DIR"); v != "" {
+		if _, err := os.Stat(v); err == nil { //nolint:gosec // user-owned runtime dir from env
+			env["XDG_RUNTIME_DIR"] = v
+		}
+	}
+
+	if _, ok := env["XDG_RUNTIME_DIR"]; !ok {
+		candidate := fmt.Sprintf("/run/user/%s", cur.Uid)
+		if _, err := os.Stat(candidate); err == nil {
+			env["XDG_RUNTIME_DIR"] = candidate
+		} else {
+			logger.Warn(
+				context.Background(),
+				errors.WithMessagef(
+					err,
+					"XDG_RUNTIME_DIR not resolved (tried env + %s); systemctl --user may fail",
+					candidate,
+				),
+			)
+		}
+	}
+
+	if v := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); v != "" {
+		env["DBUS_SESSION_BUS_ADDRESS"] = v
+	} else if runtimeDir, ok := env["XDG_RUNTIME_DIR"]; ok {
+		env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + filepath.Join(runtimeDir, "bus")
+	}
+
+	return env
+}
+
+func (pm *SystemD) isUserScope() bool {
+	return pm.scope == scopeUser
+}
+
+func (pm *SystemD) systemctl(action, target string) string {
+	prefix := "systemctl"
+	if pm.isUserScope() {
+		prefix = "systemctl --user"
+	}
+
+	if target == "" {
+		return prefix + " " + action
+	}
+	return prefix + " " + action + " " + target
+}
+
+func (pm *SystemD) execOpts() contracts.ExecutorOptions {
+	opts := contracts.ExecutorOptions{
+		WorkDir: pm.cfg.WorkDir(),
+	}
+	if len(pm.runtimeEnv) > 0 {
+		opts.Env = pm.runtimeEnv
+	}
+	return opts
+}
+
+func (pm *SystemD) requireUserMatch(server *domain.Server) error {
+	if !pm.isUserScope() {
+		return nil
+	}
+
+	requested := server.User()
+	if requested == "" || requested == pm.daemonUsername {
+		return nil
+	}
+
+	return errors.WithMessagef(
+		ErrUserMismatch,
+		"server requests user %q but daemon runs as %q",
+		requested, pm.daemonUsername,
+	)
+}
+
+func (pm *SystemD) ensureLingerChecked(ctx context.Context, out io.Writer) {
+	if !pm.isUserScope() {
+		return
+	}
+
+	pm.lingerOnce.Do(func() {
+		if pm.daemonUsername == "" {
+			return
+		}
+
+		cmd := fmt.Sprintf("loginctl show-user %s --property=Linger --value", pm.daemonUsername)
+		output, code, err := pm.executor.Exec(ctx, cmd, pm.execOpts())
+		if err != nil {
+			logger.WithError(ctx, err).Warn("failed to check linger state for systemd user scope")
+			return
+		}
+		if code != 0 {
+			return
+		}
+
+		if strings.TrimSpace(string(output)) != "yes" {
+			msg := fmt.Sprintf(
+				"linger is disabled for user %q; user services will be killed at logout. "+
+					"Enable with: sudo loginctl enable-linger %s",
+				pm.daemonUsername, pm.daemonUsername,
+			)
+			logger.Logger(ctx).Warn(msg)
+			if out != nil {
+				_, _ = out.Write([]byte(msg + "\n"))
+			}
+		}
+	})
 }
 
 func (pm *SystemD) Install(
-	_ context.Context, _ *domain.Server, _ io.Writer,
+	_ context.Context, server *domain.Server, _ io.Writer,
 ) (domain.Result, error) {
-	// Nothing to do here
+	if err := pm.requireUserMatch(server); err != nil {
+		return domain.ErrorResult, err
+	}
+
 	return domain.SuccessResult, nil
 }
 
 func (pm *SystemD) Uninstall(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
+	if err := pm.requireUserMatch(server); err != nil {
+		return domain.ErrorResult, err
+	}
+	pm.ensureLingerChecked(ctx, out)
+
 	resolvedServiceName := pm.resolveServiceName(server)
 
 	s, err := pm.status(ctx, resolvedServiceName, out)
@@ -115,6 +276,11 @@ func (pm *SystemD) Uninstall(
 }
 
 func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	if err := pm.requireUserMatch(server); err != nil {
+		return domain.ErrorResult, err
+	}
+	pm.ensureLingerChecked(ctx, out)
+
 	// Clean up legacy UUID-based service/socket files if they differ from new XID-based names
 	if pm.legacyServiceFile(server) != pm.serviceFile(server) {
 		_ = os.Remove(pm.legacyServiceFile(server))
@@ -153,16 +319,19 @@ func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writ
 }
 
 func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	if err := pm.requireUserMatch(server); err != nil {
+		return domain.ErrorResult, err
+	}
+	pm.ensureLingerChecked(ctx, out)
+
 	socketName := pm.resolveSocketName(server)
 	serviceName := pm.resolveServiceName(server)
 
 	_, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl stop %s", socketName),
+		pm.systemctl("stop", socketName),
 		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
+		pm.execOpts(),
 	)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
@@ -170,11 +339,9 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl stop %s", serviceName),
+		pm.systemctl("stop", serviceName),
 		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
+		pm.execOpts(),
 	)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
@@ -184,7 +351,6 @@ func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Write
 		return domain.Result(result), nil
 	}
 
-	// Wait for service to stop
 	_, _ = out.Write([]byte("Waiting for service to stop...\n"))
 	if err := pm.waitForServiceStopped(ctx, server, serviceName, out); err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to wait for service to stop")
@@ -219,6 +385,11 @@ func (pm *SystemD) waitForServiceStopped(
 }
 
 func (pm *SystemD) Restart(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
+	if err := pm.requireUserMatch(server); err != nil {
+		return domain.ErrorResult, err
+	}
+	pm.ensureLingerChecked(ctx, out)
+
 	return pm.command(ctx, server, "restart", out)
 }
 
@@ -230,10 +401,8 @@ func (pm *SystemD) command(
 		legacyServiceName := pm.legacyServiceName(server)
 		legacySocketName := pm.legacySocketName(server)
 		if _, err := os.Stat(pm.legacyServiceFile(server)); err == nil {
-			_, _ = pm.executor.ExecWithWriter(ctx, fmt.Sprintf("systemctl stop %s", legacySocketName), out,
-				contracts.ExecutorOptions{WorkDir: pm.cfg.WorkDir()})
-			_, _ = pm.executor.ExecWithWriter(ctx, fmt.Sprintf("systemctl stop %s", legacyServiceName), out,
-				contracts.ExecutorOptions{WorkDir: pm.cfg.WorkDir()})
+			_, _ = pm.executor.ExecWithWriter(ctx, pm.systemctl("stop", legacySocketName), out, pm.execOpts())
+			_, _ = pm.executor.ExecWithWriter(ctx, pm.systemctl("stop", legacyServiceName), out, pm.execOpts())
 			_ = os.Remove(pm.legacyServiceFile(server))
 			_ = os.Remove(pm.legacySocketFile(server))
 		}
@@ -267,11 +436,9 @@ func (pm *SystemD) command(
 	if s != domain.SuccessResult {
 		_, err = pm.executor.ExecWithWriter(
 			ctx,
-			fmt.Sprintf("systemctl start %s", socketName),
+			pm.systemctl("start", socketName),
 			out,
-			contracts.ExecutorOptions{
-				WorkDir: pm.cfg.WorkDir(),
-			},
+			pm.execOpts(),
 		)
 		if err != nil {
 			return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
@@ -280,11 +447,9 @@ func (pm *SystemD) command(
 
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl %s %s", command, serviceName),
+		pm.systemctl(command, serviceName),
 		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
+		pm.execOpts(),
 	)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
@@ -296,10 +461,8 @@ func (pm *SystemD) command(
 func (pm *SystemD) daemonReload(ctx context.Context) error {
 	_, _, err := pm.executor.Exec(
 		ctx,
-		"systemctl daemon-reload",
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
+		pm.systemctl("daemon-reload", ""),
+		pm.execOpts(),
 	)
 	return err
 }
@@ -311,11 +474,9 @@ func (pm *SystemD) Status(ctx context.Context, server *domain.Server, out io.Wri
 func (pm *SystemD) status(ctx context.Context, name string, out io.Writer) (domain.Result, error) {
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
-		fmt.Sprintf("systemctl status %s", name),
+		pm.systemctl("status", name),
 		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
+		pm.execOpts(),
 	)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
@@ -481,18 +642,20 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	builder.WriteString("IOAccounting=yes\n")
 	builder.WriteString("IPAccounting=yes\n")
 
-	runAsUser, group, err := pm.userAndGroup(server)
-	if err != nil {
-		return "", errors.WithMessage(err, "failed to get user")
+	if !pm.isUserScope() {
+		runAsUser, group, err := pm.userAndGroup(server)
+		if err != nil {
+			return "", errors.WithMessage(err, "failed to get user")
+		}
+
+		builder.WriteString("User=")
+		builder.WriteString(runAsUser)
+		builder.WriteString("\n")
+
+		builder.WriteString("Group=")
+		builder.WriteString(group)
+		builder.WriteString("\n")
 	}
-
-	builder.WriteString("User=")
-	builder.WriteString(runAsUser)
-	builder.WriteString("\n")
-
-	builder.WriteString("Group=")
-	builder.WriteString(group)
-	builder.WriteString("\n")
 
 	// Resource limits
 	if server.RAMLimit() > 0 {
@@ -522,9 +685,18 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	// [Install]
 	builder.WriteString("[Install]\n")
 
-	builder.WriteString("WantedBy=multi-user.target\n")
+	builder.WriteString("WantedBy=")
+	builder.WriteString(pm.installTarget())
+	builder.WriteString("\n")
 
 	return builder.String(), nil
+}
+
+func (pm *SystemD) installTarget() string {
+	if pm.isUserScope() {
+		return userTarget
+	}
+	return systemTarget
 }
 
 func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
@@ -659,7 +831,7 @@ func (pm *SystemD) serviceName(server *domain.Server) string {
 }
 
 func (pm *SystemD) serviceFile(server *domain.Server) string {
-	return filepath.Join(systemdServicesDir, pm.serviceName(server))
+	return filepath.Join(pm.servicesDir, pm.serviceName(server))
 }
 
 func (pm *SystemD) socketName(server *domain.Server) string {
@@ -674,7 +846,7 @@ func (pm *SystemD) socketName(server *domain.Server) string {
 }
 
 func (pm *SystemD) socketFile(server *domain.Server) string {
-	return filepath.Join(systemdServicesDir, pm.socketName(server))
+	return filepath.Join(pm.servicesDir, pm.socketName(server))
 }
 
 func (pm *SystemD) legacyServiceName(server *domain.Server) string {
@@ -686,11 +858,11 @@ func (pm *SystemD) legacySocketName(server *domain.Server) string {
 }
 
 func (pm *SystemD) legacyServiceFile(server *domain.Server) string {
-	return filepath.Join(systemdServicesDir, pm.legacyServiceName(server))
+	return filepath.Join(pm.servicesDir, pm.legacyServiceName(server))
 }
 
 func (pm *SystemD) legacySocketFile(server *domain.Server) string {
-	return filepath.Join(systemdServicesDir, pm.legacySocketName(server))
+	return filepath.Join(pm.servicesDir, pm.legacySocketName(server))
 }
 
 func (pm *SystemD) legacyLogFile(server *domain.Server) string {

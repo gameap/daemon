@@ -6,12 +6,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 )
 
@@ -77,10 +75,8 @@ func (pm *SystemD) Metrics(ctx context.Context, server *domain.Server) ([]domain
 func (pm *SystemD) fetchSystemdStats(
 	ctx context.Context, serviceName string,
 ) (systemdServiceStats, bool) {
-	cmd := fmt.Sprintf("systemctl show %s --property=%s", serviceName, systemdShowProperties)
-	output, code, err := pm.executor.Exec(ctx, cmd, contracts.ExecutorOptions{
-		WorkDir: pm.cfg.WorkDir(),
-	})
+	cmd := pm.systemctl("show", serviceName) + " --property=" + systemdShowProperties
+	output, code, err := pm.executor.Exec(ctx, cmd, pm.execOpts())
 	if err != nil || code != 0 || len(output) == 0 {
 		return systemdServiceStats{}, false
 	}
