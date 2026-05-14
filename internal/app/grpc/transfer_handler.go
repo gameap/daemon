@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/gameap/daemon/internal/app/osowner"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -128,18 +129,44 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 		fileFlags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	}
 
-	if mkErr := os.MkdirAll(filepath.Dir(targetPath), 0755); mkErr != nil {
+	owner := osowner.Options{
+		User: task.OwnerUser,
+		UID:  task.OwnerUid,
+		GID:  task.OwnerGid,
+	}
+
+	parentDir := filepath.Dir(targetPath)
+	newDirs, segErr := osowner.MissingSegments(parentDir)
+	if segErr != nil {
+		l.WithError(segErr).Error("Failed to stat parent directory")
+		h.sendResponse(requestID, false, segErr.Error())
+		return
+	}
+
+	if mkErr := os.MkdirAll(parentDir, 0755); mkErr != nil {
 		l.WithError(mkErr).Error("Failed to create parent directory")
 		h.sendResponse(requestID, false, mkErr.Error())
 		return
 	}
 
-	file, err := os.OpenFile(tempPath, fileFlags, 0644)
+	for _, dir := range newDirs {
+		if chErr := osowner.ApplyToPath(dir, owner); chErr != nil {
+			l.WithError(chErr).WithField("dir", dir).Error("Failed to chown new parent directory")
+			h.sendResponse(requestID, false, chErr.Error())
+			return
+		}
+	}
+
+	fileMode := os.FileMode(0644)
+	if task.Mode != 0 {
+		fileMode = os.FileMode(task.Mode) & os.ModePerm
+	}
+
+	file, err := os.OpenFile(tempPath, fileFlags, fileMode)
 	if err != nil {
-		// If append failed (file was removed between stat and open), create fresh.
 		if offset > 0 {
 			hasher = sha256.New()
-			file, err = os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+			file, err = os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fileMode)
 		}
 		if err != nil {
 			l.WithError(err).Error("Failed to open temp file")
@@ -185,7 +212,13 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 		return
 	}
 
-	// Atomic rename.
+	if chErr := osowner.ApplyToPath(tempPath, owner); chErr != nil {
+		l.WithError(chErr).Error("Failed to chown temp file before rename")
+		_ = os.Remove(tempPath)
+		h.sendResponse(requestID, false, chErr.Error())
+		return
+	}
+
 	if err := os.Rename(tempPath, targetPath); err != nil {
 		l.WithError(err).Error("Failed to rename temp file to target")
 		h.sendResponse(requestID, false, err.Error())

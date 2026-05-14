@@ -11,6 +11,7 @@ import (
 
 	cp "github.com/otiai10/copy"
 
+	"github.com/gameap/daemon/internal/app/osowner"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -145,14 +146,37 @@ func (h *GRPCFileHandler) HandleFileWrite(
 		}, nil
 	}
 
+	owner := osowner.Options{
+		User: req.OwnerUser,
+		UID:  req.OwnerUid,
+		GID:  req.OwnerGid,
+	}
+
 	if req.CreateDirs {
 		dir := filepath.Dir(filePath)
+		newDirs, segErr := osowner.MissingSegments(dir)
+		if segErr != nil {
+			return &pb.FileWriteResponse{
+				RequestId: requestID,
+				Success:   false,
+				Error:     errors.Wrap(segErr, "failed to inspect target directory").Error(),
+			}, nil
+		}
 		if err = os.MkdirAll(dir, 0755); err != nil {
 			return &pb.FileWriteResponse{
 				RequestId: requestID,
 				Success:   false,
 				Error:     errors.Wrap(err, "failed to create directory").Error(),
 			}, nil
+		}
+		for _, segment := range newDirs {
+			if chErr := osowner.ApplyToPath(segment, owner); chErr != nil {
+				return &pb.FileWriteResponse{
+					RequestId: requestID,
+					Success:   false,
+					Error:     errors.Wrap(chErr, "failed to chown new parent directory").Error(),
+				}, nil
+			}
 		}
 	}
 
@@ -166,6 +190,14 @@ func (h *GRPCFileHandler) HandleFileWrite(
 			RequestId: requestID,
 			Success:   false,
 			Error:     err.Error(),
+		}, nil
+	}
+
+	if chErr := osowner.ApplyToPath(filePath, owner); chErr != nil {
+		return &pb.FileWriteResponse{
+			RequestId: requestID,
+			Success:   false,
+			Error:     errors.Wrap(chErr, "failed to chown written file").Error(),
 		}, nil
 	}
 
@@ -464,18 +496,45 @@ func (h *GRPCFileHandler) handleMkdirOp(
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
+
+	owner := osowner.Options{
+		User: p.GetOwnerUser(),
+		UID:  p.GetOwnerUid(),
+		GID:  p.GetOwnerGid(),
+	}
+
 	mode := os.FileMode(p.GetMode())
 	if mode == 0 {
 		mode = 0755
 	}
+
+	var newDirs []string
 	if p.GetRecursive() {
+		newDirs, err = osowner.MissingSegments(resolved)
+		if err != nil {
+			return fileOpErrResp(rid, errors.Wrap(err, "failed to inspect target directory"))
+		}
 		err = os.MkdirAll(resolved, mode)
 	} else {
+		if _, statErr := os.Lstat(resolved); statErr == nil {
+			newDirs = nil
+		} else if errors.Is(statErr, os.ErrNotExist) {
+			newDirs = []string{resolved}
+		} else {
+			return fileOpErrResp(rid, errors.Wrap(statErr, "failed to inspect target directory"))
+		}
 		err = os.Mkdir(resolved, mode)
 	}
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
+
+	for _, segment := range newDirs {
+		if chErr := osowner.ApplyToPath(segment, owner); chErr != nil {
+			return fileOpErrResp(rid, errors.Wrap(chErr, "failed to chown new directory"))
+		}
+	}
+
 	return fileOpOkResp(rid)
 }
 

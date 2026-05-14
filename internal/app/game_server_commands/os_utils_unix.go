@@ -3,29 +3,12 @@
 package gameservercommands
 
 import (
-	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 )
-
-func chownR(path string, uid, gid int) error {
-	root, err := os.OpenRoot(path)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-
-	return fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// Ignore invalid
-			return nil
-		}
-		return root.Lchown(name, uid, gid)
-	})
-}
 
 func mkdirAllWithFinalPerm(path string, finalPerm os.FileMode) error {
 	parent := filepath.Dir(path)
