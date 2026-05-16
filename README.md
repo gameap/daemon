@@ -81,6 +81,32 @@ private_key: |
 | stats_update_period       | no                    | integer   | Stats update period
 | stats_db_update_period    | no                    | integer   | Update database period
 
+### Steam
+
+| Parameter                 | Required              | Type      | Info
+|---------------------------|-----------------------|-----------|------------
+| steamcmd_path             | no                    | string    | Path to the directory that contains steamcmd
+| steam_config.login        | no                    | string    | Steam account login (anonymous when empty)
+| steam_config.password     | no                    | string    | Steam account password
+| steam_config.group        | no                    | string    | Shared OS group for the steamcmd directory (see below)
+
+When the daemon runs as `root` and a game server has its own `su_user`, steamcmd is
+executed under that unprivileged user (least privilege; files end up owned correctly
+for both install and updates). Because `steamcmd.sh` self-updates and writes into its
+own directory, that directory must be writable by every `su_user`.
+
+Before running steamcmd the daemon applies, recursively, the setgid bit plus group
+`rwx`/`rw` to `steamcmd_path`, changing only the group (the owner is preserved). The
+group is taken from `steam_config.group`, falling back to the `su_user` primary group
+when empty.
+
+On a node with several different `su_user`s, set `steam_config.group` to a shared
+group and add every `su_user` to it (e.g. `usermod -aG <group> <su_user>`). The
+daemon then keeps the steamcmd directory consistently group-shared so self-updates
+succeed regardless of which server triggers them. `steam_config` is read from the
+yaml config only (it is not pushed from the API). This whole step is a no-op when
+the daemon does not run as `root`.
+
 ### Other
 
 #### Only on Windows

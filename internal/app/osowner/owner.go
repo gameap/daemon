@@ -6,6 +6,11 @@
 // become readable only by root and the game server (running as e.g. gameap)
 // cannot read them. This package wraps user.Lookup + Lchown with the
 // existing isRootUser/Windows no-op build constraints.
+//
+// ApplyGroupSharedRecursive covers a different case: a single directory shared
+// by several su_users (the steamcmd directory, which steamcmd self-updates).
+// It keeps the owner but adds setgid + group rwx so every su_user in the
+// shared group can write there.
 package osowner
 
 import (
@@ -23,6 +28,11 @@ type Options struct {
 	User string
 	UID  int32
 	GID  int32
+
+	// Group is an optional group name used only by ApplyGroupSharedRecursive
+	// to override which group a shared tree (e.g. the steamcmd directory) is
+	// shared with. Empty falls back to User's primary group, then GID.
+	Group string
 }
 
 // IsZero reports whether no ownership info was supplied. Callers can short
@@ -89,6 +99,67 @@ func ApplyRecursive(path string, opts Options) error {
 	}
 
 	return chownTree(path, uid, gid)
+}
+
+// resolveGroupID converts Options into the numeric gid that a shared tree
+// should be group-accessible by. Returns ok=false when the daemon is not
+// running as root (chmod/chown of a root-owned tree needs root — same gate
+// as Resolve) or when no group can be determined.
+func resolveGroupID(opts Options) (gid int, ok bool, err error) {
+	if !isRootUser() {
+		return 0, false, nil
+	}
+
+	if opts.Group != "" {
+		grp, lookupErr := user.LookupGroup(opts.Group)
+		if lookupErr != nil {
+			return 0, false, lookupErr
+		}
+
+		gid, err = strconv.Atoi(grp.Gid)
+		if err != nil {
+			return 0, false, err
+		}
+
+		return gid, true, nil
+	}
+
+	if opts.User != "" {
+		systemUser, lookupErr := user.Lookup(opts.User)
+		if lookupErr != nil {
+			return 0, false, lookupErr
+		}
+
+		gid, err = strconv.Atoi(systemUser.Gid)
+		if err != nil {
+			return 0, false, err
+		}
+
+		return gid, true, nil
+	}
+
+	if opts.GID != 0 {
+		return int(opts.GID), true, nil
+	}
+
+	return 0, false, nil
+}
+
+// ApplyGroupSharedRecursive makes path and everything under it accessible to
+// the resolved group: directories get the setgid bit plus group rwx (so
+// entries created later inherit the group), files get group rw. File owner
+// (user) is preserved — only the group is changed. No-op when not applicable
+// (non-root daemon, no resolvable group, Windows).
+func ApplyGroupSharedRecursive(path string, opts Options) error {
+	gid, ok, err := resolveGroupID(opts)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+
+	return groupShareTree(path, gid)
 }
 
 // MissingSegments returns the path prefixes that do not exist on disk yet,

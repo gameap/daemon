@@ -26,3 +26,7 @@ func lchown(_ string, _, _ int) error {
 func chownTree(_ string, _, _ int) error {
 	return nil
 }
+
+func groupShareTree(_ string, _ int) error {
+	return nil
+}

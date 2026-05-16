@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -293,7 +292,8 @@ func TestUpdateBySteam_SteamCommandWithoutValidate(t *testing.T) {
 		}
 	}(workPath)
 	cfg := &config.Config{
-		WorkPath: workPath,
+		WorkPath:     workPath,
+		SteamCMDPath: workPath,
 	}
 	executor := &testExecutor{}
 	updater := newUpdater(cfg, executor, &bytes.Buffer{})
@@ -305,11 +305,8 @@ func TestUpdateBySteam_SteamCommandWithoutValidate(t *testing.T) {
 	err = updater.Install(context.Background(), server, rules)
 
 	require.Nil(t, err)
-	if runtime.GOOS == "windows" {
-		executor.AssertCommand(t, "steamcmd.exe +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 +quit")
-	} else {
-		executor.AssertCommand(t, "steamcmd.sh +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 +quit")
-	}
+	steamCMD := filepath.Join(workPath, config.SteamCMDExecutableFile)
+	executor.AssertCommand(t, steamCMD+" +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 +quit")
 }
 
 func TestUpdateBySteam_SteamCommandWithSetConfig(t *testing.T) {
@@ -322,7 +319,8 @@ func TestUpdateBySteam_SteamCommandWithSetConfig(t *testing.T) {
 		}
 	}(workPath)
 	cfg := &config.Config{
-		WorkPath: workPath,
+		WorkPath:     workPath,
+		SteamCMDPath: workPath,
 	}
 	executor := &testExecutor{}
 	updater := newUpdater(cfg, executor, &bytes.Buffer{})
@@ -334,11 +332,8 @@ func TestUpdateBySteam_SteamCommandWithSetConfig(t *testing.T) {
 	err = updater.Install(context.Background(), server, rules)
 
 	require.Nil(t, err)
-	if runtime.GOOS == "windows" {
-		executor.AssertCommand(t, "steamcmd.exe +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 mod czero +quit")
-	} else {
-		executor.AssertCommand(t, "steamcmd.sh +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 mod czero +quit")
-	}
+	steamCMD := filepath.Join(workPath, config.SteamCMDExecutableFile)
+	executor.AssertCommand(t, steamCMD+" +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 mod czero +quit")
 }
 
 func TestInstallBySteam_SteamCommandWithValidate(t *testing.T) {
@@ -351,7 +346,8 @@ func TestInstallBySteam_SteamCommandWithValidate(t *testing.T) {
 		}
 	}(workPath)
 	cfg := &config.Config{
-		WorkPath: workPath,
+		WorkPath:     workPath,
+		SteamCMDPath: workPath,
 	}
 	executor := &testExecutor{}
 	updater := newInstallator(cfg, executor, &bytes.Buffer{})
@@ -363,11 +359,12 @@ func TestInstallBySteam_SteamCommandWithValidate(t *testing.T) {
 	err = updater.Install(context.Background(), server, rules)
 
 	require.Nil(t, err)
-	if runtime.GOOS == "windows" {
-		executor.AssertCommand(t, "steamcmd.exe +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 validate +quit")
-	} else {
-		executor.AssertCommand(t, "steamcmd.sh +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 validate +quit")
-	}
+	steamCMD := filepath.Join(workPath, config.SteamCMDExecutableFile)
+	executor.AssertCommand(t, steamCMD+" +force_install_dir \""+workPath+"/test-server\" +login anonymous +app_update 90 validate +quit")
+
+	assert.Equal(t, workPath, executor.options.WorkDir)
+	assert.Equal(t, server.WorkDir(cfg), executor.options.FallbackWorkDir)
+	assert.Equal(t, workPath, executor.options.Env["HOME"])
 }
 
 func givenRemoteInstallationServer(t *testing.T) *domain.Server {
@@ -473,18 +470,23 @@ func givenServer(t *testing.T, game domain.Game, gameMod domain.GameMod) *domain
 
 type testExecutor struct {
 	command string
+	options contracts.ExecutorOptions
 }
 
-func (ex *testExecutor) Exec(_ context.Context, command string, _ contracts.ExecutorOptions) ([]byte, int, error) {
+func (ex *testExecutor) Exec(
+	_ context.Context, command string, options contracts.ExecutorOptions,
+) ([]byte, int, error) {
 	ex.command = command
+	ex.options = options
 
 	return []byte(""), 0, nil
 }
 
 func (ex *testExecutor) ExecWithWriter(
-	_ context.Context, command string, _ io.Writer, _ contracts.ExecutorOptions,
+	_ context.Context, command string, _ io.Writer, options contracts.ExecutorOptions,
 ) (int, error) {
 	ex.command = command
+	ex.options = options
 
 	return 0, nil
 }
