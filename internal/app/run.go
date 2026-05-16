@@ -73,6 +73,11 @@ func Run(args []string) {
 						Value: defaultEnrollWorkPath,
 						Usage: "Working directory for game servers",
 					},
+					&cli.StringFlag{
+						Name:  "steamcmd-path",
+						Value: defaultEnrollSteamCMDPath,
+						Usage: "Directory where steamcmd is installed",
+					},
 				},
 				Action: enrollAction,
 			},

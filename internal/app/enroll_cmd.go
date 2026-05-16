@@ -24,6 +24,7 @@ func enrollAction(c *cli.Context) error {
 	listenIP := c.String("listen-ip")
 	listenPort := c.Int("listen-port")
 	workPath := c.String("work-path")
+	steamCMDPath := c.String("steamcmd-path")
 
 	urlInfo, err := grpcclient.ParseConnectURL(connectURL)
 	if err != nil {
@@ -95,6 +96,7 @@ func enrollAction(c *cli.Context) error {
 		CertificateChainFile: filepath.Join(certsDir, "server.crt"),
 		PrivateKeyFile:       filepath.Join(certsDir, "server.key"),
 		WorkPath:             workPath,
+		SteamCMDPath:         steamCMDPath,
 		LogLevel:             "info",
 		GRPC: config.EnrollGRPC{
 			Enabled: true,
