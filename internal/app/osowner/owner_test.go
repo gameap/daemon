@@ -2,7 +2,9 @@ package osowner
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,4 +116,55 @@ func TestMissingSegments_TargetIsExistingFileReturnsEmpty(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, segments)
+}
+
+func TestApplyGroupSharedRecursive_EmptyOptionsIsNoop(t *testing.T) {
+	tempDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(tempDir, "a"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "a", "f.txt"), []byte("y"), 0o644))
+
+	err := ApplyGroupSharedRecursive(tempDir, Options{})
+
+	require.NoError(t, err)
+}
+
+func TestApplyGroupSharedRecursive_NonRootDaemonIsNoop(t *testing.T) {
+	tempDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "f.txt"), []byte("x"), 0o644))
+
+	err := ApplyGroupSharedRecursive(tempDir, Options{
+		User:  "nonexistentuser_4j2k9c",
+		Group: "nonexistentgroup_4j2k9c",
+	})
+
+	require.NoError(t, err, "non-root daemon must not even attempt user/group lookup")
+}
+
+func TestApplyGroupSharedRecursive_SetsSetgidAndGroupBitsWhenRoot(t *testing.T) {
+	if !isRootUser() || runtime.GOOS == "windows" {
+		t.Skip("requires root on a unix host")
+	}
+
+	grp, err := user.LookupGroupId("0")
+	if err != nil {
+		t.Skipf("no group with gid 0 to test with: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	subDir := filepath.Join(tempDir, "sub")
+	require.NoError(t, os.Mkdir(subDir, 0o755))
+	file := filepath.Join(subDir, "f.txt")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
+
+	err = ApplyGroupSharedRecursive(tempDir, Options{Group: grp.Name})
+	require.NoError(t, err)
+
+	dirInfo, err := os.Stat(subDir)
+	require.NoError(t, err)
+	assert.NotZero(t, dirInfo.Mode()&os.ModeSetgid, "directory must get the setgid bit")
+	assert.Equal(t, os.FileMode(0o070), dirInfo.Mode().Perm()&0o070, "directory must be group rwx")
+
+	fileInfo, err := os.Stat(file)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o060), fileInfo.Mode().Perm()&0o060, "file must be group rw")
 }

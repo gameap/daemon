@@ -40,3 +40,39 @@ func chownTree(path string, uid, gid int) error {
 		return root.Lchown(name, uid, gid)
 	})
 }
+
+func groupShareTree(path string, gid int) error {
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+
+	return fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+
+		if d.Type()&fs.ModeSymlink != 0 {
+			return root.Lchown(name, -1, gid)
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		mode := info.Mode()
+		if d.IsDir() {
+			mode |= os.ModeSetgid | 0o070
+		} else {
+			mode |= 0o060
+		}
+
+		if err = root.Chmod(name, mode); err != nil {
+			return err
+		}
+
+		return root.Lchown(name, -1, gid)
+	})
+}

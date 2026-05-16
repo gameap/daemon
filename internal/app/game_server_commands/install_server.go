@@ -536,8 +536,28 @@ func (in *installator) installFromSteam(
 
 	in.writeOutput(ctx, "Installing from steam ...")
 
+	if _, err := os.Stat(cfg.SteamCMDPath); err != nil {
+		err = errors.Wrapf(err, "steamcmd directory %s is not accessible", cfg.SteamCMDPath)
+		in.writeOutput(ctx, err.Error())
+
+		return err
+	}
+
+	err := osowner.ApplyGroupSharedRecursive(cfg.SteamCMDPath, osowner.Options{
+		User:  server.User(),
+		Group: cfg.SteamConfig.Group,
+	})
+	if err != nil {
+		err = errors.Wrapf(err, "failed to share steamcmd directory %s with the game server group", cfg.SteamCMDPath)
+		in.writeOutput(ctx, err.Error())
+
+		return err
+	}
+
 	executorOptions := contracts.ExecutorOptions{
-		WorkDir: cfg.WorkPath,
+		WorkDir:         cfg.SteamCMDPath,
+		FallbackWorkDir: server.WorkDir(in.cfg),
+		Env:             map[string]string{"HOME": cfg.SteamCMDPath},
 	}
 
 	if isRootUser() && server.User() != "" {
@@ -552,7 +572,7 @@ func (in *installator) installFromSteam(
 		executorOptions.GID = systemUser.Gid
 	}
 
-	_, err := os.Stat(server.WorkDir(in.cfg))
+	_, err = os.Stat(server.WorkDir(in.cfg))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		err = mkdirAllWithFinalPerm(server.WorkDir(in.cfg), 0750)
 		if err != nil {
