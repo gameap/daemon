@@ -10,11 +10,11 @@ import (
 
 func (suite *Suite) TestTextFileInfoSuccess() {
 	suite.Auth(server.ModeFiles)
-	err := os.Chmod("../../../../test/files/file.txt", 0664)
+	err := os.Chmod(suite.fixtureAbs("file.txt"), 0664)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-	msg := []interface{}{files.FileInfo, "../../../../test/files/file.txt"}
+	msg := []interface{}{files.FileInfo, fixturesRel + "/file.txt"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
@@ -32,11 +32,11 @@ func (suite *Suite) TestTextFileInfoSuccess() {
 
 func (suite *Suite) TestJsonFileInfoSuccess() {
 	suite.Auth(server.ModeFiles)
-	err := os.Chmod("../../../../test/files/file.json", 0664)
+	err := os.Chmod(suite.fixtureAbs("file.json"), 0664)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-	msg := []interface{}{files.FileInfo, "../../../../test/files/file.json"}
+	msg := []interface{}{files.FileInfo, fixturesRel + "/file.json"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
@@ -54,11 +54,11 @@ func (suite *Suite) TestJsonFileInfoSuccess() {
 
 func (suite *Suite) TestDirectoryInfoSuccess() {
 	suite.Auth(server.ModeFiles)
-	err := os.Chmod("../../../../test/files/directory", 0775)
+	err := os.Chmod(suite.fixtureAbs("directory"), 0775)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-	msg := []interface{}{files.FileInfo, "../../../../test/files/directory"}
+	msg := []interface{}{files.FileInfo, fixturesRel + "/directory"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
@@ -76,11 +76,11 @@ func (suite *Suite) TestDirectoryInfoSuccess() {
 
 func (suite *Suite) TestSymlinkInfoSuccess() {
 	suite.Auth(server.ModeFiles)
-	err := os.Chmod("../../../../test/files/symlink_to_file_txt", 0777)
+	err := os.Chmod(suite.fixtureAbs("symlink_to_file_txt"), 0777)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-	msg := []interface{}{files.FileInfo, "../../../../test/files/symlink_to_file_txt"}
+	msg := []interface{}{files.FileInfo, fixturesRel + "/symlink_to_file_txt"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
@@ -98,11 +98,11 @@ func (suite *Suite) TestSymlinkInfoSuccess() {
 
 func (suite *Suite) TestFileInfo_EmptyFile_Success() {
 	suite.Authenticate()
-	err := os.Chmod("../../../../test/files/empty_file.txt", 0664)
+	err := os.Chmod(suite.fixtureAbs("empty_file.txt"), 0664)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-	msg := []interface{}{files.FileInfo, "../../../../test/files/empty_file.txt"}
+	msg := []interface{}{files.FileInfo, fixturesRel + "/empty_file.txt"}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))

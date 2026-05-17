@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
-	"time"
 
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
@@ -15,50 +13,43 @@ import (
 
 func (suite *Suite) TestMoveFileSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir, _ := os.MkdirTemp("", "files_test_")
-	tempFile, _ := os.CreateTemp(tempDir, "file")
-	tempFileName := tempFile.Name()
-	_ = tempFile.Close()
-	newFile := filepath.Join(tempDir, "newFile")
-	msg := []interface{}{files.FileMove, tempFileName, newFile, false}
+	srcRel, srcAbs := suite.workFile("move", []byte("data"))
+	dstRel, dstAbs := suite.workPath("moved")
+	msg := []interface{}{files.FileMove, srcRel, dstRel, false}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
-	suite.DirExists(tempDir)
-	suite.FileExists(newFile)
-	suite.NoFileExists(tempFile.Name())
+	suite.FileExists(dstAbs)
+	suite.NoFileExists(srcAbs)
 }
 
 func (suite *Suite) TestCopyFileSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir, _ := os.MkdirTemp("", "files_test_")
-	defer os.RemoveAll(tempDir)
-	tempFile, _ := os.CreateTemp(tempDir, "file")
-	newFile := filepath.Join(tempDir, "newFile")
-	msg := []interface{}{files.FileMove, tempFile.Name(), newFile, true}
+	srcRel, srcAbs := suite.workFile("copy", []byte("data"))
+	dstRel, dstAbs := suite.workPath("copied")
+	msg := []interface{}{files.FileMove, srcRel, dstRel, true}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
-	suite.DirExists(tempDir)
-	suite.FileExists(newFile)
-	suite.FileExists(tempFile.Name())
+	suite.FileExists(dstAbs)
+	suite.FileExists(srcAbs)
 }
 
 func (suite *Suite) TestCopyRelativePathSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir := filepath.Join(os.TempDir(), "files_test", strconv.Itoa(int(time.Now().UnixNano())))
-	msg := []interface{}{files.FileMove, "../../../../test/files", tempDir, true}
+	dstRel, dstAbs := suite.workPath("copytree")
+	msg := []interface{}{files.FileMove, fixturesRel, dstRel, true}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
-	suite.DirExists(filepath.Join(tempDir, "/directory"))
-	suite.FileExists(filepath.Join(tempDir, "/file.json"))
-	suite.FileExists(filepath.Join(tempDir, "/file.txt"))
-	if runtime.GOOS != "windows" && suite.FileExists(filepath.Join(tempDir, "symlink_to_file_txt")) {
-		s, err := os.Lstat(filepath.Join(tempDir, "symlink_to_file_txt"))
+	suite.DirExists(filepath.Join(dstAbs, "directory"))
+	suite.FileExists(filepath.Join(dstAbs, "file.json"))
+	suite.FileExists(filepath.Join(dstAbs, "file.txt"))
+	if runtime.GOOS != "windows" && suite.FileExists(filepath.Join(dstAbs, "symlink_to_file_txt")) {
+		s, err := os.Lstat(filepath.Join(dstAbs, "symlink_to_file_txt"))
 		if err != nil {
 			suite.T().Fatal(err)
 		}
@@ -68,37 +59,34 @@ func (suite *Suite) TestCopyRelativePathSuccess() {
 
 func (suite *Suite) TestCopyDirectorySuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDirSource, _ := os.MkdirTemp("", "files_test_source_")
-	defer os.RemoveAll(tempDirSource)
-	tempDirDestination := filepath.Join(os.TempDir(), "files_test_destination", strconv.Itoa(int(time.Now().UnixNano())))
-	defer os.RemoveAll(tempDirDestination)
-	tempFile, _ := os.CreateTemp(tempDirSource, "file")
-	tempFile.Close()
-	msg := []interface{}{files.FileMove, tempDirSource, tempDirDestination, true}
+	srcRel, srcAbs := suite.workDir("src")
+	if err := os.WriteFile(filepath.Join(srcAbs, "f.bin"), []byte("z"), 0o644); err != nil {
+		suite.T().Fatal(err)
+	}
+	dstRel, dstAbs := suite.workPath("dst")
+	msg := []interface{}{files.FileMove, srcRel, dstRel, true}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
-	suite.FileExists(filepath.Join(tempDirDestination, filepath.Base(tempFile.Name())))
-	suite.FileExists(filepath.Join(tempDirDestination, filepath.Base(tempFile.Name())))
+	suite.FileExists(filepath.Join(dstAbs, "f.bin"))
+	suite.FileExists(filepath.Join(srcAbs, "f.bin"))
 }
 
 func (suite *Suite) TestMoveDirectorySuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDirSource, _ := os.MkdirTemp("", "files_test_source_")
-	tempDirDestination := filepath.Join(os.TempDir(), "files_test_destination", strconv.Itoa(int(time.Now().UnixNano())))
-	defer os.RemoveAll(tempDirDestination)
-	tempFile, _ := os.CreateTemp(tempDirSource, "file")
-	tempFileName := tempFile.Name()
-	_ = tempFile.Close()
-	msg := []interface{}{files.FileMove, tempDirSource, tempDirDestination, false}
+	srcRel, srcAbs := suite.workDir("src")
+	if err := os.WriteFile(filepath.Join(srcAbs, "f.bin"), []byte("z"), 0o644); err != nil {
+		suite.T().Fatal(err)
+	}
+	dstRel, dstAbs := suite.workPath("dst")
+	msg := []interface{}{files.FileMove, srcRel, dstRel, false}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
-	suite.NoDirExists(tempDirSource)
-	suite.NoFileExists(filepath.Join(tempDirSource, filepath.Base(tempFileName)))
-	suite.FileExists(filepath.Join(tempDirDestination, filepath.Base(tempFileName)))
+	suite.NoDirExists(srcAbs)
+	suite.FileExists(filepath.Join(dstAbs, "f.bin"))
 }
 
 func (suite *Suite) TestMoveInvalidSource() {
@@ -113,16 +101,14 @@ func (suite *Suite) TestMoveInvalidSource() {
 
 func (suite *Suite) TestMoveInvalidDestination() {
 	suite.Auth(server.ModeFiles)
-	tempDirSource, _ := os.MkdirTemp("", "files_test_source_")
-	defer os.RemoveAll(tempDirSource)
-	tempDirDestination, _ := os.MkdirTemp("", "files_test_destination_")
-	defer os.RemoveAll(tempDirDestination)
-	msg := []interface{}{files.FileMove, tempDirSource, tempDirDestination, false}
+	srcRel, _ := suite.workDir("src")
+	dstRel, _ := suite.workDir("dst")
+	msg := []interface{}{files.FileMove, srcRel, dstRel, false}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	suite.Equal(response.StatusError, response.Code(r[0].(uint8)))
-	suite.Equal("Destination \""+tempDirDestination+"\" already exists", r[1].(string))
+	suite.Equal("Destination \""+dstRel+"\" already exists", r[1].(string))
 }
 
 func (suite *Suite) TestMoveInvalidMessage() {

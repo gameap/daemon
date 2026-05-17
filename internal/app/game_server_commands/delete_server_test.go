@@ -11,8 +11,8 @@ import (
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/internal/processmanager"
-	copyPkg "github.com/otiai10/copy"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -138,7 +138,7 @@ func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 
 func installSimpleServerFiles(t *testing.T, cfg *config.Config, server *domain.Server) {
 	t.Helper()
-	err := copyPkg.Copy("../../../test/servers/simple/", server.WorkDir(cfg))
+	err := fsutil.Copy("../../../test/servers/simple/", server.WorkDir(cfg), fsutil.CopyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func installSimpleServerFiles(t *testing.T, cfg *config.Config, server *domain.S
 
 func installScripts(t *testing.T, cfg *config.Config) {
 	t.Helper()
-	err := copyPkg.Copy("../../../test/servers/scripts/", cfg.WorkPath)
+	err := fsutil.Copy("../../../test/servers/scripts/", cfg.WorkPath, fsutil.CopyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

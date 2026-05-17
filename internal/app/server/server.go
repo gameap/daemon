@@ -38,6 +38,7 @@ type Server struct {
 	quit chan struct{}
 
 	ip          string
+	workPath    string
 	certPEM     []byte
 	keyPEM      []byte
 	credConfig  CredentialsConfig
@@ -53,6 +54,7 @@ type componentHandler interface {
 func NewServer(
 	ip string,
 	port int,
+	workPath string,
 	certPEM []byte,
 	keyPEM []byte,
 	credConfig CredentialsConfig,
@@ -62,6 +64,7 @@ func NewServer(
 	return &Server{
 		ip:              ip,
 		port:            port,
+		workPath:        workPath,
 		certPEM:         certPEM,
 		keyPEM:          keyPEM,
 		credConfig:      credConfig,
@@ -211,7 +214,7 @@ func (srv *Server) serveComponent(ctx context.Context, conn net.Conn, m Mode) er
 	case ModeCommands:
 		handler = commands.NewCommands(srv.executor)
 	case ModeFiles:
-		handler = files.NewFiles()
+		handler = files.NewFiles(srv.workPath)
 	case ModeStatus:
 		handler = status.NewStatus(srv.taskStatsReader)
 	default:

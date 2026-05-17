@@ -108,6 +108,7 @@ func (r *Runner) RunGDaemonServer(ctx context.Context, cfg *config.Config) func(
 		srv, err := server.NewServer(
 			cfg.ListenIP,
 			cfg.ListenPort,
+			cfg.WorkPath,
 			certPEM,
 			keyPEM,
 			server.CredentialsConfig{

@@ -34,6 +34,8 @@ type Suite struct {
 	Server *server.Server
 	Client *tls.Conn
 
+	WorkPath string
+
 	Executor        contracts.Executor
 	TaskStatsReader *mocks.TasksStatsReader
 }
@@ -43,6 +45,11 @@ func (suite *Suite) SetupSuite() {
 
 	suite.TaskStatsReader = &mocks.TasksStatsReader{}
 	suite.Executor = components.NewCleanExecutor()
+
+	suite.WorkPath, err = os.MkdirTemp("", "gameap-servertest-")
+	if err != nil {
+		suite.T().Fatal(err)
+	}
 
 	certPEM, err := os.ReadFile(ServerCert)
 	if err != nil {
@@ -56,6 +63,7 @@ func (suite *Suite) SetupSuite() {
 	suite.Server, err = server.NewServer(
 		"127.0.0.1",
 		3717,
+		suite.WorkPath,
 		certPEM,
 		keyPEM,
 		server.CredentialsConfig{
@@ -92,6 +100,10 @@ func (suite *Suite) TearDownTest() {
 
 func (suite *Suite) TearDownSuite() {
 	suite.Server.Stop(context.Background())
+
+	if suite.WorkPath != "" {
+		_ = os.RemoveAll(suite.WorkPath)
+	}
 }
 
 func (suite *Suite) loadClient() {

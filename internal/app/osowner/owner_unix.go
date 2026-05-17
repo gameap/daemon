@@ -25,6 +25,10 @@ func lchown(path string, uid, gid int) error {
 	return os.Lchown(path, uid, gid)
 }
 
+func lchownInRoot(root *os.Root, name string, uid, gid int) error {
+	return root.Lchown(name, uid, gid)
+}
+
 func chownTree(path string, uid, gid int) error {
 	root, err := os.OpenRoot(path)
 	if err != nil {
