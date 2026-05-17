@@ -10,12 +10,12 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/fsutil"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 	"github.com/gameap/daemon/internal/processmanager"
 	"github.com/gameap/daemon/test/functional"
 	"github.com/gameap/daemon/test/mocks"
-	"github.com/otiai10/copy"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -77,7 +77,7 @@ func (suite *Suite) SetupTest() {
 		suite.T().Fatal(err)
 	}
 
-	err = copy.Copy("../../servers/scripts", suite.WorkPath+"/server")
+	err = fsutil.Copy("../../servers/scripts", suite.WorkPath+"/server", fsutil.CopyOptions{})
 	if err != nil {
 		suite.T().Fatal(err)
 	}

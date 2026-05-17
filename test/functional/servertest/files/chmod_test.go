@@ -13,8 +13,7 @@ import (
 
 func (suite *Suite) TestChmodSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir, _ := os.MkdirTemp("", "files_test_")
-	tempFile, _ := os.CreateTemp(tempDir, "file")
+	rel, abs := suite.workFile("chmod", []byte("x"))
 
 	var tests []struct {
 		name     string
@@ -47,12 +46,12 @@ func (suite *Suite) TestChmodSuccess() {
 
 	for _, test := range tests {
 		suite.T().Run(test.name, func(t *testing.T) {
-			msg := []interface{}{files.FileChmod, tempFile.Name(), test.perm}
+			msg := []interface{}{files.FileChmod, rel, test.perm}
 
 			r := suite.ClientWriteReadAndDecodeList(msg)
 
 			assert.Equal(t, response.StatusOK, response.Code(r[0].(uint8)))
-			stat, err := os.Stat(tempFile.Name())
+			stat, err := os.Stat(abs)
 			if err != nil {
 				t.Fatal(err)
 			}

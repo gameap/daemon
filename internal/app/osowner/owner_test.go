@@ -118,6 +118,79 @@ func TestMissingSegments_TargetIsExistingFileReturnsEmpty(t *testing.T) {
 	assert.Empty(t, segments)
 }
 
+func TestMissingSegmentsInRoot_TargetAlreadyExistsReturnsEmpty(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, root.Mkdir("existing", 0o755))
+
+	segments, err := MissingSegmentsInRoot(root, "existing")
+
+	require.NoError(t, err)
+	assert.Empty(t, segments)
+}
+
+func TestMissingSegmentsInRoot_AllSegmentsMissingReturnsAllInOrder(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+
+	segments, err := MissingSegmentsInRoot(root, "a/b/c")
+
+	require.NoError(t, err)
+	require.Len(t, segments, 3)
+	assert.Equal(t, "a", segments[0], "shallowest missing segment first")
+	assert.Equal(t, "a/b", segments[1])
+	assert.Equal(t, "a/b/c", segments[2], "deepest (target) last")
+}
+
+func TestMissingSegmentsInRoot_SomeSegmentsExistReturnsOnlyMissing(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, root.MkdirAll("a/b", 0o755))
+
+	segments, err := MissingSegmentsInRoot(root, "a/b/c/d")
+
+	require.NoError(t, err)
+	require.Len(t, segments, 2)
+	assert.Equal(t, "a/b/c", segments[0])
+	assert.Equal(t, "a/b/c/d", segments[1])
+}
+
+func TestMissingSegmentsInRoot_RootItselfReturnsEmpty(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+
+	segments, err := MissingSegmentsInRoot(root, ".")
+
+	require.NoError(t, err)
+	assert.Empty(t, segments)
+}
+
+func TestApplyToPathInRoot_EmptyOptionsIsNoop(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, root.WriteFile("file.txt", []byte("x"), 0o644))
+
+	err = ApplyToPathInRoot(root, "file.txt", Options{})
+
+	require.NoError(t, err)
+}
+
+func TestApplyToPathInRoot_NonRootDaemonIsNoop(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, root.WriteFile("file.txt", []byte("x"), 0o644))
+
+	err = ApplyToPathInRoot(root, "file.txt", Options{User: "nonexistentuser_4j2k9c"})
+
+	require.NoError(t, err, "non-root daemon must not even attempt user.Lookup")
+}
+
 func TestApplyGroupSharedRecursive_EmptyOptionsIsNoop(t *testing.T) {
 	tempDir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(tempDir, "a"), 0o755))

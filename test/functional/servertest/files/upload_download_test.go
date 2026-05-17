@@ -11,7 +11,7 @@ import (
 
 func (suite *Suite) TestDownloadSuccess() {
 	suite.Auth(server.ModeFiles)
-	msg := []interface{}{files.FileSend, files.SendFileToClient, "../../../../test/files/file.txt"}
+	msg := []interface{}{files.FileSend, files.SendFileToClient, fixturesRel + "/file.txt"}
 	r := suite.ClientWriteReadAndDecodeList(msg)
 	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
 	suite.Equal("File is ready to transfer", r[1].(string))
@@ -27,7 +27,7 @@ func (suite *Suite) TestDownloadSuccess() {
 func (suite *Suite) TestDownloadMultipleSuccess() {
 	// First File
 	suite.Auth(server.ModeFiles)
-	msg := []interface{}{files.FileSend, files.SendFileToClient, "../../../../test/files/file.txt"}
+	msg := []interface{}{files.FileSend, files.SendFileToClient, fixturesRel + "/file.txt"}
 	r := suite.ClientWriteReadAndDecodeList(msg)
 	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
 	suite.Equal("File is ready to transfer", r[1].(string))
@@ -39,7 +39,7 @@ func (suite *Suite) TestDownloadMultipleSuccess() {
 	suite.Equal("file.txt\n", string(buf))
 
 	// Second File
-	msg = []interface{}{files.FileSend, files.SendFileToClient, "../../../../test/files/file2.txt"}
+	msg = []interface{}{files.FileSend, files.SendFileToClient, fixturesRel + "/file2.txt"}
 	r = suite.ClientWriteReadAndDecodeList(msg)
 	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
 	suite.Equal("File is ready to transfer", r[1].(string))
@@ -53,7 +53,7 @@ func (suite *Suite) TestDownloadMultipleSuccess() {
 
 func (suite *Suite) TestDownload_EmptyFile_Success() {
 	suite.Auth(server.ModeFiles)
-	msg := []interface{}{files.FileSend, files.SendFileToClient, "../../../../test/files/empty_file.txt"}
+	msg := []interface{}{files.FileSend, files.SendFileToClient, fixturesRel + "/empty_file.txt"}
 	r := suite.ClientWriteReadAndDecodeList(msg)
 	suite.Equal(response.StatusReadyToTransfer, response.Code(r[0].(uint8)))
 	suite.Equal("File is ready to transfer", r[1].(string))
@@ -151,7 +151,7 @@ func (suite *Suite) TestUploadRaccoonSuccess() {
 func (suite *Suite) TestUpload_WhenListDirectoryCommandExecutedBefore_Success() {
 	suite.Authenticate()
 	// Read Directory
-	readDirMsg := []interface{}{files.ReadDir, "../../../../test/files", files.ListWithDetails}
+	readDirMsg := []interface{}{files.ReadDir, fixturesRel, files.ListWithDetails}
 	r := suite.ClientWriteReadAndDecodeList(readDirMsg)
 	suite.Require().Equal(response.StatusOK, response.Code(r[0].(uint8)))
 	// File arrange

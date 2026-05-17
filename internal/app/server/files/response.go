@@ -67,8 +67,8 @@ type fileDetailsResponse struct {
 	Type             uint8
 }
 
-func createfileDetailsResponse(path string) (*fileDetailsResponse, error) {
-	fi, err := os.Lstat(path)
+func createfileDetailsResponse(root *os.Root, rel string) (*fileDetailsResponse, error) {
+	fi, err := root.Lstat(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,13 @@ func createfileDetailsResponse(path string) (*fileDetailsResponse, error) {
 
 	var mime string
 	if fType == TypeFile && fi.Size() > 0 {
-		mm, err := mimetype.DetectFile(path)
+		file, err := root.Open(rel)
+		if err != nil {
+			return nil, err
+		}
+
+		mm, err := mimetype.DetectReader(file)
+		_ = file.Close()
 
 		if err != nil {
 			return nil, err

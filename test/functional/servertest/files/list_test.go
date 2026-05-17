@@ -12,11 +12,11 @@ import (
 
 func (suite *Suite) TestListSuccess() {
 	suite.Auth(server.ModeFiles)
-	err := os.Chmod("../../../../test/files/file.txt", 0664)
+	err := os.Chmod(suite.fixtureAbs("file.txt"), 0664)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-	msg := []interface{}{files.ReadDir, "../../../../test/files", files.ListWithDetails}
+	msg := []interface{}{files.ReadDir, fixturesRel, files.ListWithDetails}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
@@ -46,7 +46,7 @@ func (suite *Suite) TestListSuccess() {
 
 func (suite *Suite) TestListNotExistenceDirectory() {
 	suite.Auth(server.ModeFiles)
-	msg := []interface{}{files.ReadDir, "../../../../test/not-existence", files.ListWithDetails}
+	msg := []interface{}{files.ReadDir, fixturesRel + "/not-existence", files.ListWithDetails}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 

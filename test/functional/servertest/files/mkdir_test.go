@@ -1,11 +1,6 @@
 package files
 
 import (
-	"os"
-	"path/filepath"
-	"strconv"
-	"time"
-
 	"github.com/gameap/daemon/internal/app/server"
 	"github.com/gameap/daemon/internal/app/server/files"
 	"github.com/gameap/daemon/internal/app/server/response"
@@ -14,38 +9,34 @@ import (
 
 func (suite *Suite) TestMakeDirSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir := filepath.Join(os.TempDir(), "files_test_", strconv.Itoa(int(time.Now().UnixNano())))
-	defer os.RemoveAll(tempDir)
-	msg := []interface{}{files.MakeDir, tempDir}
+	rel, abs := suite.workPath("mkdir")
+	msg := []interface{}{files.MakeDir, rel}
 
 	r := suite.ClientWriteReadAndDecodeList(msg)
 
 	suite.Equal(response.StatusOK, response.Code(r[0].(uint8)))
-	suite.DirExists(tempDir)
+	suite.DirExists(abs)
 }
 
 func (suite *Suite) TestMakeDir_WhenThreeMessage_ExpectSuccess() {
 	suite.Auth(server.ModeFiles)
-	tempDir1 := filepath.Join(os.TempDir(), "files_test", strconv.Itoa(int(time.Now().UnixNano())))
-	tempDir2 := filepath.Join(os.TempDir(), "files_test", strconv.Itoa(int(time.Now().UnixNano())))
-	tempDir3 := filepath.Join(os.TempDir(), "files_test", strconv.Itoa(int(time.Now().UnixNano())))
-	defer os.RemoveAll(tempDir1)
-	defer os.RemoveAll(tempDir2)
-	defer os.RemoveAll(tempDir3)
-	msg1 := []interface{}{files.MakeDir, tempDir1}
-	msg2 := []interface{}{files.MakeDir, tempDir2}
-	msg3 := []interface{}{files.MakeDir, tempDir3}
+	rel1, abs1 := suite.workPath("mkdir")
+	rel2, abs2 := suite.workPath("mkdir")
+	rel3, abs3 := suite.workPath("mkdir")
+	msg1 := []interface{}{files.MakeDir, rel1}
+	msg2 := []interface{}{files.MakeDir, rel2}
+	msg3 := []interface{}{files.MakeDir, rel3}
 
 	r1 := suite.ClientWriteReadAndDecodeList(msg1)
 	r2 := suite.ClientWriteReadAndDecodeList(msg2)
 	r3 := suite.ClientWriteReadAndDecodeList(msg3)
 
 	suite.Equal(response.StatusOK, response.Code(r1[0].(uint8)))
-	suite.DirExists(tempDir1)
+	suite.DirExists(abs1)
 	suite.Equal(response.StatusOK, response.Code(r2[0].(uint8)))
-	suite.DirExists(tempDir2)
+	suite.DirExists(abs2)
 	suite.Equal(response.StatusOK, response.Code(r3[0].(uint8)))
-	suite.DirExists(tempDir3)
+	suite.DirExists(abs3)
 }
 
 func (suite *Suite) TestMakeDirInvalidMessage() {
