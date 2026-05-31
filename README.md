@@ -69,15 +69,15 @@ private_key: |
 | Parameter                 | Required              | Type      | Info
 |---------------------------|-----------------------|-----------|------------
 | password_authentication   | no                    | boolean   | Login+password authentification
-| daemon_login              | no                    | string    | Login. On Linux if empty or not set will be used Linux PAM
+| daemon_login              | no                    | string     | Login. On Linux if empty or not set will be used Linux PAM
 | daemon_password           | no                    | string    | Password. On Linux if empty or not set will be used Linux PAM
 
 ### Stats
 
 | Parameter                 | Required              | Type      | Info
 |---------------------------|-----------------------|-----------|------------
-| if_list                   | no                    | string    | Network interfaces list
-| drives_list               | no                    | string    | Disk drivers list
+| if_list                   | no                    | list      | Network interfaces to report. Empty/unset = physical, non-loopback interfaces only
+| drives_list               | no                    | list      | Disk mounts to report. Empty/unset = root `/` plus the work_path drive
 | stats_update_period       | no                    | integer   | Stats update period
 | stats_db_update_period    | no                    | integer   | Update database period
 

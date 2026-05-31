@@ -44,6 +44,8 @@ func TestWriteEnrollConfig(t *testing.T) {
 	assert.Contains(t, content, "certificate_chain_file: /etc/gameap-daemon/certs/server.crt")
 	assert.Contains(t, content, "private_key_file: /etc/gameap-daemon/certs/server.key")
 	assert.Contains(t, content, "work_path: /srv/gameap")
+	assert.Contains(t, content, "if_list:")
+	assert.Contains(t, content, "drives_list:")
 	assert.Contains(t, content, "log_level: info")
 	assert.Contains(t, content, "enabled: true")
 	assert.Contains(t, content, "address: panel.example.com:31718")

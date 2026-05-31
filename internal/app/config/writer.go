@@ -18,6 +18,8 @@ type EnrollConfig struct {
 	PrivateKeyFile       string     `yaml:"private_key_file"`
 	WorkPath             string     `yaml:"work_path"`
 	SteamCMDPath         string     `yaml:"steamcmd_path"`
+	IFList               []string   `yaml:"if_list"`
+	DrivesList           []string   `yaml:"drives_list"`
 	LogLevel             string     `yaml:"log_level"`
 	GRPC                 EnrollGRPC `yaml:"grpc"`
 }

@@ -67,6 +67,9 @@ dh_file: /etc/gameap-daemon/certs_panel/dh2048.pem
 # Statistics
 # ------------------------------------------------------------------
 
+# Network interfaces and disk mounts reported in node metrics.
+# Leave empty (or remove) to auto-select physical, non-loopback interfaces
+# and the root "/" filesystem plus the work_path drive.
 if_list:
   - eth0
   - eth1

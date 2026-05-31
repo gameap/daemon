@@ -97,6 +97,8 @@ func enrollAction(c *cli.Context) error {
 		PrivateKeyFile:       filepath.Join(certsDir, "server.key"),
 		WorkPath:             workPath,
 		SteamCMDPath:         steamCMDPath,
+		IFList:               []string{},
+		DrivesList:           []string{},
 		LogLevel:             "info",
 		GRPC: config.EnrollGRPC{
 			Enabled: true,
