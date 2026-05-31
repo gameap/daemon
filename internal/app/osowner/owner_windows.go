@@ -3,6 +3,7 @@
 package osowner
 
 import (
+	"os"
 	"os/user"
 
 	log "github.com/sirupsen/logrus"
@@ -20,6 +21,10 @@ func isRootUser() bool {
 }
 
 func lchown(_ string, _, _ int) error {
+	return nil
+}
+
+func lchownInRoot(_ *os.Root, _ string, _, _ int) error {
 	return nil
 }
 

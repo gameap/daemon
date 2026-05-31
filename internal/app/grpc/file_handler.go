@@ -3,14 +3,13 @@ package grpc
 import (
 	"context"
 	"io"
+	"io/fs"
 	"os"
-	"path/filepath"
-	"runtime"
+	"path"
 	"strings"
 	"time"
 
-	cp "github.com/otiai10/copy"
-
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/internal/app/osowner"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
@@ -22,8 +21,6 @@ const (
 	maxFileSize          = 100 * 1024 * 1024
 )
 
-var errPathOutsideWorkDir = errors.New("path is outside work directory")
-
 type GRPCFileHandler struct {
 	workDir string
 }
@@ -34,25 +31,37 @@ func NewGRPCFileHandler(workDir string) *GRPCFileHandler {
 	}
 }
 
+// openRoot opens an os.Root at the work directory. Every path supplied by the
+// caller is then resolved through this root, which refuses symlink and ".."
+// escapes per path component without TOCTOU races. The root is opened per
+// request because workDir is provisioned from the API after construction and
+// may not exist yet at startup.
+func (h *GRPCFileHandler) openRoot() (*os.Root, error) {
+	root, err := os.OpenRoot(h.workDir)
+	if err != nil {
+		return nil, errors.Wrap(err, "work directory unavailable")
+	}
+
+	return root, nil
+}
+
 func (h *GRPCFileHandler) HandleFileRead(
 	_ context.Context, requestID string, req *pb.FileReadRequest,
 ) (*pb.FileReadResponse, error) {
-	filePath, err := h.resolvePath(req.Path)
+	root, err := h.openRoot()
 	if err != nil {
-		return &pb.FileReadResponse{
-			RequestId: requestID,
-			Success:   false,
-			Error:     err.Error(),
-		}, nil
+		return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(req.Path)
+	if err != nil {
+		return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
 
-	info, err := os.Stat(filePath)
+	info, err := root.Stat(rel)
 	if err != nil {
-		return &pb.FileReadResponse{
-			RequestId: requestID,
-			Success:   false,
-			Error:     err.Error(),
-		}, nil
+		return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
 
 	if info.IsDir() {
@@ -67,23 +76,15 @@ func (h *GRPCFileHandler) HandleFileRead(
 	length := req.GetLength()
 
 	if offset > 0 || length > 0 {
-		file, openErr := os.Open(filePath)
+		file, openErr := root.Open(rel)
 		if openErr != nil {
-			return &pb.FileReadResponse{
-				RequestId: requestID,
-				Success:   false,
-				Error:     openErr.Error(),
-			}, nil
+			return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: openErr.Error()}, nil
 		}
 		defer file.Close()
 
 		if offset > 0 {
 			if _, seekErr := file.Seek(offset, io.SeekStart); seekErr != nil {
-				return &pb.FileReadResponse{
-					RequestId: requestID,
-					Success:   false,
-					Error:     seekErr.Error(),
-				}, nil
+				return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: seekErr.Error()}, nil
 			}
 		}
 
@@ -96,18 +97,10 @@ func (h *GRPCFileHandler) HandleFileRead(
 
 		data, readErr := io.ReadAll(reader)
 		if readErr != nil {
-			return &pb.FileReadResponse{
-				RequestId: requestID,
-				Success:   false,
-				Error:     readErr.Error(),
-			}, nil
+			return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: readErr.Error()}, nil
 		}
 
-		return &pb.FileReadResponse{
-			RequestId: requestID,
-			Success:   true,
-			Content:   data,
-		}, nil
+		return &pb.FileReadResponse{RequestId: requestID, Success: true, Content: data}, nil
 	}
 
 	if info.Size() > maxFileSize {
@@ -118,32 +111,26 @@ func (h *GRPCFileHandler) HandleFileRead(
 		}, nil
 	}
 
-	data, err := os.ReadFile(filePath)
+	data, err := root.ReadFile(rel)
 	if err != nil {
-		return &pb.FileReadResponse{
-			RequestId: requestID,
-			Success:   false,
-			Error:     err.Error(),
-		}, nil
+		return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
 
-	return &pb.FileReadResponse{
-		RequestId: requestID,
-		Success:   true,
-		Content:   data,
-	}, nil
+	return &pb.FileReadResponse{RequestId: requestID, Success: true, Content: data}, nil
 }
 
 func (h *GRPCFileHandler) HandleFileWrite(
 	_ context.Context, requestID string, req *pb.FileWriteRequest,
 ) (*pb.FileWriteResponse, error) {
-	filePath, err := h.resolvePath(req.Path)
+	root, err := h.openRoot()
 	if err != nil {
-		return &pb.FileWriteResponse{
-			RequestId: requestID,
-			Success:   false,
-			Error:     err.Error(),
-		}, nil
+		return &pb.FileWriteResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(req.Path)
+	if err != nil {
+		return &pb.FileWriteResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
 
 	owner := osowner.Options{
@@ -153,8 +140,8 @@ func (h *GRPCFileHandler) HandleFileWrite(
 	}
 
 	if req.CreateDirs {
-		dir := filepath.Dir(filePath)
-		newDirs, segErr := osowner.MissingSegments(dir)
+		dir := path.Dir(rel)
+		newDirs, segErr := osowner.MissingSegmentsInRoot(root, dir)
 		if segErr != nil {
 			return &pb.FileWriteResponse{
 				RequestId: requestID,
@@ -162,7 +149,7 @@ func (h *GRPCFileHandler) HandleFileWrite(
 				Error:     errors.Wrap(segErr, "failed to inspect target directory").Error(),
 			}, nil
 		}
-		if err = os.MkdirAll(dir, 0755); err != nil {
+		if err = root.MkdirAll(dir, 0755); err != nil {
 			return &pb.FileWriteResponse{
 				RequestId: requestID,
 				Success:   false,
@@ -170,7 +157,7 @@ func (h *GRPCFileHandler) HandleFileWrite(
 			}, nil
 		}
 		for _, segment := range newDirs {
-			if chErr := osowner.ApplyToPath(segment, owner); chErr != nil {
+			if chErr := osowner.ApplyToPathInRoot(root, segment, owner); chErr != nil {
 				return &pb.FileWriteResponse{
 					RequestId: requestID,
 					Success:   false,
@@ -185,15 +172,11 @@ func (h *GRPCFileHandler) HandleFileWrite(
 		mode = 0644
 	}
 
-	if err := os.WriteFile(filePath, req.Content, mode); err != nil {
-		return &pb.FileWriteResponse{
-			RequestId: requestID,
-			Success:   false,
-			Error:     err.Error(),
-		}, nil
+	if err := root.WriteFile(rel, req.Content, mode); err != nil {
+		return &pb.FileWriteResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
 
-	if chErr := osowner.ApplyToPath(filePath, owner); chErr != nil {
+	if chErr := osowner.ApplyToPathInRoot(root, rel, owner); chErr != nil {
 		return &pb.FileWriteResponse{
 			RequestId: requestID,
 			Success:   false,
@@ -201,51 +184,40 @@ func (h *GRPCFileHandler) HandleFileWrite(
 		}, nil
 	}
 
-	return &pb.FileWriteResponse{
-		RequestId: requestID,
-		Success:   true,
-	}, nil
+	return &pb.FileWriteResponse{RequestId: requestID, Success: true}, nil
 }
 
 func (h *GRPCFileHandler) HandleFileList(
 	_ context.Context, requestID string, req *pb.FileListRequest,
 ) (*pb.FileListResponse, error) {
-	dirPath, err := h.resolvePath(req.Path)
+	root, err := h.openRoot()
 	if err != nil {
-		return &pb.FileListResponse{
-			RequestId: requestID,
-			Success:   false,
-			Error:     err.Error(),
-		}, nil
+		return &pb.FileListResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(req.Path)
+	if err != nil {
+		return &pb.FileListResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
 
 	var files []*pb.FileStat
 
 	if req.Recursive {
-		files, err = h.listRecursive(dirPath, req.Path, req.Pattern)
+		files, err = listRecursive(root, rel, req.Path, req.Pattern)
 	} else {
-		files, err = h.listFlat(dirPath, req.Path, req.Pattern)
+		files, err = listFlat(root, rel, req.Path, req.Pattern)
 	}
 
 	if err != nil {
-		return &pb.FileListResponse{
-			RequestId: requestID,
-			Success:   false,
-			Error:     err.Error(),
-		}, nil
+		return &pb.FileListResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
 
-	return &pb.FileListResponse{
-		RequestId: requestID,
-		Success:   true,
-		Files:     files,
-	}, nil
+	return &pb.FileListResponse{RequestId: requestID, Success: true, Files: files}, nil
 }
 
-func (h *GRPCFileHandler) listFlat(
-	dirPath, requestPath, pattern string,
-) ([]*pb.FileStat, error) {
-	entries, err := os.ReadDir(dirPath)
+func listFlat(root *os.Root, rel, requestPath, pattern string) ([]*pb.FileStat, error) {
+	entries, err := fs.ReadDir(root.FS(), rel)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +225,7 @@ func (h *GRPCFileHandler) listFlat(
 	files := make([]*pb.FileStat, 0, len(entries))
 	for _, entry := range entries {
 		if pattern != "" {
-			if matched, _ := filepath.Match(pattern, entry.Name()); !matched {
+			if matched, _ := path.Match(pattern, entry.Name()); !matched {
 				continue
 			}
 		}
@@ -263,37 +235,27 @@ func (h *GRPCFileHandler) listFlat(
 			continue
 		}
 
-		files = append(files, fileInfoToStat(filepath.Join(requestPath, entry.Name()), info))
+		files = append(files, fileInfoToStat(path.Join(requestPath, entry.Name()), info))
 	}
 
 	return files, nil
 }
 
-func (h *GRPCFileHandler) listRecursive(
-	dirPath, requestPath, pattern string,
-) ([]*pb.FileStat, error) {
+func listRecursive(root *os.Root, rel, requestPath, pattern string) ([]*pb.FileStat, error) {
 	var files []*pb.FileStat
 
-	err := filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
+	err := fs.WalkDir(root.FS(), rel, func(name string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
 			return nil //nolint:nilerr // skip unreadable entries
 		}
 
-		if path == dirPath {
+		sub, ok := relUnder(rel, name)
+		if !ok {
 			return nil
-		}
-
-		relPath, relErr := filepath.Rel(dirPath, path)
-		if relErr != nil {
-			return nil
-		}
-
-		if !strings.HasPrefix(filepath.Clean(path), dirPath) {
-			return filepath.SkipDir
 		}
 
 		if pattern != "" {
-			if matched, _ := filepath.Match(pattern, d.Name()); !matched {
+			if matched, _ := path.Match(pattern, d.Name()); !matched {
 				if !d.IsDir() {
 					return nil
 				}
@@ -305,12 +267,31 @@ func (h *GRPCFileHandler) listRecursive(
 			return nil
 		}
 
-		files = append(files, fileInfoToStat(filepath.Join(requestPath, relPath), info))
+		files = append(files, fileInfoToStat(path.Join(requestPath, sub), info))
 
 		return nil
 	})
 
 	return files, err
+}
+
+// relUnder returns name expressed relative to base, or ok=false when name is
+// base itself (the walk start, which is not a listed entry). os.Root + the
+// io/fs walk are inherently confined, so no extra containment check is needed.
+func relUnder(base, name string) (string, bool) {
+	if name == base {
+		return "", false
+	}
+	if base == "." {
+		return name, true
+	}
+
+	prefix := base + "/"
+	if !strings.HasPrefix(name, prefix) {
+		return "", false
+	}
+
+	return name[len(prefix):], true
 }
 
 func fileOpErrResp(requestID string, err error) (*pb.FileOperationResponse, error) {
@@ -333,19 +314,25 @@ func (h *GRPCFileHandler) HandleFileOperation(
 ) (*pb.FileOperationResponse, error) {
 	rid := req.GetRequestId()
 
+	root, err := h.openRoot()
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	defer root.Close()
+
 	switch req.GetOperation() {
 	case pb.FileOperationType_FILE_OPERATION_TYPE_STAT:
 		p := req.GetStatParams()
 		if p == nil {
 			return fileOpErrResp(rid, errors.New("stat_params required"))
 		}
-		resolved, err := h.resolvePath(p.GetPath())
-		if err != nil {
-			return fileOpErrResp(rid, err)
+		rel, relErr := fsutil.RootRel(p.GetPath())
+		if relErr != nil {
+			return fileOpErrResp(rid, relErr)
 		}
-		info, err := os.Lstat(resolved)
-		if err != nil {
-			return fileOpErrResp(rid, err)
+		info, statErr := root.Lstat(rel)
+		if statErr != nil {
+			return fileOpErrResp(rid, statErr)
 		}
 		return &pb.FileOperationResponse{
 			RequestId: rid,
@@ -362,40 +349,40 @@ func (h *GRPCFileHandler) HandleFileOperation(
 		if p == nil {
 			return fileOpErrResp(rid, errors.New("exists_params required"))
 		}
-		resolved, err := h.resolvePath(p.GetPath())
-		if err != nil {
-			return fileOpErrResp(rid, err)
+		rel, relErr := fsutil.RootRel(p.GetPath())
+		if relErr != nil {
+			return fileOpErrResp(rid, relErr)
 		}
-		_, err = os.Stat(resolved)
+		_, statErr := root.Stat(rel)
 		return &pb.FileOperationResponse{
 			RequestId: rid,
 			Success:   true,
 			Result: &pb.FileOperationResponse_ExistsResult{
 				ExistsResult: &pb.ExistsResult{
-					Exists: err == nil,
+					Exists: statErr == nil,
 				},
 			},
 		}, nil
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_DELETE:
-		return h.handleDeleteOp(rid, req.GetDeleteParams())
+		return h.handleDeleteOp(root, rid, req.GetDeleteParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_MOVE:
-		return h.handleMoveOp(rid, req.GetMoveParams())
+		return h.handleMoveOp(root, rid, req.GetMoveParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_COPY:
-		return h.handleCopyOp(rid, req.GetCopyParams())
+		return h.handleCopyOp(root, rid, req.GetCopyParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_CHMOD:
 		p := req.GetChmodParams()
 		if p == nil {
 			return fileOpErrResp(rid, errors.New("chmod_params required"))
 		}
-		resolved, err := h.resolvePath(p.GetPath())
-		if err != nil {
-			return fileOpErrResp(rid, err)
+		rel, relErr := fsutil.RootRel(p.GetPath())
+		if relErr != nil {
+			return fileOpErrResp(rid, relErr)
 		}
-		if err := os.Chmod(resolved, os.FileMode(p.GetMode())); err != nil {
+		if err := root.Chmod(rel, os.FileMode(p.GetMode())); err != nil {
 			return fileOpErrResp(rid, err)
 		}
 		return fileOpOkResp(rid)
@@ -405,20 +392,20 @@ func (h *GRPCFileHandler) HandleFileOperation(
 		if p == nil {
 			return fileOpErrResp(rid, errors.New("chown_params required"))
 		}
-		resolved, err := h.resolvePath(p.GetPath())
-		if err != nil {
-			return fileOpErrResp(rid, err)
+		rel, relErr := fsutil.RootRel(p.GetPath())
+		if relErr != nil {
+			return fileOpErrResp(rid, relErr)
 		}
-		if err := os.Chown(resolved, int(p.GetUid()), int(p.GetGid())); err != nil {
+		if err := root.Chown(rel, int(p.GetUid()), int(p.GetGid())); err != nil {
 			return fileOpErrResp(rid, err)
 		}
 		return fileOpOkResp(rid)
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_MKDIR:
-		return h.handleMkdirOp(rid, req.GetMkdirParams())
+		return h.handleMkdirOp(root, rid, req.GetMkdirParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_TOUCH:
-		return h.handleTouchOp(rid, req.GetTouchParams())
+		return h.handleTouchOp(root, rid, req.GetTouchParams())
 
 	default:
 		return fileOpErrResp(rid, errors.Errorf("unsupported file operation: %s", req.GetOperation()))
@@ -426,19 +413,19 @@ func (h *GRPCFileHandler) HandleFileOperation(
 }
 
 func (h *GRPCFileHandler) handleDeleteOp(
-	rid string, p *pb.DeleteParams,
+	root *os.Root, rid string, p *pb.DeleteParams,
 ) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("delete_params required"))
 	}
-	resolved, err := h.resolvePath(p.GetPath())
+	rel, err := fsutil.RootRel(p.GetPath())
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
 	if p.GetRecursive() {
-		err = os.RemoveAll(resolved)
+		err = root.RemoveAll(rel)
 	} else {
-		err = os.Remove(resolved)
+		err = root.Remove(rel)
 	}
 	if err != nil {
 		return fileOpErrResp(rid, err)
@@ -447,52 +434,52 @@ func (h *GRPCFileHandler) handleDeleteOp(
 }
 
 func (h *GRPCFileHandler) handleMoveOp(
-	rid string, p *pb.MoveParams,
+	root *os.Root, rid string, p *pb.MoveParams,
 ) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("move_params required"))
 	}
-	src, err := h.resolvePath(p.GetSource())
+	src, err := fsutil.RootRel(p.GetSource())
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	dst, err := h.resolvePath(p.GetDestination())
+	dst, err := fsutil.RootRel(p.GetDestination())
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	if err := os.Rename(src, dst); err != nil {
+	if err := root.Rename(src, dst); err != nil {
 		return fileOpErrResp(rid, err)
 	}
 	return fileOpOkResp(rid)
 }
 
 func (h *GRPCFileHandler) handleCopyOp(
-	rid string, p *pb.CopyParams,
+	root *os.Root, rid string, p *pb.CopyParams,
 ) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("copy_params required"))
 	}
-	src, err := h.resolvePath(p.GetSource())
+	src, err := fsutil.RootRel(p.GetSource())
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	dst, err := h.resolvePath(p.GetDestination())
+	dst, err := fsutil.RootRel(p.GetDestination())
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	if err := cp.Copy(src, dst); err != nil {
+	if err := fsutil.CopyInRoot(root, src, dst, fsutil.CopyOptions{}); err != nil {
 		return fileOpErrResp(rid, err)
 	}
 	return fileOpOkResp(rid)
 }
 
 func (h *GRPCFileHandler) handleMkdirOp(
-	rid string, p *pb.MkdirParams,
+	root *os.Root, rid string, p *pb.MkdirParams,
 ) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("mkdir_params required"))
 	}
-	resolved, err := h.resolvePath(p.GetPath())
+	rel, err := fsutil.RootRel(p.GetPath())
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
@@ -510,27 +497,27 @@ func (h *GRPCFileHandler) handleMkdirOp(
 
 	var newDirs []string
 	if p.GetRecursive() {
-		newDirs, err = osowner.MissingSegments(resolved)
+		newDirs, err = osowner.MissingSegmentsInRoot(root, rel)
 		if err != nil {
 			return fileOpErrResp(rid, errors.Wrap(err, "failed to inspect target directory"))
 		}
-		err = os.MkdirAll(resolved, mode)
+		err = root.MkdirAll(rel, mode)
 	} else {
-		if _, statErr := os.Lstat(resolved); statErr == nil {
+		if _, statErr := root.Lstat(rel); statErr == nil {
 			newDirs = nil
 		} else if errors.Is(statErr, os.ErrNotExist) {
-			newDirs = []string{resolved}
+			newDirs = []string{rel}
 		} else {
 			return fileOpErrResp(rid, errors.Wrap(statErr, "failed to inspect target directory"))
 		}
-		err = os.Mkdir(resolved, mode)
+		err = root.Mkdir(rel, mode)
 	}
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
 
 	for _, segment := range newDirs {
-		if chErr := osowner.ApplyToPath(segment, owner); chErr != nil {
+		if chErr := osowner.ApplyToPathInRoot(root, segment, owner); chErr != nil {
 			return fileOpErrResp(rid, errors.Wrap(chErr, "failed to chown new directory"))
 		}
 	}
@@ -539,26 +526,26 @@ func (h *GRPCFileHandler) handleMkdirOp(
 }
 
 func (h *GRPCFileHandler) handleTouchOp(
-	rid string, p *pb.TouchParams,
+	root *os.Root, rid string, p *pb.TouchParams,
 ) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("touch_params required"))
 	}
-	resolved, err := h.resolvePath(p.GetPath())
+	rel, err := fsutil.RootRel(p.GetPath())
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	if _, err := os.Stat(resolved); os.IsNotExist(err) {
-		f, createErr := os.Create(resolved)
+	if _, statErr := root.Stat(rel); os.IsNotExist(statErr) {
+		f, createErr := root.Create(rel)
 		if createErr != nil {
 			return fileOpErrResp(rid, createErr)
 		}
 		f.Close()
-	} else if err != nil {
-		return fileOpErrResp(rid, err)
+	} else if statErr != nil {
+		return fileOpErrResp(rid, statErr)
 	} else {
 		now := time.Now()
-		if err := os.Chtimes(resolved, now, now); err != nil {
+		if err := root.Chtimes(rel, now, now); err != nil {
 			return fileOpErrResp(rid, err)
 		}
 	}
@@ -590,54 +577,4 @@ func fileInfoToStat(path string, info os.FileInfo) *pb.FileStat {
 		ModifiedAt: timestamppb.New(info.ModTime()),
 		Type:       ft,
 	}
-}
-
-// ResolvePath resolves a caller-supplied path against workDir and validates it stays within bounds.
-// Defensively strips volume names and leading separators so an absolute path from a mis-
-// configured client cannot be joined onto workDir a second time (which on Windows produces
-// e.g. C:\gameap\C:\gameap\servers\x).
-func ResolvePath(workDir, path string) (string, error) {
-	cleanWorkDir := filepath.Clean(workDir)
-
-	sanitized := filepath.FromSlash(path)
-	if vol := filepath.VolumeName(sanitized); vol != "" {
-		sanitized = sanitized[len(vol):]
-	}
-	sanitized = strings.TrimLeft(sanitized, `\/`)
-
-	resolved := filepath.Clean(filepath.Join(cleanWorkDir, sanitized))
-
-	if !pathWithin(resolved, cleanWorkDir) {
-		return "", errPathOutsideWorkDir
-	}
-
-	return resolved, nil
-}
-
-// pathWithin reports whether resolved is equal to or under base, respecting OS path
-// case rules (case-insensitive on Windows) and requiring a separator boundary so that
-// /a/foo is not considered within /a/foobar.
-func pathWithin(resolved, base string) bool {
-	eq := strings.EqualFold
-	if runtime.GOOS != "windows" {
-		eq = func(a, b string) bool { return a == b }
-	}
-
-	if eq(resolved, base) {
-		return true
-	}
-
-	if len(resolved) <= len(base) {
-		return false
-	}
-
-	if !eq(resolved[:len(base)], base) {
-		return false
-	}
-
-	return resolved[len(base)] == filepath.Separator
-}
-
-func (h *GRPCFileHandler) resolvePath(path string) (string, error) {
-	return ResolvePath(h.workDir, path)
 }

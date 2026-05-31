@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/test/functional/gdtasks"
-	"github.com/otiai10/copy"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -33,7 +33,7 @@ func (suite *Suite) SetupTest() {
 		suite.T().Fatal(err)
 	}
 
-	err = copy.Copy("../../../servers/scripts", suite.WorkPath+"/server")
+	err = fsutil.Copy("../../../servers/scripts", suite.WorkPath+"/server", fsutil.CopyOptions{})
 	if err != nil {
 		suite.T().Fatal(err)
 	}

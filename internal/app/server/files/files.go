@@ -4,15 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"time"
 
 	"github.com/et-nik/binngo/decode"
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/internal/app/server/response"
 	servercommon "github.com/gameap/daemon/internal/app/server/server_common"
 	"github.com/gameap/daemon/pkg/logger"
-	"github.com/otiai10/copy"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -32,23 +33,37 @@ type connDeadlineSetter interface {
 type operationHandlerFunc func(ctx context.Context, message anyMessage, readWriter io.ReadWriter) error
 
 type Files struct {
+	workPath string
 	handlers map[Operation]operationHandlerFunc
 }
 
-func NewFiles() *Files {
-	handlers := map[Operation]operationHandlerFunc{
-		FileSend:   fileSend,
-		ReadDir:    readDir,
-		MakeDir:    makeDir,
-		FileMove:   moveCopy,
-		FileRemove: remove,
-		FileInfo:   fileInfo,
-		FileChmod:  chmod,
+func NewFiles(workPath string) *Files {
+	f := &Files{workPath: workPath}
+
+	f.handlers = map[Operation]operationHandlerFunc{
+		FileSend:   f.fileSend,
+		ReadDir:    f.readDir,
+		MakeDir:    f.makeDir,
+		FileMove:   f.moveCopy,
+		FileRemove: f.remove,
+		FileInfo:   f.fileInfo,
+		FileChmod:  f.chmod,
 	}
 
-	return &Files{
-		handlers: handlers,
+	return f
+}
+
+// openRoot opens an os.Root at the configured work directory. All legacy file
+// operations are confined to it: paths supplied by the client are resolved
+// component-by-component through this root, which refuses symlink and ".."
+// escapes without TOCTOU races on both Linux and Windows.
+func (f *Files) openRoot() (*os.Root, error) {
+	root, err := os.OpenRoot(f.workPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "work directory unavailable")
 	}
+
+	return root, nil
 }
 
 func (f *Files) Handle(ctx context.Context, readWriter io.ReadWriter) error {
@@ -108,13 +123,24 @@ func writeError(readWriter io.Writer, message string) error {
 	})
 }
 
-func readDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) readDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createReadDirMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	dir, err := os.ReadDir(message.Directory)
+	root, err := f.openRoot()
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(message.Directory)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	dir, err := fs.ReadDir(root.FS(), rel)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		logger.Logger(ctx).WithFields(
 			log.Fields{
@@ -133,8 +159,8 @@ func readDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error 
 
 	resp := make([]*fileInfoResponse, len(dir))
 
-	for i, f := range dir {
-		fi, err := f.Info()
+	for i, entry := range dir {
+		fi, err := entry.Info()
 		if err != nil {
 			continue
 		}
@@ -148,13 +174,24 @@ func readDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error 
 	})
 }
 
-func makeDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) makeDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createMkDirMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	err = os.MkdirAll(message.Directory, os.ModePerm)
+	root, err := f.openRoot()
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(message.Directory)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	err = root.MkdirAll(rel, os.ModePerm)
 	if err != nil {
 		logger.Error(ctx, err)
 		return writeError(readWriter, "Failed to make directory")
@@ -165,36 +202,44 @@ func makeDir(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error 
 	})
 }
 
-func moveCopy(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) moveCopy(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createMoveMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	if _, err := os.Stat(message.Source); errors.Is(err, os.ErrNotExist) {
+	root, err := f.openRoot()
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+	defer root.Close()
+
+	srcRel, err := fsutil.RootRel(message.Source)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	dstRel, err := fsutil.RootRel(message.Destination)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	if _, err := root.Stat(srcRel); errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, fmt.Sprintf("Source \"%s\" not found", message.Source))
 	}
 
-	if _, err := os.Stat(message.Destination); !errors.Is(err, os.ErrNotExist) {
+	if _, err := root.Stat(dstRel); !errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, fmt.Sprintf("Destination \"%s\" already exists", message.Destination))
 	}
 
 	if message.Copy {
-		err := copy.Copy(
-			message.Source,
-			message.Destination,
-			copy.Options{
-				OnSymlink: func(_ string) copy.SymlinkAction {
-					return copy.Shallow
-				},
-			},
-		)
+		err := fsutil.CopyInRoot(root, srcRel, dstRel, fsutil.CopyOptions{Symlink: fsutil.SymlinkShallow})
 		if err != nil {
 			logger.Error(ctx, err)
 			return writeError(readWriter, "Failed to copy")
 		}
 	} else {
-		err := os.Rename(message.Source, message.Destination)
+		err := root.Rename(srcRel, dstRel)
 		if err != nil {
 			logger.Error(ctx, err)
 			return writeError(readWriter, "Failed to move")
@@ -206,7 +251,7 @@ func moveCopy(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error
 	})
 }
 
-func fileSend(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) fileSend(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	if len(m) < 2 {
 		return writeError(readWriter, "Invalid message")
 	}
@@ -223,15 +268,15 @@ func fileSend(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error
 
 	switch op {
 	case SendFileToClient:
-		return sendFileToClient(ctx, m, readWriter)
+		return f.sendFileToClient(ctx, m, readWriter)
 	case GetFileFromClient:
-		return getFileFromClient(ctx, m, readWriter)
+		return f.getFileFromClient(ctx, m, readWriter)
 	default:
 		return writeError(readWriter, "Invalid file send operation")
 	}
 }
 
-func sendFileToClient(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) sendFileToClient(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createSendFileToClientMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -241,20 +286,28 @@ func sendFileToClient(ctx context.Context, m anyMessage, readWriter io.ReadWrite
 		"filepath": message.FilePath,
 	}))
 
-	fi, err := os.Stat(message.FilePath)
+	root, err := f.openRoot()
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(message.FilePath)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	fi, err := root.Stat(rel)
 	if err != nil {
 		logger.Error(ctx, err)
 		return writeError(readWriter, fmt.Sprintf("File \"%s\" error", message.FilePath))
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return writeError(readWriter, fmt.Sprintf("File \"%s\" not found", message.FilePath))
 	}
 
 	if !fi.Mode().IsRegular() {
 		return writeError(readWriter, fmt.Sprintf("\"%s\" is not a file", message.FilePath))
 	}
 
-	file, err := os.Open(message.FilePath)
+	file, err := root.Open(rel)
 
 	defer func(file *os.File) {
 		err := file.Close()
@@ -289,7 +342,7 @@ func sendFileToClient(ctx context.Context, m anyMessage, readWriter io.ReadWrite
 }
 
 //nolint:funlen
-func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	message, err := createGetFileFromClientMessage(m)
 	if message == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
@@ -302,13 +355,24 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 
 	logger.Debug(ctx, "Starting transferring file from client")
 
-	dir := filepath.Dir(message.FilePath)
-	_, err = os.Stat(dir)
+	root, err := f.openRoot()
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(message.FilePath)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	dir := path.Dir(rel)
+	_, err = root.Stat(dir)
 
 	//nolint:nestif
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		if message.MakeDirs {
-			err := os.MkdirAll(dir, 0755)
+			err := root.MkdirAll(dir, 0755)
 			if err != nil {
 				logger.Error(ctx, err)
 				return writeError(readWriter, fmt.Sprintf("Failed to make directory \"%s\"", dir))
@@ -321,21 +385,23 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 		return writeError(readWriter, fmt.Sprintf("Directory \"%s\" error", dir))
 	}
 
-	tmpFile, err := os.CreateTemp("", filepath.Base(message.FilePath))
+	var permissions os.FileMode = 0o666
+	if stat, statErr := root.Stat(rel); statErr == nil {
+		permissions = stat.Mode().Perm()
+	}
+
+	tmpRel := rel + ".upload_tmp"
+	tmpFile, err := root.OpenFile(tmpRel, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, permissions)
 	if err != nil {
 		logger.Error(ctx, errors.WithMessage(err, "failed to create temp file"))
 		return writeError(readWriter, "Failed to create temp file")
 	}
-	defer func(file *os.File) {
-		err = file.Close()
-		if err != nil {
-			logger.Error(ctx, errors.WithMessage(err, "failed to close temp file"))
-		}
-		err = os.Remove(file.Name())
-		if err != nil {
-			logger.Error(ctx, errors.WithMessage(err, "failed to remove temp file"))
-		}
-	}(tmpFile)
+	defer func() {
+		// On the success path the temp file has already been closed and
+		// renamed away; both calls then fail harmlessly.
+		_ = tmpFile.Close()
+		_ = root.Remove(tmpRel)
+	}()
 
 	logger.Logger(ctx).WithFields(log.Fields{
 		"filepath":    message.FilePath,
@@ -385,14 +451,18 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 		return writeError(readWriter, "Failed to transfer file")
 	}
 
-	var permissions os.FileMode = 0o666
-	if stat, err := os.Stat(message.FilePath); err == nil {
-		permissions = stat.Mode().Perm()
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		logger.Error(ctx, errors.WithMessage(closeErr, "failed to close temp file"))
+		return writeError(readWriter, "Failed to finalize upload")
 	}
 
-	err = copy.Copy(tmpFile.Name(), message.FilePath, copy.Options{AddPermission: permissions})
-	if err != nil {
-		logger.Error(ctx, errors.WithMessage(err, "failed to copy tmp file"))
+	if chErr := root.Chmod(tmpRel, permissions); chErr != nil {
+		logger.Error(ctx, errors.WithMessage(chErr, "failed to set file permissions"))
+		return writeError(readWriter, "Failed to set file permissions")
+	}
+
+	if mvErr := root.Rename(tmpRel, rel); mvErr != nil {
+		logger.Error(ctx, errors.WithMessage(mvErr, "failed to move uploaded file into place"))
 		return writeError(readWriter, "Failed to copy tmp file")
 	}
 
@@ -403,26 +473,35 @@ func getFileFromClient(ctx context.Context, m anyMessage, readWriter io.ReadWrit
 	})
 }
 
-func remove(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) remove(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	msg, err := createRemoveMessage(m)
 	if msg == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	cleanedPath := filepath.Clean(msg.Path)
+	root, err := f.openRoot()
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+	defer root.Close()
 
-	if cleanedPath == "." || cleanedPath == "/" {
+	rel, err := fsutil.RootRel(msg.Path)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	if rel == "." {
 		return writeError(readWriter, "Invalid path")
 	}
 
-	if _, err = os.Stat(cleanedPath); errors.Is(err, os.ErrNotExist) {
+	if _, err = root.Stat(rel); errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, "Path not exist")
 	}
 
 	if msg.Recursive {
-		err = os.RemoveAll(cleanedPath)
+		err = root.RemoveAll(rel)
 	} else {
-		err = os.Remove(cleanedPath)
+		err = root.Remove(rel)
 	}
 
 	if err != nil {
@@ -435,13 +514,24 @@ func remove(ctx context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	})
 }
 
-func fileInfo(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) fileInfo(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	msg, err := createFileInfoMessage(m)
 	if msg == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	r, err := createfileDetailsResponse(msg.Path)
+	root, err := f.openRoot()
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(msg.Path)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	r, err := createfileDetailsResponse(root, rel)
 	if err != nil {
 		return writeError(readWriter, "Failed to read file details")
 	}
@@ -452,13 +542,24 @@ func fileInfo(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	})
 }
 
-func chmod(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
+func (f *Files) chmod(_ context.Context, m anyMessage, readWriter io.ReadWriter) error {
 	msg, err := createChmodMessage(m)
 	if msg == nil || err != nil {
 		return writeError(readWriter, "Invalid message")
 	}
 
-	err = os.Chmod(msg.Path, os.FileMode(msg.Perm))
+	root, err := f.openRoot()
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(msg.Path)
+	if err != nil {
+		return writeError(readWriter, err.Error())
+	}
+
+	err = root.Chmod(rel, os.FileMode(msg.Perm))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return writeError(readWriter, "Path not exist")
 	}

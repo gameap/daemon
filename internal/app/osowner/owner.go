@@ -17,6 +17,7 @@ import (
 	"errors"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"strconv"
 )
@@ -186,4 +187,48 @@ func MissingSegments(target string) ([]string, error) {
 	}
 
 	return missing, nil
+}
+
+// MissingSegmentsInRoot is the os.Root-confined counterpart of MissingSegments.
+// rel must be a clean, slash-separated root-relative path ("." allowed). It
+// returns the rel prefixes that do not exist yet, shallowest first, so callers
+// can chown only the directories they are about to create and leave the
+// ownership of pre-existing (often shared) parents untouched.
+func MissingSegmentsInRoot(root *os.Root, rel string) ([]string, error) {
+	rel = path.Clean(rel)
+	if rel == "." || rel == "/" {
+		return nil, nil
+	}
+	if _, err := root.Lstat(rel); err == nil {
+		return nil, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	var missing []string
+	for p := rel; p != "." && p != "/" && p != path.Dir(p); p = path.Dir(p) {
+		if _, err := root.Lstat(p); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		missing = append([]string{p}, missing...)
+	}
+
+	return missing, nil
+}
+
+// ApplyToPathInRoot chowns a single rel path inside root (Lchown — symlink
+// safe). No-op when chown is not applicable (non-root daemon, empty Options,
+// Windows) — same gate as ApplyToPath.
+func ApplyToPathInRoot(root *os.Root, rel string, opts Options) error {
+	uid, gid, ok, err := Resolve(opts)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+
+	return lchownInRoot(root, rel, uid, gid)
 }

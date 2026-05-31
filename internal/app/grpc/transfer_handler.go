@@ -7,9 +7,10 @@ import (
 	"hash"
 	"io"
 	"os"
-	"path/filepath"
+	"path"
 	"sync"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/internal/app/osowner"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
@@ -47,6 +48,19 @@ func NewGRPCTransferHandler(
 	}
 }
 
+// openRoot opens an os.Root at the work directory so every caller-supplied
+// path is resolved component-by-component without symlink/".." escapes or
+// TOCTOU races. Opened per request because workDir is provisioned from the
+// API after construction.
+func (h *GRPCTransferHandler) openRoot() (*os.Root, error) {
+	root, err := os.OpenRoot(h.workDir)
+	if err != nil {
+		return nil, errors.Wrap(err, "work directory unavailable")
+	}
+
+	return root, nil
+}
+
 // HandleFileUploadTask handles a file upload task from the API.
 // The API wants the daemon to download a file FROM the API and save it locally.
 func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestID string, task *pb.FileUploadTask) {
@@ -58,18 +72,26 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 
 	l.Info("Handling file upload task (download from API)")
 
-	targetPath, err := ResolvePath(h.workDir, task.Path)
+	root, err := h.openRoot()
+	if err != nil {
+		l.WithError(err).Error("Failed to open work directory")
+		h.sendResponse(requestID, false, err.Error())
+		return
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(task.Path)
 	if err != nil {
 		l.WithError(err).Error("Failed to resolve path")
 		h.sendResponse(requestID, false, err.Error())
 		return
 	}
 
-	tempPath := targetPath + ".tmp_" + task.TransferId
+	tempRel := rel + ".tmp_" + task.TransferId
 
 	// Idempotency check: if target file already exists with matching checksum, skip.
 	if task.ChecksumSha256 != "" {
-		if existingChecksum, checksumErr := computeFileChecksum(targetPath); checksumErr == nil {
+		if existingChecksum, checksumErr := computeFileChecksum(root, rel); checksumErr == nil {
 			if existingChecksum == task.ChecksumSha256 {
 				l.Info("File already exists with matching checksum, skipping download")
 				h.sendResponse(requestID, true, "")
@@ -89,14 +111,14 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 	var offset int64
 	var hasher hash.Hash
 
-	if info, statErr := os.Stat(tempPath); statErr == nil && info.Size() > 0 {
+	if info, statErr := root.Stat(tempRel); statErr == nil && info.Size() > 0 {
 		offset = info.Size()
-		hasher, err = hashFileRange(tempPath, offset)
+		hasher, err = hashFileRange(root, tempRel, offset)
 		if err != nil {
 			l.WithError(err).Warn("Failed to hash partial temp file, starting fresh")
 			offset = 0
 			hasher = sha256.New()
-			os.Remove(tempPath)
+			_ = root.Remove(tempRel)
 		} else {
 			l.WithField("offset", offset).Info("Resuming download from offset")
 		}
@@ -135,22 +157,22 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 		GID:  task.OwnerGid,
 	}
 
-	parentDir := filepath.Dir(targetPath)
-	newDirs, segErr := osowner.MissingSegments(parentDir)
+	parentRel := path.Dir(rel)
+	newDirs, segErr := osowner.MissingSegmentsInRoot(root, parentRel)
 	if segErr != nil {
 		l.WithError(segErr).Error("Failed to stat parent directory")
 		h.sendResponse(requestID, false, segErr.Error())
 		return
 	}
 
-	if mkErr := os.MkdirAll(parentDir, 0755); mkErr != nil {
+	if mkErr := root.MkdirAll(parentRel, 0755); mkErr != nil {
 		l.WithError(mkErr).Error("Failed to create parent directory")
 		h.sendResponse(requestID, false, mkErr.Error())
 		return
 	}
 
 	for _, dir := range newDirs {
-		if chErr := osowner.ApplyToPath(dir, owner); chErr != nil {
+		if chErr := osowner.ApplyToPathInRoot(root, dir, owner); chErr != nil {
 			l.WithError(chErr).WithField("dir", dir).Error("Failed to chown new parent directory")
 			h.sendResponse(requestID, false, chErr.Error())
 			return
@@ -162,11 +184,11 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 		fileMode = os.FileMode(task.Mode) & os.ModePerm
 	}
 
-	file, err := os.OpenFile(tempPath, fileFlags, fileMode)
+	file, err := root.OpenFile(tempRel, fileFlags, fileMode)
 	if err != nil {
 		if offset > 0 {
 			hasher = sha256.New()
-			file, err = os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fileMode)
+			file, err = root.OpenFile(tempRel, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fileMode)
 		}
 		if err != nil {
 			l.WithError(err).Error("Failed to open temp file")
@@ -197,7 +219,7 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 	computedChecksum := hex.EncodeToString(hasher.Sum(nil))
 
 	if task.ChecksumSha256 != "" && computedChecksum != task.ChecksumSha256 {
-		os.Remove(tempPath)
+		_ = root.Remove(tempRel)
 		errMsg := "checksum mismatch: expected " + task.ChecksumSha256 + ", got " + computedChecksum
 		l.Error(errMsg)
 		h.sendResponse(requestID, false, errMsg)
@@ -205,21 +227,21 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 	}
 
 	if receivedChecksum != "" && computedChecksum != receivedChecksum {
-		os.Remove(tempPath)
+		_ = root.Remove(tempRel)
 		errMsg := "stream checksum mismatch: expected " + receivedChecksum + ", got " + computedChecksum
 		l.Error(errMsg)
 		h.sendResponse(requestID, false, errMsg)
 		return
 	}
 
-	if chErr := osowner.ApplyToPath(tempPath, owner); chErr != nil {
+	if chErr := osowner.ApplyToPathInRoot(root, tempRel, owner); chErr != nil {
 		l.WithError(chErr).Error("Failed to chown temp file before rename")
-		_ = os.Remove(tempPath)
+		_ = root.Remove(tempRel)
 		h.sendResponse(requestID, false, chErr.Error())
 		return
 	}
 
-	if err := os.Rename(tempPath, targetPath); err != nil {
+	if err := root.Rename(tempRel, rel); err != nil {
 		l.WithError(err).Error("Failed to rename temp file to target")
 		h.sendResponse(requestID, false, err.Error())
 		return
@@ -240,14 +262,22 @@ func (h *GRPCTransferHandler) HandleFileDownloadTask(ctx context.Context, reques
 
 	l.Info("Handling file download task (upload to API)")
 
-	localPath, err := ResolvePath(h.workDir, task.Path)
+	root, err := h.openRoot()
+	if err != nil {
+		l.WithError(err).Error("Failed to open work directory")
+		h.sendResponse(requestID, false, err.Error())
+		return
+	}
+	defer root.Close()
+
+	rel, err := fsutil.RootRel(task.Path)
 	if err != nil {
 		l.WithError(err).Error("Failed to resolve path")
 		h.sendResponse(requestID, false, err.Error())
 		return
 	}
 
-	info, err := os.Stat(localPath)
+	info, err := root.Stat(rel)
 	if err != nil {
 		l.WithError(err).Error("File not found")
 		h.sendResponse(requestID, false, err.Error())
@@ -261,7 +291,7 @@ func (h *GRPCTransferHandler) HandleFileDownloadTask(ctx context.Context, reques
 
 	// Dedup check: if API provided an expected checksum and local file matches, skip upload.
 	if task.ChecksumSha256 != "" {
-		localChecksum, checksumErr := computeFileChecksum(localPath)
+		localChecksum, checksumErr := computeFileChecksum(root, rel)
 		if checksumErr == nil && localChecksum == task.ChecksumSha256 {
 			l.Info("File checksum matches expected, skipping upload (dedup)")
 			h.sendResponse(requestID, true, "")
@@ -286,7 +316,7 @@ func (h *GRPCTransferHandler) HandleFileDownloadTask(ctx context.Context, reques
 	defer h.sem.Release(1)
 
 	// Open local file.
-	file, err := os.Open(localPath)
+	file, err := root.Open(rel)
 	if err != nil {
 		l.WithError(err).Error("Failed to open file")
 		h.sendResponse(requestID, false, err.Error())
@@ -323,9 +353,9 @@ func (h *GRPCTransferHandler) sendResponse(requestID string, success bool, errMs
 	})
 }
 
-// computeFileChecksum computes the SHA256 checksum of an entire file.
-func computeFileChecksum(path string) (string, error) {
-	file, err := os.Open(path)
+// computeFileChecksum computes the SHA256 checksum of an entire file inside root.
+func computeFileChecksum(root *os.Root, rel string) (string, error) {
+	file, err := root.Open(rel)
 	if err != nil {
 		return "", err
 	}
@@ -339,10 +369,10 @@ func computeFileChecksum(path string) (string, error) {
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// hashFileRange reads the first n bytes of a file into a SHA256 hasher.
-// Used to restore hash state when resuming a partial download.
-func hashFileRange(path string, n int64) (hash.Hash, error) {
-	file, err := os.Open(path)
+// hashFileRange reads the first n bytes of a file inside root into a SHA256
+// hasher. Used to restore hash state when resuming a partial download.
+func hashFileRange(root *os.Root, rel string, n int64) (hash.Hash, error) {
+	file, err := root.Open(rel)
 	if err != nil {
 		return nil, err
 	}
