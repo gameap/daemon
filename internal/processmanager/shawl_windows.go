@@ -22,6 +22,7 @@ import (
 	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/gameap/gameapctl/pkg/oscore"
 	"github.com/pkg/errors"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -414,11 +415,17 @@ func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.
 			return false, errors.WithMessage(err, "failed to grant permissions to NETWORK SERVICE")
 		}
 
-		// Using "NT AUTHORITY\NETWORK SERVICE" as the service account (no password required)
+		accountName, err := networkServiceAccountName()
+		if err != nil {
+			return false, errors.WithMessage(err, "failed to resolve NETWORK SERVICE account name")
+		}
+		_, _ = out.Write([]byte("Using service account: " + accountName + "\n"))
+
+		// The NETWORK SERVICE account has no password
 		scArgs = fmt.Sprintf(
 			"sc create %s start=auto obj=%s binPath=%s",
 			serviceName,
-			shellquote.WindowsArgToString(`NT AUTHORITY\NETWORK SERVICE`),
+			shellquote.WindowsArgToString(accountName),
 			shellquote.WindowsArgToString(binPath),
 		)
 	} else {
@@ -479,6 +486,28 @@ func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.
 	}
 
 	return !configExists, nil
+}
+
+// networkServiceAccountName resolves the well-known NETWORK SERVICE SID (S-1-5-20) to its
+// locale-specific account name. sc.exe's obj= parameter needs a resolvable account name and
+// rejects a raw SID, so the hard-coded English "NT AUTHORITY\NETWORK SERVICE" fails on
+// non-English Windows.
+func networkServiceAccountName() (string, error) {
+	sid, err := windows.CreateWellKnownSid(windows.WinNetworkServiceSid)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to create NETWORK SERVICE well-known SID")
+	}
+
+	account, domainName, _, err := sid.LookupAccount("")
+	if err != nil {
+		return "", errors.Wrap(err, "failed to look up NETWORK SERVICE account name")
+	}
+
+	if domainName == "" {
+		return account, nil
+	}
+
+	return domainName + `\` + account, nil
 }
 
 func (pm *Shawl) buildServiceConfig(server *domain.Server) (string, error) {
