@@ -400,12 +400,13 @@ func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.
 		return false, errors.WithMessage(err, "failed to build shawl arguments")
 	}
 
-	binPath := fmt.Sprintf("%s %s", shellquote.WindowsArgToString(shawlPath), strings.Join(shawlArgs, " "))
+	binPath := shellquote.WindowsArgToString(shawlPath) + " " + shellquote.WindowsJoin(shawlArgs...)
 
-	// Create the service using sc create
-	// Note: sc.exe requires binPath= to be followed by the value WITHOUT space,
-	// and the entire value must be quoted if it contains spaces
-	var scArgs string
+	// Build the `sc create` argument vector directly. Passing a vector keeps
+	// sc.exe's own arguments quoted by the OS exec layer (so obj= and the binPath
+	// value — which carries the whole shawl+game command line — stay intact), and
+	// avoids the string executor re-tokenizing and doubling backslashes.
+	var scArgs []string
 	if pm.cfg.UseNetworkServiceUser {
 		// Grant Modify permissions to NETWORK SERVICE for the server working directory
 		workDir := server.WorkDir(pm.cfg)
@@ -415,12 +416,12 @@ func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.
 		}
 
 		// Using "NT AUTHORITY\NETWORK SERVICE" as the service account (no password required)
-		scArgs = fmt.Sprintf(
-			"sc create %s start=auto obj=%s binPath=%s",
-			serviceName,
-			shellquote.WindowsArgToString(`NT AUTHORITY\NETWORK SERVICE`),
-			shellquote.WindowsArgToString(binPath),
-		)
+		scArgs = []string{
+			"sc", "create", serviceName,
+			"start=auto",
+			"obj=" + `NT AUTHORITY\NETWORK SERVICE`,
+			"binPath=" + binPath,
+		}
 	} else {
 		// Get user credentials from config
 		rawPw, exists := pm.cfg.Users[server.User()]
@@ -443,13 +444,13 @@ func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.
 			password = rawPw
 		}
 
-		scArgs = fmt.Sprintf(
-			"sc create %s start=auto obj=%s password=%s binPath=%s",
-			serviceName,
-			server.User(),
-			shellquote.WindowsArgToString(password),
-			shellquote.WindowsArgToString(binPath),
-		)
+		scArgs = []string{
+			"sc", "create", serviceName,
+			"start=auto",
+			"obj=" + server.User(),
+			"password=" + password,
+			"binPath=" + binPath,
+		}
 	}
 
 	_, _ = out.Write([]byte("Creating service " + serviceName + "\n"))
@@ -457,7 +458,7 @@ func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.
 	_, _ = out.Write([]byte(serviceConfig))
 	_, _ = out.Write([]byte("binPath: " + binPath + "\n"))
 
-	result, err := pm.executor.ExecWithWriter(
+	result, err := pm.executor.ExecWithWriterArgs(
 		ctx,
 		scArgs,
 		out,
@@ -508,20 +509,18 @@ func (pm *Shawl) buildServiceConfig(server *domain.Server) (string, error) {
 func (pm *Shawl) buildShawlArgs(server *domain.Server) ([]string, error) {
 	serviceName := pm.serviceName(server)
 
-	cmd := domain.MakeFullCommand(
+	cmdArr, err := domain.BuildCommandArgs(
 		pm.cfg,
 		server,
 		pm.cfg.Scripts.Start,
 		server.StartCommand(),
 	)
-
-	if cmd == "" {
-		return nil, ErrEmptyCommand
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to build command")
 	}
 
-	cmdArr, err := shellquote.Split(cmd)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to split command")
+	if len(cmdArr) == 0 {
+		return nil, ErrEmptyCommand
 	}
 
 	executable := cmdArr[0]

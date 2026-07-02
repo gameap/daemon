@@ -20,7 +20,6 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
-	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
 )
 
@@ -435,7 +434,9 @@ func (pm *Podman) SendInput(
 		"AttachStdout": false,
 		"AttachStderr": false,
 		"Tty":          false,
-		"Cmd":          []string{"/bin/sh", "-c", fmt.Sprintf("echo %q", input)},
+		// Pass the input as a positional parameter ($1) instead of interpolating
+		// it into the script, so the shell never re-parses user-controlled text.
+		"Cmd": []string{"/bin/sh", "-c", `echo "$1"`, "sh", input},
 	}
 
 	path := fmt.Sprintf("/containers/%s/exec", containerName)
@@ -763,11 +764,16 @@ func (pm *Podman) imageExists(ctx context.Context, imageName string) bool {
 }
 
 func (pm *Podman) parseCommand(server *domain.Server) ([]string, error) {
-	cmd := domain.ReplaceShortCodes(server.StartCommand(), pm.cfg, server)
-	if cmd == "" {
+	args, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	if err != nil {
+		return nil, err
+	}
+
+	if len(args) == 0 {
 		return nil, ErrEmptyCommand
 	}
-	return shellquote.Split(cmd)
+
+	return args, nil
 }
 
 func (pm *Podman) containerName(server *domain.Server) string {

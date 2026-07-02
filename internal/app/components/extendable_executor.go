@@ -90,3 +90,46 @@ func (executor *ExtendableExecutor) ExecWithWriter(
 
 	return handler(ctx, args[1:], out, options)
 }
+
+func (executor *ExtendableExecutor) ExecArgs(
+	ctx context.Context,
+	args []string,
+	options contracts.ExecutorOptions,
+) ([]byte, int, error) {
+	buf := NewSafeBuffer()
+
+	exitCode, err := executor.ExecWithWriterArgs(ctx, args, buf, options)
+	if err != nil {
+		return nil, exitCode, err
+	}
+
+	out, err := io.ReadAll(buf)
+	if err != nil {
+		return nil, -1, err
+	}
+
+	return out, exitCode, err
+}
+
+func (executor *ExtendableExecutor) ExecWithWriterArgs(
+	ctx context.Context,
+	args []string,
+	out io.Writer,
+	options contracts.ExecutorOptions,
+) (int, error) {
+	if len(args) == 0 {
+		return invalidResult, ErrInvalidCommand
+	}
+
+	handleCommand := args[0]
+
+	executor.mu.RLock()
+	handler, exists := executor.handlers[handleCommand]
+	executor.mu.RUnlock()
+
+	if !exists {
+		return executor.innerExecutor.ExecWithWriterArgs(ctx, args, out, options)
+	}
+
+	return handler(ctx, args[1:], out, options)
+}

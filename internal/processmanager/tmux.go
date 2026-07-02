@@ -10,13 +10,13 @@ import (
 	"os"
 	"os/user"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
+	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
@@ -53,9 +53,15 @@ func (pm *Tmux) Uninstall(_ context.Context, _ *domain.Server, _ io.Writer) (dom
 func (pm *Tmux) Start(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	startCmd := domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	args, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to build command")
+	}
 
-	startCmd = strconv.Quote(strings.ReplaceAll(startCmd, `\"`, `"`))
+	// tmux runs the session command through a shell, so serialize the argument
+	// vector with POSIX quoting: the shell parses it back into exactly these
+	// arguments, keeping every value a single argument.
+	startCmd := shellquote.Join(args...)
 
 	options, err := pm.executeOptions(server)
 	if err != nil {
@@ -76,9 +82,14 @@ func (pm *Tmux) Start(
 		)
 	}
 
-	result, err := pm.detailedExecutor.ExecWithWriter(
+	result, err := pm.detailedExecutor.ExecWithWriterArgs(
 		ctx,
-		fmt.Sprintf(`tmux new-session -d -s %s -x %d %s`, sessionName, defaultWidth, startCmd),
+		[]string{
+			"tmux", "new-session", "-d",
+			"-s", sessionName,
+			"-x", strconv.Itoa(defaultWidth),
+			startCmd,
+		},
 		out,
 		options,
 	)
@@ -197,11 +208,9 @@ func (pm *Tmux) SendInput(
 
 	sessionName := pm.resolveSessionName(ctx, server, options)
 
-	input = strconv.Quote(strings.ReplaceAll(input, `\"`, `"`))
-
-	result, err := pm.detailedExecutor.ExecWithWriter(
+	result, err := pm.detailedExecutor.ExecWithWriterArgs(
 		ctx,
-		fmt.Sprintf(`tmux send-keys -t %s %s ENTER`, sessionName, input),
+		[]string{"tmux", "send-keys", "-t", sessionName, input, "ENTER"},
 		out,
 		options,
 	)
@@ -241,9 +250,9 @@ func (pm *Tmux) makeTmuxInitialSession(ctx context.Context, server *domain.Serve
 		runAsUser = currentUser.Username
 	}
 
-	result, err = pm.detailedExecutor.ExecWithWriter(
+	result, err = pm.detailedExecutor.ExecWithWriterArgs(
 		ctx,
-		fmt.Sprintf("su %s -c %s", runAsUser, strconv.Quote("tmux new -d -s gameap")),
+		[]string{"su", runAsUser, "-c", "tmux new -d -s gameap"},
 		out,
 		contracts.ExecutorOptions{
 			WorkDir: os.TempDir(),
@@ -389,10 +398,9 @@ func (pm *Tmux) Attach(
 				if !ok {
 					return nil
 				}
-				quoted := strconv.Quote(strings.ReplaceAll(line, `\"`, `"`))
-				_, sendErr := pm.detailedExecutor.ExecWithWriter(
+				_, sendErr := pm.detailedExecutor.ExecWithWriterArgs(
 					gctx,
-					fmt.Sprintf("tmux send-keys -t %s %s ENTER", sessionName, quoted),
+					[]string{"tmux", "send-keys", "-t", sessionName, line, "ENTER"},
 					io.Discard,
 					options,
 				)

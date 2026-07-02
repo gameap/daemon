@@ -3,7 +3,60 @@ package domain
 import (
 	"strconv"
 	"strings"
+
+	"github.com/gameap/daemon/pkg/shellquote"
+	"github.com/pkg/errors"
 )
+
+// BuildCommandArgs turns a wrapper template and a server command template into a
+// concrete argument vector. Both templates are tokenized first and placeholders
+// are substituted into the individual tokens afterwards, so every substituted
+// value (server name, vars, rcon password, ...) always stays within a single
+// argument regardless of the spaces, quotes or shell metacharacters it contains.
+//
+// The {command} placeholder is the only one that may expand into more than one
+// argument: as a standalone token in the wrapper it is replaced by the tokens of
+// the server command.
+func BuildCommandArgs(
+	cfg workDirReader,
+	server *Server,
+	wrapperTemplate string,
+	serverCommand string,
+) ([]string, error) {
+	if wrapperTemplate == "" {
+		wrapperTemplate = "{command}"
+	}
+
+	wrapTokens, err := shellquote.Split(wrapperTemplate)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to split command wrapper template")
+	}
+
+	var cmdTokens []string
+	if serverCommand != "" {
+		cmdTokens, err = shellquote.Split(serverCommand)
+		if err != nil {
+			return nil, errors.WithMessage(err, "failed to split server command")
+		}
+	}
+
+	replacer := newServerReplacer(cfg, server)
+
+	args := make([]string, 0, len(wrapTokens)+len(cmdTokens))
+	for _, token := range wrapTokens {
+		if token == "{command}" {
+			for _, cmdToken := range cmdTokens {
+				args = append(args, replacer.Replace(cmdToken))
+			}
+
+			continue
+		}
+
+		args = append(args, replacer.Replace(token))
+	}
+
+	return args, nil
+}
 
 func MakeFullCommand(
 	cfg workDirReader,
@@ -17,33 +70,46 @@ func MakeFullCommand(
 }
 
 func ReplaceShortCodes(commandTemplate string, cfg workDirReader, server *Server) string {
-	command := commandTemplate
+	return newServerReplacer(cfg, server).Replace(commandTemplate)
+}
 
-	command = strings.ReplaceAll(command, "{dir}", server.WorkDir(cfg))
-	command = strings.ReplaceAll(command, "{uuid}", server.UUID())
-	command = strings.ReplaceAll(command, "{uuid_short}", server.UUIDShort())
-	command = strings.ReplaceAll(command, "{id}", strconv.Itoa(server.ID()))
+// newServerReplacer builds a single-pass replacer for all supported
+// placeholders. A single pass means a substituted value is never re-scanned, so
+// one variable value cannot expand another variable's placeholder, and the
+// result no longer depends on Go map iteration order. Built-in placeholders are
+// registered before server variables, so a variable cannot shadow a built-in.
+func newServerReplacer(cfg workDirReader, server *Server) *strings.Replacer {
+	vars := server.Vars()
 
-	command = strings.ReplaceAll(command, "{host}", server.IP())
-	command = strings.ReplaceAll(command, "{ip}", server.IP())
-	command = strings.ReplaceAll(command, "{port}", strconv.Itoa(server.ConnectPort()))
-	command = strings.ReplaceAll(command, "{SERVER_PORT}", strconv.Itoa(server.ConnectPort()))
-	command = strings.ReplaceAll(command, "{PORT}", strconv.Itoa(server.ConnectPort()))
-	command = strings.ReplaceAll(command, "{query_port}", strconv.Itoa(server.QueryPort()))
-	command = strings.ReplaceAll(command, "{rcon_port}", strconv.Itoa(server.RCONPort()))
-	command = strings.ReplaceAll(command, "{rcon_password}", server.RCONPassword())
+	const builtinPairs = 32
 
-	command = strings.ReplaceAll(command, "{game}", server.Game().StartCode)
-	command = strings.ReplaceAll(command, "{user}", server.User())
+	pairs := make([]string, 0, builtinPairs+6*len(vars))
+	pairs = append(pairs,
+		"{dir}", server.WorkDir(cfg),
+		"{uuid}", server.UUID(),
+		"{uuid_short}", server.UUIDShort(),
+		"{id}", strconv.Itoa(server.ID()),
+		"{host}", server.IP(),
+		"{ip}", server.IP(),
+		"{port}", strconv.Itoa(server.ConnectPort()),
+		"{SERVER_PORT}", strconv.Itoa(server.ConnectPort()),
+		"{PORT}", strconv.Itoa(server.ConnectPort()),
+		"{query_port}", strconv.Itoa(server.QueryPort()),
+		"{rcon_port}", strconv.Itoa(server.RCONPort()),
+		"{rcon_password}", server.RCONPassword(),
+		"{game}", server.Game().StartCode,
+		"{user}", server.User(),
+		"{node_work_path}", cfg.WorkDir(),
+		"{node_tools_path}", cfg.WorkDir()+"/tools",
+	)
 
-	command = strings.ReplaceAll(command, "{node_work_path}", cfg.WorkDir())
-	command = strings.ReplaceAll(command, "{node_tools_path}", cfg.WorkDir()+"/tools")
-
-	for k, v := range server.Vars() {
-		command = strings.ReplaceAll(command, "{"+k+"}", v)
-		command = strings.ReplaceAll(command, "{"+strings.ToLower(k)+"}", v)
-		command = strings.ReplaceAll(command, "{"+strings.ToUpper(k)+"}", v)
+	for k, v := range vars {
+		pairs = append(pairs,
+			"{"+k+"}", v,
+			"{"+strings.ToLower(k)+"}", v,
+			"{"+strings.ToUpper(k)+"}", v,
+		)
 	}
 
-	return command
+	return strings.NewReplacer(pairs...)
 }

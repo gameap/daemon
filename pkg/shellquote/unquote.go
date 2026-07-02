@@ -23,20 +23,59 @@ func Join(words ...string) string {
 	return shellquote.Join(words...)
 }
 
-// WindowsArgToString quotes a string for use as a Windows command line argument.
-// It wraps the string in double quotes if it contains spaces or special characters,
-// and escapes any existing double quotes.
+// WindowsArgToString quotes a string for use as a single Windows command line
+// argument. It follows the backslash/quote rules parsed by CommandLineToArgvW
+// (and the MSVC runtime): a run of backslashes is doubled only when it precedes
+// a double quote or the closing quote, and an embedded double quote is escaped
+// as \". A value ending in a backslash therefore round-trips correctly instead
+// of escaping the closing quote.
 func WindowsArgToString(s string) string {
 	if s == "" {
 		return `""`
 	}
 
-	needsQuoting := strings.ContainsAny(s, " \t\"")
-	if !needsQuoting {
+	if !strings.ContainsAny(s, " \t\n\v\"") {
 		return s
 	}
 
-	// Escape double quotes and wrap in quotes
-	escaped := strings.ReplaceAll(s, `"`, `\"`)
-	return `"` + escaped + `"`
+	var b strings.Builder
+	b.Grow(len(s) + 2)
+	b.WriteByte('"')
+
+	for i := 0; i < len(s); {
+		backslashes := 0
+		for i < len(s) && s[i] == '\\' {
+			i++
+			backslashes++
+		}
+
+		switch {
+		case i == len(s):
+			b.WriteString(strings.Repeat(`\`, backslashes*2))
+		case s[i] == '"':
+			b.WriteString(strings.Repeat(`\`, backslashes*2+1))
+			b.WriteByte('"')
+			i++
+		default:
+			b.WriteString(strings.Repeat(`\`, backslashes))
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+
+	b.WriteByte('"')
+
+	return b.String()
+}
+
+// WindowsJoin quotes each argument with WindowsArgToString and joins them with
+// spaces, producing the argument portion of a Windows command line that
+// CommandLineToArgvW parses back into exactly these arguments.
+func WindowsJoin(args ...string) string {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = WindowsArgToString(a)
+	}
+
+	return strings.Join(quoted, " ")
 }

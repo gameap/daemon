@@ -489,6 +489,18 @@ func (ex *testExecutor) ExecWithWriter(
 	return 0, nil
 }
 
+func (ex *testExecutor) ExecArgs(
+	_ context.Context, _ []string, _ contracts.ExecutorOptions,
+) ([]byte, int, error) {
+	return []byte(""), 0, nil
+}
+
+func (ex *testExecutor) ExecWithWriterArgs(
+	_ context.Context, _ []string, _ io.Writer, _ contracts.ExecutorOptions,
+) (int, error) {
+	return 0, nil
+}
+
 func (ex *testExecutor) AssertCommand(t *testing.T, expected string) {
 	t.Helper()
 

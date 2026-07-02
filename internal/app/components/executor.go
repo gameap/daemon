@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/pkg/shellquote"
@@ -59,6 +58,31 @@ func (e *Executor) ExecWithWriter(
 	return result, err
 }
 
+func (e *Executor) ExecArgs(
+	ctx context.Context, args []string, options contracts.ExecutorOptions,
+) ([]byte, int, error) {
+	return ExecArgs(ctx, args, options)
+}
+
+func (e *Executor) ExecWithWriterArgs(
+	ctx context.Context,
+	args []string,
+	out io.Writer,
+	options contracts.ExecutorOptions,
+) (int, error) {
+	if e.appendCommandAndExitCode {
+		_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, shellquote.Join(args...))))
+	}
+
+	result, err := ExecWithWriterArgs(ctx, args, out, options)
+
+	if e.appendCommandAndExitCode {
+		_, _ = out.Write([]byte("\nExited with " + strconv.Itoa(result) + "\n"))
+	}
+
+	return result, err
+}
+
 func Exec(ctx context.Context, command string, options contracts.ExecutorOptions) ([]byte, int, error) {
 	buf := NewSafeBuffer()
 	exitCode, err := ExecWithWriter(ctx, command, buf, options)
@@ -74,7 +98,6 @@ func Exec(ctx context.Context, command string, options contracts.ExecutorOptions
 	return out, exitCode, nil
 }
 
-//nolint:funlen
 func ExecWithWriter(
 	ctx context.Context, command string, out io.Writer, options contracts.ExecutorOptions,
 ) (int, error) {
@@ -87,8 +110,34 @@ func ExecWithWriter(
 		return invalidResult, err
 	}
 
+	return ExecWithWriterArgs(ctx, args, out, options)
+}
+
+func ExecArgs(ctx context.Context, args []string, options contracts.ExecutorOptions) ([]byte, int, error) {
+	buf := NewSafeBuffer()
+	exitCode, err := ExecWithWriterArgs(ctx, args, buf, options)
+	if err != nil {
+		return nil, invalidResult, err
+	}
+
+	out, err := io.ReadAll(buf)
+	if err != nil {
+		return nil, invalidResult, err
+	}
+
+	return out, exitCode, nil
+}
+
+//nolint:funlen
+func ExecWithWriterArgs(
+	ctx context.Context, args []string, out io.Writer, options contracts.ExecutorOptions,
+) (int, error) {
+	if len(args) == 0 {
+		return invalidResult, ErrEmptyCommand
+	}
+
 	workDir := options.WorkDir
-	_, err = os.Stat(workDir)
+	_, err := os.Stat(workDir)
 	if err != nil && options.FallbackWorkDir == "" {
 		return invalidResult, errors.Wrapf(err, "invalid work directory %s", workDir)
 	} else if err != nil && options.FallbackWorkDir != "" {
@@ -117,14 +166,7 @@ func ExecWithWriter(
 		return invalidResult, errors.Wrap(err, "executable file not found")
 	}
 
-	filteredArgs := make([]string, 0, len(args))
-	for _, arg := range args[1:] {
-		if arg != "" {
-			filteredArgs = append(filteredArgs, strings.TrimSpace(arg))
-		}
-	}
-
-	cmd := exec.CommandContext(ctx, name, filteredArgs...)
+	cmd := exec.CommandContext(ctx, name, args[1:]...)
 	cmd.Dir = workDir
 	cmd.Stdout = out
 	cmd.Stderr = out
