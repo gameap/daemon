@@ -88,6 +88,16 @@ func TestBuildCommandArgs_EmptyServerCommandYieldsNoArguments(t *testing.T) {
 	require.Empty(t, args)
 }
 
+func TestBuildCommandArgs_EmptyWrapperYieldsNoArguments(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForVars(nil, nil, nil)
+
+	args, err := BuildCommandArgs(cfg, server, "", "./run --name x")
+
+	require.NoError(t, err)
+	require.Empty(t, args)
+}
+
 func TestBuildCommandArgs_ReportsUnbalancedQuoteInTemplate(t *testing.T) {
 	cfg := fakeWorkDirReader{workDir: "/work-path"}
 	server := newTestServerForVars(nil, nil, nil)

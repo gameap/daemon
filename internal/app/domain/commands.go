@@ -24,7 +24,7 @@ func BuildCommandArgs(
 	serverCommand string,
 ) ([]string, error) {
 	if wrapperTemplate == "" {
-		wrapperTemplate = "{command}"
+		return nil, nil
 	}
 
 	wrapTokens, err := shellquote.Split(wrapperTemplate)

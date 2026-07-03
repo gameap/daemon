@@ -75,7 +75,7 @@ func Test_makeCommand(t *testing.T) {
 
 				return makeServerWithStartCommandAndDir("./start.sh 'some quotes' \"some quotes\" args", tempDir)
 			},
-			expectedCommand: filepath.Join(tempDir, "./start.sh 'some quotes' 'some quotes' args"),
+			expectedCommand: filepath.Join(tempDir, `./start.sh "some quotes" "some quotes" args`),
 		},
 		{
 			name: "success with global file",
