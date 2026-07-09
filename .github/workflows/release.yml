@@ -6,6 +6,8 @@ jobs:
   releases-matrix:
     name: Release Go Binary
     runs-on: ubuntu-latest
+    env:
+      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
     strategy:
       fail-fast: false
       matrix:
@@ -19,15 +21,16 @@ jobs:
           - goarch: "arm"
             goos: windows
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Set APP_VERSION env
-        run: echo APP_VERSION=$(echo ${GITHUB_REF} | rev | cut -d'/' -f 1 | rev ) >> ${GITHUB_ENV}
+        run: echo "APP_VERSION=$(echo "${GITHUB_REF}" | rev | cut -d'/' -f 1 | rev )" >> "${GITHUB_ENV}"
       - name: Set BUILD_TIME env
-        run: echo BUILD_TIME=$(date --iso-8601=seconds) >> ${GITHUB_ENV}
+        run: echo "BUILD_TIME=$(date --iso-8601=seconds)" >> "${GITHUB_ENV}"
 
 
       - uses: wangyoucao577/go-release-action@v1.53
+        id: build
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
@@ -39,3 +42,55 @@ jobs:
           ldflags: -X "github.com/gameap/daemon/internal/app/build.Version=${{ env.APP_VERSION }}" -X "github.com/gameap/daemon/internal/app/build.BuildDate=${{ env.BUILD_TIME }}"
           binary_name: "gameap-daemon"
           extra_files: README.md
+
+      - name: Upload assets to S3
+        if: ${{ env.S3_ENDPOINT != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.S3_REGION || 'us-east-1' }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_PREFIX: ${{ secrets.S3_PREFIX || 'gameap-daemon' }}
+          ASSET_DIR: ${{ steps.build.outputs.release_asset_dir }}
+        run: |
+          aws configure set default.s3.addressing_style path
+
+          assets_dir=$(dirname "${ASSET_DIR}")
+          for file in "${assets_dir}/gameap-daemon-${APP_VERSION}-"*; do
+            name=$(basename "${file}")
+            aws s3 cp "${file}" "s3://${S3_BUCKET}/${S3_PREFIX}/${APP_VERSION}/${name}" --endpoint-url "${S3_ENDPOINT}"
+            aws s3 cp "${file}" "s3://${S3_BUCKET}/${S3_PREFIX}/latest/${name/-${APP_VERSION}-/-}" --endpoint-url "${S3_ENDPOINT}"
+          done
+
+  releases-json:
+    name: Upload releases JSON to S3
+    runs-on: ubuntu-latest
+    needs: releases-matrix
+    env:
+      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+    steps:
+      - name: Fetch releases from GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            -o releases.json
+          jq empty releases.json
+
+      - name: Upload releases JSON to S3
+        if: ${{ env.S3_ENDPOINT != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.S3_REGION || 'us-east-1' }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_PREFIX: ${{ secrets.S3_PREFIX || 'gameap-daemon' }}
+        run: |
+          aws configure set default.s3.addressing_style path
+
+          aws s3 cp releases.json "s3://${S3_BUCKET}/${S3_PREFIX}/releases.json" \
+            --endpoint-url "${S3_ENDPOINT}" \
+            --content-type "application/json"
