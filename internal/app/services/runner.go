@@ -4,13 +4,10 @@ import (
 	"context"
 
 	"github.com/gameap/daemon/internal/app/config"
-	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
-	"github.com/gameap/daemon/internal/app/repositories"
-	"github.com/gameap/daemon/internal/app/server"
 	serversloop "github.com/gameap/daemon/internal/app/servers_loop"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 	"github.com/gameap/daemon/pkg/logger"
@@ -21,30 +18,23 @@ import (
 type Runner struct {
 	cfg *config.Config
 
-	executor          contracts.Executor
 	commandFactory    *gameservercommands.ServerCommandFactory
-	apiClient         contracts.APIRequestMaker
 	gdTaskManager     *gdaemonscheduler.TaskManager
 	serverRepository  domain.ServerRepository
 	serversScheduler  *serversscheduler.Scheduler
 	connectionManager *grpcclient.ConnectionManager
 	statusReporter    *grpcclient.ServerStatusReporter
-	grpcMode          bool
 }
 
 func NewProcessRunner(
 	cfg *config.Config,
-	executor contracts.Executor,
 	commandFactory *gameservercommands.ServerCommandFactory,
-	apiClient contracts.APIRequestMaker,
 	gdTaskManager *gdaemonscheduler.TaskManager,
 	serverRepository domain.ServerRepository,
 ) (*Runner, error) {
 	return &Runner{
 		cfg:              cfg,
-		executor:         executor,
 		commandFactory:   commandFactory,
-		apiClient:        apiClient,
 		gdTaskManager:    gdTaskManager,
 		serverRepository: serverRepository,
 	}, nil
@@ -62,24 +52,7 @@ func (r *Runner) SetGRPCComponents(
 	r.statusReporter = statusReporter
 }
 
-func (r *Runner) EnableGRPCMode() {
-	r.grpcMode = true
-
-	r.gdTaskManager.SetGRPCMode(true)
-
-	if repo, ok := r.serverRepository.(*repositories.ServerRepository); ok {
-		repo.SetGRPCMode(true)
-	}
-}
-
-func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
-	if !cfg.GRPC.Enabled {
-		err := r.initNodeConfigFromAPI(ctx, cfg)
-		if err != nil {
-			return err
-		}
-	}
-
+func (r *Runner) Init(_ context.Context, cfg *config.Config) error {
 	config.InitDefaultScripts(cfg)
 
 	if err := config.UpdateEnvPath(cfg); err != nil {
@@ -87,50 +60,6 @@ func (r *Runner) Init(ctx context.Context, cfg *config.Config) error {
 	}
 
 	return nil
-}
-
-func (r *Runner) initNodeConfigFromAPI(ctx context.Context, cfg *config.Config) error {
-	cfgInitializer := config.NewNodeConfigInitializer(r.apiClient)
-
-	return cfgInitializer.Initialize(ctx, cfg)
-}
-
-func (r *Runner) RunGDaemonServer(ctx context.Context, cfg *config.Config) func() error {
-	return func() error {
-		certPEM, err := cfg.CertificateChainPEM()
-		if err != nil {
-			return errors.Wrap(err, "failed to read certificate chain")
-		}
-
-		keyPEM, err := cfg.PrivateKeyPEM()
-		if err != nil {
-			return errors.Wrap(err, "failed to read private key")
-		}
-
-		srv, err := server.NewServer(
-			cfg.ListenIP,
-			cfg.ListenPort,
-			certPEM,
-			keyPEM,
-			server.CredentialsConfig{
-				PasswordAuthentication: cfg.PasswordAuthentication,
-				Login:                  cfg.DaemonLogin,
-				Password:               cfg.DaemonPassword,
-			},
-			r.executor,
-			r.gdTaskManager,
-		)
-		if err != nil {
-			return err
-		}
-
-		ctx = logger.WithLogger(ctx, logger.WithFields(ctx, log.Fields{
-			"service": "gameap daemon server",
-		}))
-
-		log.Trace("Running gameap damon server...")
-		return runService(ctx, srv.Run)
-	}
 }
 
 func (r *Runner) RunGDaemonTaskScheduler(ctx context.Context, _ *config.Config) func() error {
@@ -144,25 +73,8 @@ func (r *Runner) RunGDaemonTaskScheduler(ctx context.Context, _ *config.Config) 
 	}
 }
 
-func (r *Runner) RunServersLoop(ctx context.Context, cfg *config.Config) func() error {
-	return func() error {
-		loop := serversloop.NewServersLoop(r.serverRepository, r.commandFactory, cfg)
-
-		ctx = logger.WithLogger(ctx, logger.Logger(ctx).WithFields(log.Fields{
-			"service": "servers loop",
-		}))
-
-		log.Trace("Running server loop...")
-		return runService(ctx, loop.Run)
-	}
-}
-
 func (r *Runner) RunServerScheduler(ctx context.Context, _ *config.Config) func() error {
 	return func() error {
-		if !r.grpcMode {
-			log.Info("Server task scheduling disabled in legacy HTTP mode")
-			return nil
-		}
 		if r.serversScheduler == nil {
 			return errors.New("servers scheduler not wired")
 		}
@@ -176,12 +88,8 @@ func (r *Runner) RunServerScheduler(ctx context.Context, _ *config.Config) func(
 	}
 }
 
-func (r *Runner) RunGRPCClient(ctx context.Context, cfg *config.Config) func() error {
+func (r *Runner) RunGRPCClient(ctx context.Context, _ *config.Config) func() error {
 	return func() error {
-		if !cfg.GRPC.Enabled {
-			return nil
-		}
-
 		if r.connectionManager == nil {
 			return errors.New("gRPC connection manager not initialized")
 		}
@@ -195,7 +103,7 @@ func (r *Runner) RunGRPCClient(ctx context.Context, cfg *config.Config) func() e
 	}
 }
 
-func (r *Runner) RunServersLoopWithReporter(ctx context.Context, cfg *config.Config) func() error {
+func (r *Runner) RunServersLoop(ctx context.Context, cfg *config.Config) func() error {
 	return func() error {
 		loop := serversloop.NewServersLoop(r.serverRepository, r.commandFactory, cfg)
 

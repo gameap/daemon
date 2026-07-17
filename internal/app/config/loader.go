@@ -92,10 +92,6 @@ func updatePaths(cfgPath string, cfg *Config) *Config {
 		cfg.PrivateKeyFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.PrivateKeyFile))
 	}
 
-	if cfg.DHFile != "" && !filepath.IsAbs(cfg.DHFile) {
-		cfg.DHFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.DHFile))
-	}
-
 	return cfg
 }
 

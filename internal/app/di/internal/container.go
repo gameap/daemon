@@ -9,7 +9,6 @@ import (
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/metrics"
 	"github.com/gameap/daemon/internal/app/services"
-	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
 
 	"github.com/gameap/daemon/internal/app/di/internal/definitions"
@@ -63,8 +62,6 @@ func (c *Container) SetError(err error) {
 type ServicesContainer struct {
 	*Container
 
-	resty          *resty.Client
-	apiCaller      contracts.APIRequestMaker
 	executor       contracts.Executor
 	processManager contracts.ProcessManager
 	gdTaskManager  *gdaemonscheduler.TaskManager
@@ -73,7 +70,6 @@ type ServicesContainer struct {
 type RepositoryContainer struct {
 	*Container
 
-	gdTaskRepository domain.GDTaskRepository
 	serverRepository domain.ServerRepository
 }
 
@@ -161,20 +157,6 @@ func (c *Container) Services() definitions.ServicesContainer {
 	return c.services
 }
 
-func (c *ServicesContainer) Resty(ctx context.Context) *resty.Client {
-	if c.resty == nil && c.err == nil {
-		c.resty = definitions.CreateServicesResty(ctx, c)
-	}
-	return c.resty
-}
-
-func (c *ServicesContainer) APICaller(ctx context.Context) contracts.APIRequestMaker {
-	if c.apiCaller == nil && c.err == nil {
-		c.apiCaller = definitions.CreateServicesAPICaller(ctx, c)
-	}
-	return c.apiCaller
-}
-
 func (c *ServicesContainer) Executor(ctx context.Context) contracts.Executor {
 	if c.executor == nil && c.err == nil {
 		c.executor = definitions.CreateServicesExecutor(ctx, c)
@@ -208,13 +190,6 @@ func (c *Container) Repositories() definitions.RepositoryContainer {
 	return c.repositories
 }
 
-func (c *RepositoryContainer) GdTaskRepository(ctx context.Context) domain.GDTaskRepository {
-	if c.gdTaskRepository == nil && c.err == nil {
-		c.gdTaskRepository = definitions.CreateRepositoriesGdTaskRepository(ctx, c)
-	}
-	return c.gdTaskRepository
-}
-
 func (c *RepositoryContainer) ServerRepository(ctx context.Context) domain.ServerRepository {
 	if c.serverRepository == nil && c.err == nil {
 		c.serverRepository = definitions.CreateRepositoriesServerRepository(ctx, c)
@@ -228,10 +203,6 @@ func (c *Container) SetCfg(s *config.Config) {
 
 func (c *Container) SetLogger(s *logrus.Logger) {
 	c.logger = s
-}
-
-func (c *ServicesContainer) SetAPICaller(s contracts.APIRequestMaker) {
-	c.apiCaller = s
 }
 
 func (c *Container) Close() {}

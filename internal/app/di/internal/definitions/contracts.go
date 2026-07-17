@@ -11,7 +11,6 @@ import (
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 	"github.com/gameap/daemon/internal/app/metrics"
 	"github.com/gameap/daemon/internal/app/services"
-	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
 
 	"github.com/gameap/daemon/internal/app/domain"
@@ -37,8 +36,6 @@ type Container interface {
 }
 
 type ServicesContainer interface {
-	Resty(ctx context.Context) *resty.Client
-	APICaller(ctx context.Context) contracts.APIRequestMaker
 	Executor(ctx context.Context) contracts.Executor
 	ExtendableExecutor(ctx context.Context) contracts.Executor
 	GdTaskManager(ctx context.Context) *gdaemonscheduler.TaskManager
@@ -46,6 +43,5 @@ type ServicesContainer interface {
 }
 
 type RepositoryContainer interface {
-	GdTaskRepository(ctx context.Context) domain.GDTaskRepository
 	ServerRepository(ctx context.Context) domain.ServerRepository
 }

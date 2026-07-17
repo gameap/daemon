@@ -87,7 +87,7 @@ func (suite *Suite) givenDependentGDTaskWithCommand(runAfterID int, cmd string) 
 		domain.GDTaskStatusWaiting,
 	)
 
-	suite.GDTaskRepository.Set([]*domain.GDTask{task})
+	suite.InsertTask(task)
 
 	return task
 }

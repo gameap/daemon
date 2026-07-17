@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/gameap/daemon/internal/app/config"
-	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/di/internal"
 	"github.com/gameap/daemon/internal/app/domain"
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
@@ -53,27 +52,6 @@ func (c *Container) ProcessRunner(ctx context.Context) (*services.Runner, error)
 	defer c.mu.Unlock()
 
 	s := c.c.ProcessRunner(ctx)
-	err := c.c.Error()
-	if err != nil {
-		return nil, err
-	}
-
-	return s, err
-}
-
-func SetApiCaller(s contracts.APIRequestMaker) Injector {
-	return func(c *Container) error {
-		c.c.Services().(*internal.ServicesContainer).SetAPICaller(s)
-
-		return nil
-	}
-}
-
-func (c *Container) GdTaskRepository(ctx context.Context) (domain.GDTaskRepository, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	s := c.c.Repositories().(*internal.RepositoryContainer).GdTaskRepository(ctx)
 	err := c.c.Error()
 	if err != nil {
 		return nil, err

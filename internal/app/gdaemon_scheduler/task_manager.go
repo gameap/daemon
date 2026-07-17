@@ -18,8 +18,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var updateTimeout = 5 * time.Second
-
 type TaskStatusSender interface {
 	SendTaskStatus(taskID int, status string, message string)
 	SendTaskOutput(taskID int, output []byte, isFinal bool)
@@ -38,24 +36,18 @@ var taskServerCommandMap = map[domain.GDTaskCommand]domain.ServerCommand{
 }
 
 type TaskManager struct {
-	lastUpdated          time.Time
-	repository           domain.GDTaskRepository
 	executor             contracts.Executor
 	cache                contracts.Cache
 	config               *config.Config
 	serverCommandFactory *gameservercommands.ServerCommandFactory
-	mutex                *sync.Mutex
 	queue                *taskQueue
 	completed            *completionTracker
 	commandsInProgress   sync.Map
 	wg                   sync.WaitGroup
-	consecutiveFailures  int
 	taskStatusSender     TaskStatusSender
-	grpcMode             bool
 }
 
 func NewTaskManager(
-	repository domain.GDTaskRepository,
 	cache contracts.Cache,
 	serverCommandFactory *gameservercommands.ServerCommandFactory,
 	executor contracts.Executor,
@@ -63,22 +55,16 @@ func NewTaskManager(
 ) *TaskManager {
 	return &TaskManager{
 		config:               config,
-		repository:           repository,
 		cache:                cache,
 		queue:                newTaskQueue(),
 		completed:            newCompletionTracker(completionTrackerCapacity),
 		serverCommandFactory: serverCommandFactory,
-		mutex:                &sync.Mutex{},
 		executor:             executor,
 	}
 }
 
 func (manager *TaskManager) SetTaskStatusSender(sender TaskStatusSender) {
 	manager.taskStatusSender = sender
-}
-
-func (manager *TaskManager) SetGRPCMode(enabled bool) {
-	manager.grpcMode = enabled
 }
 
 func (manager *TaskManager) InsertTask(task *domain.GDTask) {
@@ -100,39 +86,12 @@ func (manager *TaskManager) CancelTask(taskID int) error {
 }
 
 func (manager *TaskManager) Run(ctx context.Context) error {
-	if !manager.grpcMode {
-		manager.failWorkingTaskAfterRestart(ctx)
-
-		err := manager.updateTasksIfNeeded(ctx)
-		if err != nil {
-			logger.Logger(ctx).Error(err)
-		}
-	}
-
 	go manager.RunWorker(ctx)
 
-	updatePeriod := manager.config.TaskManager.UpdatePeriod
-	if updatePeriod <= 0 {
-		updatePeriod = 1 * time.Second
-	}
+	<-ctx.Done()
+	manager.wg.Wait()
 
-	updateTicker := time.NewTicker(updatePeriod)
-	defer updateTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			manager.wg.Wait()
-			return nil
-		case <-updateTicker.C:
-			if !manager.grpcMode {
-				err := manager.updateTasksIfNeeded(ctx)
-				if err != nil {
-					logger.Logger(ctx).Error(err)
-				}
-			}
-		}
-	}
+	return nil
 }
 
 func (manager *TaskManager) RunWorker(ctx context.Context) {
@@ -167,27 +126,6 @@ func (manager *TaskManager) Stats() domain.GDTaskStats {
 	return stats
 }
 
-func (manager *TaskManager) failWorkingTaskAfterRestart(ctx context.Context) {
-	workingTasks, err := manager.repository.FindByStatus(ctx, domain.GDTaskStatusWorking)
-	if err != nil {
-		logger.Logger(ctx).Error(err)
-	}
-
-	for _, task := range workingTasks {
-		err = task.SetStatus(domain.GDTaskStatusError)
-		if err != nil {
-			logger.Logger(ctx).Error(err)
-			continue
-		}
-
-		manager.appendTaskOutput(ctx, task, []byte("Working task failed. GameAP Daemon was restarted."))
-		err = manager.repository.Save(ctx, task)
-		if err != nil {
-			logger.Logger(ctx).Error(err)
-		}
-	}
-}
-
 func (manager *TaskManager) runNext(ctx context.Context) {
 	task := manager.queue.Next()
 	if task == nil {
@@ -215,7 +153,6 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		return
 	case predecessorFail:
 		output := []byte(reason)
-		go manager.appendTaskOutput(ctx, task, output)
 		manager.notifyTaskOutput(task, output, true)
 		manager.failTask(ctx, task)
 	case predecessorProceed:
@@ -232,7 +169,6 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		logger.Logger(ctx).WithError(err).Error("task execution failed")
 
 		output := []byte(err.Error())
-		go manager.appendTaskOutput(ctx, task, output)
 		manager.notifyTaskOutput(task, output, true)
 		manager.failTask(ctx, task)
 	}
@@ -247,14 +183,6 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		manager.completed.Record(task.ID(), task.Status())
 		manager.commandsInProgress.Delete(task.ID())
 		manager.queue.Remove(task)
-
-		if !manager.grpcMode {
-			err = manager.repository.Save(ctx, task)
-			if err != nil {
-				err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
-				logger.Error(ctx, err)
-			}
-		}
 	}
 }
 
@@ -285,18 +213,12 @@ func (manager *TaskManager) checkPredecessor(
 		return manager.evaluatePredecessorStatus(ctx, runAfterID, status)
 	}
 
-	predecessor, err := manager.repository.FindByID(ctx, runAfterID)
-	if err != nil {
-		logger.Logger(ctx).WithError(err).
-			Warnf("failed to fetch predecessor task %d, will retry", runAfterID)
-		return predecessorWait, ""
-	}
-	if predecessor == nil {
-		return predecessorFail, fmt.Sprintf("predecessor task %d not found", runAfterID)
-	}
+	logger.Logger(ctx).Warnf(
+		"predecessor task %d not found in queue or completion tracker, will retry",
+		runAfterID,
+	)
 
-	manager.completed.Record(predecessor.ID(), predecessor.Status())
-	return manager.evaluatePredecessorStatus(ctx, runAfterID, predecessor.Status())
+	return predecessorWait, ""
 }
 
 func (manager *TaskManager) evaluatePredecessorStatus(
@@ -331,14 +253,6 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 	}
 
 	manager.notifyTaskStatus(task, "Task started")
-
-	if !manager.grpcMode {
-		err = manager.repository.Save(ctx, task)
-		if err != nil {
-			err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
-			logger.Error(ctx, err)
-		}
-	}
 
 	if task.Task() == domain.GDTaskCommandExecute {
 		return manager.executeCommand(ctx, task)
@@ -379,7 +293,6 @@ func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDT
 		if err != nil {
 			logger.Warn(ctx, err)
 			output := []byte(err.Error())
-			manager.appendTaskOutput(ctx, task, output)
 			manager.notifyTaskOutput(task, output, true)
 			manager.failTask(ctx, task)
 		}
@@ -423,7 +336,6 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 		if err != nil {
 			logger.Warn(ctx, err)
 			output := append(cmdFunc.ReadOutput(), err.Error()...)
-			manager.appendTaskOutput(ctx, task, output)
 			manager.notifyTaskOutput(task, output, true)
 			manager.failTask(ctx, task)
 		}
@@ -457,7 +369,6 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 		}
 	}
 
-	go manager.appendTaskOutput(ctx, task, output)
 	manager.notifyTaskOutput(task, output, isFinal)
 
 	return nil
@@ -482,49 +393,6 @@ func (manager *TaskManager) notifyTaskOutput(task *domain.GDTask, output []byte,
 	if manager.taskStatusSender != nil && len(output) > 0 {
 		manager.taskStatusSender.SendTaskOutput(task.ID(), output, isFinal)
 	}
-}
-
-func (manager *TaskManager) appendTaskOutput(ctx context.Context, task *domain.GDTask, output []byte) {
-	if len(output) == 0 {
-		return
-	}
-
-	if manager.grpcMode {
-		return
-	}
-
-	err := manager.repository.AppendOutput(ctx, task, output)
-	if err != nil {
-		logger.Logger(ctx).Error(err)
-	}
-}
-
-func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
-	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
-
-	backoff := updateTimeout * time.Duration(1<<min(manager.consecutiveFailures, 6))
-	if time.Since(manager.lastUpdated) <= backoff {
-		return nil
-	}
-
-	tasks, err := manager.repository.FindByStatus(ctx, domain.GDTaskStatusWaiting)
-	if err != nil {
-		manager.consecutiveFailures++
-		manager.lastUpdated = time.Now()
-
-		return err
-	}
-
-	manager.consecutiveFailures = 0
-
-	if len(tasks) > 0 {
-		manager.queue.Insert(tasks)
-	}
-
-	manager.lastUpdated = time.Now()
-
-	return nil
 }
 
 type taskQueue struct {

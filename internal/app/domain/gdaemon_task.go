@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"context"
 	"sync"
 )
 
@@ -38,13 +37,6 @@ const (
 	GDTaskGameServerMove      GDTaskCommand = "gsmove" // NOT Implemented
 	GDTaskCommandExecute      GDTaskCommand = "cmdexec"
 )
-
-type GDTaskRepository interface {
-	FindByStatus(ctx context.Context, status GDTaskStatus) ([]*GDTask, error)
-	FindByID(ctx context.Context, id int) (*GDTask, error)
-	Save(ctx context.Context, task *GDTask) error
-	AppendOutput(ctx context.Context, gdtask *GDTask, output []byte) error
-}
 
 type GDTask struct {
 	server      *Server

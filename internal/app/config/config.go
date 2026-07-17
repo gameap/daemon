@@ -31,7 +31,6 @@ type SteamConfig struct {
 }
 
 type GRPCConfig struct {
-	Enabled               bool          `yaml:"enabled"`
 	Insecure              bool          `yaml:"insecure"`
 	Address               string        `yaml:"address"`
 	HeartbeatInterval     time.Duration `yaml:"heartbeat_interval"`
@@ -67,15 +66,10 @@ const (
 type Config struct {
 	NodeID uint `yaml:"ds_id"`
 
-	ListenIP   string `yaml:"listen_ip"`
-	ListenPort int    `yaml:"listen_port"`
-
+	// APIHost is deprecated: it is kept only as a fallback source for the
+	// gRPC address (see GRPCAddress) and the insecure transport detection.
 	APIHost string `yaml:"api_host"`
 	APIKey  string `yaml:"api_key"`
-
-	DaemonLogin            string `yaml:"daemon_login"`
-	DaemonPassword         string `yaml:"daemon_password"`
-	PasswordAuthentication bool   `yaml:"password_authentication"`
 
 	CACertificateFile    string `yaml:"ca_certificate_file"`
 	CACertificate        string `yaml:"ca_certificate"`
@@ -84,13 +78,9 @@ type Config struct {
 	PrivateKeyFile       string `yaml:"private_key_file"`
 	PrivateKey           string `yaml:"private_key"`
 	PrivateKeyPassword   string `yaml:"private_key_password"`
-	DHFile               string `yaml:"dh_file"`
 
 	IFList     []string `yaml:"if_list"`
 	DrivesList []string `yaml:"drives_list"`
-
-	StatsUpdatePeriod   int `yaml:"stats_update_period"`
-	StatsDBUpdatePeriod int `yaml:"stats_db_update_period"`
 
 	// Log config
 	LogLevel  string `yaml:"log_level"`
@@ -112,7 +102,6 @@ type Config struct {
 	Scripts Scripts
 
 	TaskManager struct {
-		UpdatePeriod  time.Duration `yaml:"update_period"`
 		RunTaskPeriod time.Duration `yaml:"run_task_period"`
 		TaskTimeout   time.Duration `yaml:"task_timeout"`
 		WorkersCount  int           `yaml:"workers_count"`
@@ -139,9 +128,6 @@ type Config struct {
 
 func NewConfig() *Config {
 	return &Config{
-		ListenIP:   "0.0.0.0",
-		ListenPort: 31717,
-
 		LogLevel: "info",
 	}
 }
@@ -149,10 +135,6 @@ func NewConfig() *Config {
 func (cfg *Config) Init() error {
 	if cfg.ToolsPath == "" {
 		cfg.ToolsPath = filepath.Join(cfg.WorkPath, "tools")
-	}
-
-	if cfg.TaskManager.UpdatePeriod == 0 {
-		cfg.TaskManager.UpdatePeriod = 1 * time.Second
 	}
 
 	if cfg.TaskManager.RunTaskPeriod == 0 {
@@ -229,14 +211,12 @@ func (cfg *Config) validate() error {
 		return err
 	}
 
-	if !cfg.GRPC.Enabled {
-		if cfg.APIHost == "" {
-			return ErrEmptyAPIHost
-		}
+	if cfg.APIKey == "" {
+		return ErrEmptyAPIKey
+	}
 
-		if cfg.APIKey == "" {
-			return ErrEmptyAPIKey
-		}
+	if cfg.GRPC.Address == "" && cfg.APIHost == "" {
+		return ErrNoGRPCAddress
 	}
 
 	if !cfg.IsInsecure() {

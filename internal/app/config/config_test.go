@@ -31,11 +31,12 @@ func TestValidate(t *testing.T) {
 			ErrEmptyNodeID,
 		},
 		{
-			"empty APIHost",
+			"no gRPC address sources",
 			func(cfg *Config) {
 				cfg.APIHost = ""
+				cfg.GRPC.Address = ""
 			},
-			ErrEmptyAPIHost,
+			ErrNoGRPCAddress,
 		},
 		{
 			"empty APIKey",
@@ -109,6 +110,16 @@ func TestValidate_SystemDScope_AcceptsValidValues(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestValidate_GRPCAddressWithoutAPIHost(t *testing.T) {
+	cfg := givenValidConfig(t)
+	cfg.APIHost = ""
+	cfg.GRPC.Address = "panel.example.com:31718"
+
+	err := cfg.Init()
+
+	assert.NoError(t, err)
 }
 
 func TestValidate_InsecureWithoutCerts(t *testing.T) {
@@ -185,6 +196,28 @@ func TestPrivateKeyPEM_Inline(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []byte("inline-key-pem"), pem)
+}
+
+func TestGRPCAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiHost  string
+		address  string
+		expected string
+	}{
+		{"explicit address wins", "https://panel.example.com", "panel.example.com:31719", "panel.example.com:31719"},
+		{"derived from api_host", "https://panel.example.com", "", "panel.example.com:31718"},
+		{"derived with path", "https://panel.example.com/some/path", "", "panel.example.com:31718"},
+		{"derived with scheme and port", "http://panel.example.com:8080", "", "panel.example.com:31718"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{APIHost: tt.apiHost}
+			cfg.GRPC.Address = tt.address
+
+			assert.Equal(t, tt.expected, cfg.GRPCAddress())
+		})
+	}
 }
 
 func TestIsInsecure(t *testing.T) {

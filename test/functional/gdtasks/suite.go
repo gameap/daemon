@@ -27,19 +27,21 @@ type Suite struct {
 	functional.GameServerSuite
 
 	TaskManager      *gdaemonscheduler.TaskManager
-	GDTaskRepository *mocks.GDTaskRepository
 	ServerRepository *mocks.ServerRepository
 	Executor         contracts.Executor
 	ProcessManager   contracts.ProcessManager
 	Cache            contracts.Cache
 	Cfg              *config.Config
 
+	insertedTasks map[int]*domain.GDTask
+
 	WorkPath string
 }
 
 func (suite *Suite) SetupTest() {
+	suite.insertedTasks = map[int]*domain.GDTask{}
+
 	suite.TaskManager = gdaemonscheduler.NewTaskManager(
-		suite.GDTaskRepository,
 		suite.Cache,
 		gameservercommands.NewFactory(
 			suite.Cfg,
@@ -55,7 +57,6 @@ func (suite *Suite) SetupTest() {
 func (suite *Suite) SetupSuite() {
 	var err error
 
-	suite.GDTaskRepository = mocks.NewGDTaskRepository()
 	suite.ServerRepository = mocks.NewServerRepository()
 
 	suite.Cfg = &config.Config{
@@ -130,13 +131,16 @@ func (suite *Suite) isAllTasksCompleted(tasks []*domain.GDTask) bool {
 	return counter >= len(tasks)
 }
 
+func (suite *Suite) InsertTask(task *domain.GDTask) {
+	suite.TaskManager.InsertTask(task)
+	suite.insertedTasks[task.ID()] = task
+}
+
 func (suite *Suite) AssertGDTaskExist(task *domain.GDTask) {
 	suite.T().Helper()
 
-	actualTask, err := suite.GDTaskRepository.FindByID(context.Background(), task.ID())
-	if err != nil {
-		suite.T().Fatal(err)
-	}
+	actualTask, ok := suite.insertedTasks[task.ID()]
+	suite.Require().True(ok, "task %d was not inserted", task.ID())
 
 	suite.Require().NotNil(actualTask)
 	suite.Assert().Equal(task.Status(), actualTask.Status())
@@ -161,7 +165,7 @@ func (suite *Suite) GivenGDTaskWithCommand(cmd string) *domain.GDTask {
 		domain.GDTaskStatusWaiting,
 	)
 
-	suite.GDTaskRepository.Set([]*domain.GDTask{task})
+	suite.InsertTask(task)
 
 	return task
 }
@@ -176,7 +180,7 @@ func (suite *Suite) GivenGDTaskWithIDForServer(id int, server *domain.Server) *d
 		domain.GDTaskStatusWaiting,
 	)
 
-	suite.GDTaskRepository.Set([]*domain.GDTask{task})
+	suite.InsertTask(task)
 
 	return task
 }
@@ -230,7 +234,9 @@ func (suite *Suite) GivenSequenceGDTaskForServer(server *domain.Server) []*domai
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 	rand.Shuffle(len(tasks), func(i, j int) { tasks[i], tasks[j] = tasks[j], tasks[i] })
 
-	suite.GDTaskRepository.Set(tasks)
+	for _, task := range tasks {
+		suite.InsertTask(task)
+	}
 
 	return tasks
 }

@@ -89,15 +89,12 @@ func enrollAction(c *cli.Context) error {
 	enrollCfg := &config.EnrollConfig{
 		NodeID:               uint(result.NodeID),
 		APIKey:               result.APIKey,
-		ListenIP:             listenIP,
-		ListenPort:           listenPort,
 		CACertificateFile:    filepath.Join(certsDir, "ca.crt"),
 		CertificateChainFile: filepath.Join(certsDir, "server.crt"),
 		PrivateKeyFile:       filepath.Join(certsDir, "server.key"),
 		WorkPath:             workPath,
 		LogLevel:             "info",
 		GRPC: config.EnrollGRPC{
-			Enabled: true,
 			Address: urlInfo.Address,
 		},
 	}

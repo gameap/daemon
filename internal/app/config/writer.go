@@ -11,8 +11,6 @@ import (
 type EnrollConfig struct {
 	NodeID               uint       `yaml:"ds_id"`
 	APIKey               string     `yaml:"api_key"`
-	ListenIP             string     `yaml:"listen_ip"`
-	ListenPort           int        `yaml:"listen_port"`
 	CACertificateFile    string     `yaml:"ca_certificate_file"`
 	CertificateChainFile string     `yaml:"certificate_chain_file"`
 	PrivateKeyFile       string     `yaml:"private_key_file"`
@@ -22,7 +20,6 @@ type EnrollConfig struct {
 }
 
 type EnrollGRPC struct {
-	Enabled bool   `yaml:"enabled"`
 	Address string `yaml:"address"`
 }
 

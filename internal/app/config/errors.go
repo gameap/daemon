@@ -7,9 +7,11 @@ import (
 )
 
 var (
-	ErrEmptyNodeID             = errors.New("empty node ID")
-	ErrEmptyAPIHost            = errors.New("empty API Host")
-	ErrEmptyAPIKey             = errors.New("empty API Key")
+	ErrEmptyNodeID   = errors.New("empty node ID")
+	ErrEmptyAPIKey   = errors.New("empty API Key")
+	ErrNoGRPCAddress = errors.New(
+		"gRPC address is not configured: set grpc.address (or api_host as a deprecated fallback)",
+	)
 	ErrConfigNotFound          = errors.New("configuration file not found")
 	ErrUnsupportedConfigFormat = errors.New("unsupported configuration file format")
 	ErrNoCACertificate         = errors.New("either ca_certificate or ca_certificate_file must be set")
