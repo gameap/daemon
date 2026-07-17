@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -666,7 +667,12 @@ func (c *GatewayClient) Send(msg *pb.DaemonMessage) {
 	select {
 	case c.outbound <- msg:
 	default:
-		log.Warn("Outbound buffer full, dropping message")
+		// A dropped response leaves the API-side request hanging until its
+		// dispatch timeout, so this must be visible at the default log level.
+		log.WithFields(log.Fields{
+			"request_id":   msg.GetRequestId(),
+			"payload_type": fmt.Sprintf("%T", msg.GetPayload()),
+		}).Error("Outbound buffer full, dropping message")
 	}
 }
 

@@ -21,6 +21,12 @@ var (
 	ErrScopeOnlyForSystemD = errors.New(
 		"process_manager.config.scope is only valid for process_manager.name=systemd",
 	)
+	ErrEmptyReplacementKey           = errors.New("host key is empty")
+	ErrDuplicateReplacementKey       = errors.New("duplicate host key")
+	ErrNoReplacementTargets          = errors.New("no replacement targets")
+	ErrEmptyReplacementTarget        = errors.New("replacement target is empty")
+	ErrEmptyReplacementHost          = errors.New("replacement host is empty")
+	ErrReplacementHasQueryOrFragment = errors.New("replacement must not contain a query or a fragment")
 )
 
 type InvalidFileError struct {

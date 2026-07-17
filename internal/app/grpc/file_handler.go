@@ -272,6 +272,10 @@ func (h *GRPCFileHandler) listFlat(
 func (h *GRPCFileHandler) listRecursive(
 	dirPath, requestPath, pattern string,
 ) ([]*pb.FileStat, error) {
+	if _, err := os.Stat(dirPath); err != nil {
+		return nil, err
+	}
+
 	var files []*pb.FileStat
 
 	err := filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {

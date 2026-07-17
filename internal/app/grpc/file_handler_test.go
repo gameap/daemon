@@ -1,10 +1,13 @@
 package grpc
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,5 +167,74 @@ func TestPathWithin(t *testing.T) {
 
 	t.Run("shorter_path_is_not_within", func(t *testing.T) {
 		assert.False(t, pathWithin("/srv", "/srv/gameap"))
+	})
+}
+
+func TestHandleFileList(t *testing.T) {
+	t.Run("recursive_missing_directory_returns_error", func(t *testing.T) {
+		h := NewGRPCFileHandler(t.TempDir())
+
+		resp, err := h.HandleFileList(context.Background(), "req-1", &pb.FileListRequest{
+			Path:      "does/not/exist",
+			Recursive: true,
+		})
+
+		require.NoError(t, err)
+		assert.False(t, resp.Success)
+		assert.NotEmpty(t, resp.Error)
+		require.Len(t, resp.Files, 0)
+	})
+
+	t.Run("flat_missing_directory_returns_error", func(t *testing.T) {
+		h := NewGRPCFileHandler(t.TempDir())
+
+		resp, err := h.HandleFileList(context.Background(), "req-2", &pb.FileListRequest{
+			Path:      "does/not/exist",
+			Recursive: false,
+		})
+
+		require.NoError(t, err)
+		assert.False(t, resp.Success)
+		assert.NotEmpty(t, resp.Error)
+		require.Len(t, resp.Files, 0)
+	})
+
+	t.Run("recursive_empty_directory_returns_empty_success", func(t *testing.T) {
+		workDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(workDir, "empty"), 0o755))
+		h := NewGRPCFileHandler(workDir)
+
+		resp, err := h.HandleFileList(context.Background(), "req-3", &pb.FileListRequest{
+			Path:      "empty",
+			Recursive: true,
+		})
+
+		require.NoError(t, err)
+		assert.True(t, resp.Success)
+		assert.Empty(t, resp.Error)
+		require.Len(t, resp.Files, 0)
+	})
+
+	t.Run("recursive_existing_directory_lists_entries", func(t *testing.T) {
+		workDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(workDir, "sub"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(workDir, "sub", "file.txt"), []byte("data"), 0o644))
+		h := NewGRPCFileHandler(workDir)
+
+		resp, err := h.HandleFileList(context.Background(), "req-4", &pb.FileListRequest{
+			Path:      "",
+			Recursive: true,
+		})
+
+		require.NoError(t, err)
+		assert.True(t, resp.Success)
+		require.Len(t, resp.Files, 2)
+
+		paths := make([]string, 0, len(resp.Files))
+		for _, f := range resp.Files {
+			paths = append(paths, f.Path)
+		}
+		assert.Contains(t, paths, "sub")
+		assert.Contains(t, paths, filepath.Join("sub", "file.txt"))
 	})
 }

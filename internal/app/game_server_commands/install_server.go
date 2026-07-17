@@ -252,7 +252,7 @@ func (cmd *installServer) installByScript(ctx context.Context, server *domain.Se
 }
 
 func (cmd *installServer) install(ctx context.Context, server *domain.Server) error {
-	sd := installationRulesDefiner{}
+	sd := installationRulesDefiner{replacements: cmd.cfg.RemoteRepositoryReplacements}
 
 	game := server.Game()
 	gameMod := server.GameMod()
@@ -292,7 +292,9 @@ func (cmd *installServer) install(ctx context.Context, server *domain.Server) er
 	return nil
 }
 
-type installationRulesDefiner struct{}
+type installationRulesDefiner struct {
+	replacements config.RepositoryReplacements
+}
 
 func (d *installationRulesDefiner) DefineGameRules(game *domain.Game) []*installationRule {
 	var rules []*installationRule
@@ -305,10 +307,7 @@ func (d *installationRulesDefiner) DefineGameRules(game *domain.Game) []*install
 	}
 
 	if game.RemoteRepository != "" {
-		rule := d.defineRemoteRepositoryRule(game.RemoteRepository)
-		if rule != nil {
-			rules = append(rules, rule)
-		}
+		rules = append(rules, d.defineRemoteRepositoryRules(game.RemoteRepository)...)
 	}
 
 	if game.SteamAppID > 0 {
@@ -346,11 +345,7 @@ func (d *installationRulesDefiner) defineLocalRepositoryRule(localRepository str
 	return rule
 }
 
-func (d *installationRulesDefiner) defineRemoteRepositoryRule(remoteRepository string) *installationRule {
-	rule := &installationRule{
-		SourceValue: remoteRepository,
-	}
-
+func (d *installationRulesDefiner) defineRemoteRepositoryRules(remoteRepository string) []*installationRule {
 	parsedURL, err := url.Parse(remoteRepository)
 	if err != nil {
 		log.Warning(err)
@@ -361,9 +356,17 @@ func (d *installationRulesDefiner) defineRemoteRepositoryRule(remoteRepository s
 		return nil
 	}
 
-	rule.Action = downloadAnUnpackFromRemoteRepository
+	candidates := buildRemoteRepositoryCandidates(remoteRepository, d.replacements)
 
-	return rule
+	rules := make([]*installationRule, 0, len(candidates))
+	for _, candidate := range candidates {
+		rules = append(rules, &installationRule{
+			SourceValue: candidate,
+			Action:      downloadAnUnpackFromRemoteRepository,
+		})
+	}
+
+	return rules
 }
 
 func (d *installationRulesDefiner) DefineGameModRules(gameMod *domain.GameMod) []*installationRule {
@@ -377,10 +380,7 @@ func (d *installationRulesDefiner) DefineGameModRules(gameMod *domain.GameMod) [
 	}
 
 	if gameMod.RemoteRepository != "" {
-		rule := d.defineRemoteRepositoryRule(gameMod.RemoteRepository)
-		if rule != nil {
-			rules = append(rules, rule)
-		}
+		rules = append(rules, d.defineRemoteRepositoryRules(gameMod.RemoteRepository)...)
 	}
 
 	return rules

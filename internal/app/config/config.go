@@ -107,6 +107,8 @@ type Config struct {
 
 	SteamConfig SteamConfig `yaml:"steam_config"`
 
+	RemoteRepositoryReplacements RepositoryReplacements `yaml:"remote_repository_replacements"`
+
 	Scripts Scripts
 
 	TaskManager struct {
@@ -220,6 +222,10 @@ func (cfg *Config) validate() error {
 	}
 
 	if err := cfg.validateProcessManager(); err != nil {
+		return err
+	}
+
+	if err := cfg.RemoteRepositoryReplacements.validate(); err != nil {
 		return err
 	}
 

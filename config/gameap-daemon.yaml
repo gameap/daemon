@@ -114,6 +114,39 @@ log_level: debug
 #   password: your-steam-pass
 
 # ------------------------------------------------------------------
+# Remote repository replacements
+# Replace the domain of game/mod remote repository URLs with mirrors.
+# Key is a host (optionally host:port) from the original URL; a key with
+# a port matches "host:port" exactly, a key without a port matches the
+# hostname regardless of the port.
+# Replacement value is "[scheme://]host[:port][/path-prefix]" — parts that
+# are not set are kept from the original URL. Query string is preserved.
+# Mirrors are tried from the highest priority to the lowest (a plain
+# string means priority 0; equal priorities keep the config order).
+# The original URL is always tried last, after all replacements failed.
+#
+# Example: with the rules below and the original URL
+#   http://files.gameap.ru/cstrike-1.6/hlcs_base.tar.xz
+# the daemon tries
+#   1. http://cdn.gameap.com/cstrike-1.6/hlcs_base.tar.xz
+#   2. https://mirror.gameap.ru/files/cstrike-1.6/hlcs_base.tar.xz
+#   3. http://files.gameap.ru/cstrike-1.6/hlcs_base.tar.xz  (original)
+# ------------------------------------------------------------------
+
+# remote_repository_replacements:
+#   files.gameap.ru:
+#     - replace: cdn.gameap.com
+#       priority: 10
+#     - replace: https://mirror.gameap.ru/files
+#       priority: 9
+#
+#   # Short forms:
+#   files.example.com: cdn.example.com   # single replacement
+#   files.example.org:                   # list order = priority
+#     - cdn1.example.org
+#     - cdn2.example.org
+
+# ------------------------------------------------------------------
 # Task manager
 # ------------------------------------------------------------------
 
