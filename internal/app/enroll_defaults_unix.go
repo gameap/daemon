@@ -3,7 +3,8 @@
 package app
 
 const (
-	defaultEnrollConfigPath = "/etc/gameap-daemon/gameap-daemon.yaml"
-	defaultEnrollCertsDir   = "/etc/gameap-daemon/certs"
-	defaultEnrollWorkPath   = "/srv/gameap"
+	defaultEnrollConfigPath   = "/etc/gameap-daemon/gameap-daemon.yaml"
+	defaultEnrollCertsDir     = "/etc/gameap-daemon/certs"
+	defaultEnrollWorkPath     = "/srv/gameap"
+	defaultEnrollSteamCMDPath = "/srv/gameap/steamcmd"
 )

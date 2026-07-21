@@ -17,10 +17,10 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/internal/app/osowner"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/hashicorp/go-getter"
-	"github.com/otiai10/copy"
 	"github.com/pkg/errors"
 
 	log "github.com/sirupsen/logrus"
@@ -513,7 +513,7 @@ func (in *installator) copyDirectoryFromLocalRepository(
 ) error {
 	in.writeOutput(ctx, "Copying files from "+source+" to "+dst+" ...")
 
-	err := copy.Copy(source, dst)
+	err := fsutil.Copy(source, dst, fsutil.CopyOptions{})
 	if err != nil {
 		err = errors.WithMessage(err, "[game_server_commands.installator] failed to copy files")
 		in.writeOutput(ctx, err.Error())
@@ -536,8 +536,28 @@ func (in *installator) installFromSteam(
 
 	in.writeOutput(ctx, "Installing from steam ...")
 
+	if _, err := os.Stat(cfg.SteamCMDPath); err != nil {
+		err = errors.Wrapf(err, "steamcmd directory %s is not accessible", cfg.SteamCMDPath)
+		in.writeOutput(ctx, err.Error())
+
+		return err
+	}
+
+	err := osowner.ApplyGroupSharedRecursive(cfg.SteamCMDPath, osowner.Options{
+		User:  server.User(),
+		Group: cfg.SteamConfig.Group,
+	})
+	if err != nil {
+		err = errors.Wrapf(err, "failed to share steamcmd directory %s with the game server group", cfg.SteamCMDPath)
+		in.writeOutput(ctx, err.Error())
+
+		return err
+	}
+
 	executorOptions := contracts.ExecutorOptions{
-		WorkDir: cfg.WorkPath,
+		WorkDir:         cfg.SteamCMDPath,
+		FallbackWorkDir: server.WorkDir(in.cfg),
+		Env:             map[string]string{"HOME": cfg.SteamCMDPath},
 	}
 
 	if isRootUser() && server.User() != "" {
@@ -552,7 +572,7 @@ func (in *installator) installFromSteam(
 		executorOptions.GID = systemUser.Gid
 	}
 
-	_, err := os.Stat(server.WorkDir(in.cfg))
+	_, err = os.Stat(server.WorkDir(in.cfg))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		err = mkdirAllWithFinalPerm(server.WorkDir(in.cfg), 0750)
 		if err != nil {

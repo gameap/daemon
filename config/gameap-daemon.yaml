@@ -70,7 +70,9 @@ private_key_file: ./certs/server.key
 # ------------------------------------------------------------------
 # Metrics filters
 # Restrict which network interfaces and disks are reported by the
-# metrics collector. Empty lists mean "report everything".
+# metrics collector. Leave empty (or remove) to auto-select physical,
+# non-loopback interfaces and the root "/" filesystem plus the
+# work_path drive.
 # ------------------------------------------------------------------
 
 if_list:
@@ -101,8 +103,9 @@ log_level: debug
 # Directory for additional tools (added to PATH). Defaults to {work_path}/tools.
 # tools_path: /srv/gameap/tools
 
-# Path to the steamcmd executable used for game installations.
-# steamcmd_path: /srv/gameap/steamcmd/steamcmd.sh
+# Directory that contains steamcmd (steamcmd.sh / steamcmd.exe), used for
+# game installations. The enroll command writes it automatically.
+# steamcmd_path: /srv/gameap/steamcmd
 
 # Windows-only paths:
 # path_7zip: C:\gameap\tools\7zip\7za.exe

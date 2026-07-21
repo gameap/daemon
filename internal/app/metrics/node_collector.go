@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
@@ -41,9 +42,11 @@ const (
 )
 
 // NodeMetricsCollector collects host-level metrics (cpu, mem, swap, disk,
-// network, load average, uptime) using gopsutil. Network/disk results are
-// optionally filtered by cfg.IFList / cfg.DrivesList; an empty filter list
-// means "collect all".
+// network, load average, uptime) using gopsutil. Disks are reported per
+// cfg.DrivesList and interfaces per cfg.IFList. When a list is empty the
+// collector falls back to a sensible default instead of reporting everything:
+// the root filesystem plus the work_path drive for disks, and physical
+// (non-loopback, non-virtual) interfaces for network.
 type NodeMetricsCollector struct {
 	cfg *config.Config
 
@@ -68,6 +71,81 @@ func sliceToSet(in []string) map[string]struct{} {
 		out[v] = struct{}{}
 	}
 	return out
+}
+
+// virtualInterfacePrefixes lists name prefixes of virtual / container / VPN
+// interfaces that are skipped by default (when if_list is not configured).
+// It is a heuristic; an explicit if_list always overrides it.
+var virtualInterfacePrefixes = []string{
+	"docker", "veth", "br-", "virbr", "vnet", "vmnet", "tap", "tun",
+	"wg", "cni", "flannel", "cali", "kube", "zt", "tailscale", "utun",
+	"awdl", "llw", "gif", "stf", "dummy", "ifb",
+}
+
+// selectDrive decides whether a partition is reported. With an explicit filter
+// (drives_list set) it keeps the partition only when its mountpoint or device
+// is listed. Without a filter it defaults to the root filesystem and the drive
+// that holds work_path, so unrelated/pseudo mounts are not reported.
+func selectDrive(filter map[string]struct{}, mountpoint, device, workMount string) bool {
+	if filter != nil {
+		if _, ok := filter[mountpoint]; ok {
+			return true
+		}
+		_, ok := filter[device]
+		return ok
+	}
+
+	if mountpoint == "/" {
+		return true
+	}
+	return workMount != "" && mountpoint == workMount
+}
+
+// longestMountPrefix returns the mountpoint from mountpoints that contains path
+// and sits closest to it (the longest path-prefix match), or "" when path is
+// empty or nothing matches.
+func longestMountPrefix(path string, mountpoints []string) string {
+	if path == "" {
+		return ""
+	}
+
+	best := ""
+	for _, mp := range mountpoints {
+		if mp == "" {
+			continue
+		}
+		if mp == path || strings.HasPrefix(path, strings.TrimRight(mp, "/")+"/") {
+			if len(mp) > len(best) {
+				best = mp
+			}
+		}
+	}
+	return best
+}
+
+// selectInterface decides whether a network interface is reported. With an
+// explicit filter (if_list set) it keeps only listed interfaces; otherwise it
+// keeps physical, non-loopback, non-virtual interfaces.
+func selectInterface(filter map[string]struct{}, name string) bool {
+	if filter != nil {
+		_, ok := filter[name]
+		return ok
+	}
+	return !isVirtualInterface(name)
+}
+
+func isVirtualInterface(name string) bool {
+	if name == "" || name == "lo" || name == "lo0" {
+		return true
+	}
+
+	lower := strings.ToLower(name)
+	for _, p := range virtualInterfacePrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Collect returns one snapshot of node metrics. Errors from individual
@@ -176,6 +254,15 @@ func (c *NodeMetricsCollector) collectDisks(now time.Time) []domain.Metric {
 	out := make([]domain.Metric, 0, len(partitions)*3)
 	seen := make(map[string]struct{}, len(partitions))
 
+	var workMount string
+	if c.driveFilter == nil {
+		mountpoints := make([]string, len(partitions))
+		for i := range partitions {
+			mountpoints[i] = partitions[i].Mountpoint
+		}
+		workMount = longestMountPrefix(c.cfg.WorkPath, mountpoints)
+	}
+
 	for i := range partitions {
 		p := partitions[i]
 		if _, dup := seen[p.Mountpoint]; dup {
@@ -183,12 +270,8 @@ func (c *NodeMetricsCollector) collectDisks(now time.Time) []domain.Metric {
 		}
 		seen[p.Mountpoint] = struct{}{}
 
-		if c.driveFilter != nil {
-			if _, want := c.driveFilter[p.Mountpoint]; !want {
-				if _, want := c.driveFilter[p.Device]; !want {
-					continue
-				}
-			}
+		if !selectDrive(c.driveFilter, p.Mountpoint, p.Device, workMount) {
+			continue
 		}
 
 		usage, err := disk.Usage(p.Mountpoint)
@@ -241,10 +324,8 @@ func (c *NodeMetricsCollector) collectNetwork(now time.Time) []domain.Metric {
 	out := make([]domain.Metric, 0, len(counters)*2)
 	for i := range counters {
 		ifc := counters[i]
-		if c.ifFilter != nil {
-			if _, want := c.ifFilter[ifc.Name]; !want {
-				continue
-			}
+		if !selectInterface(c.ifFilter, ifc.Name) {
+			continue
 		}
 
 		labels := map[string]string{labelInterface: ifc.Name}

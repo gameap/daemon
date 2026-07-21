@@ -60,11 +60,17 @@ func TestHandleMkdirOp_WithOwner_CreatesDirectoryTree(t *testing.T) {
 	workDir := t.TempDir()
 	h := NewGRPCFileHandler(workDir)
 
-	resp, err := h.handleMkdirOp("req-3", &pb.MkdirParams{
-		Path:      "a/b/c",
-		Recursive: true,
-		Mode:      0o755,
-		OwnerUser: "gameap",
+	resp, err := h.HandleFileOperation(context.Background(), &pb.FileOperationRequest{
+		RequestId: "req-3",
+		Operation: pb.FileOperationType_FILE_OPERATION_TYPE_MKDIR,
+		Parameters: &pb.FileOperationRequest_MkdirParams{
+			MkdirParams: &pb.MkdirParams{
+				Path:      "a/b/c",
+				Recursive: true,
+				Mode:      0o755,
+				OwnerUser: "gameap",
+			},
+		},
 	})
 
 	require.NoError(t, err)
@@ -82,11 +88,17 @@ func TestHandleMkdirOp_NonRecursive_OnlyTargetSegmentNew(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(workDir, "existing"), 0o755))
 	h := NewGRPCFileHandler(workDir)
 
-	resp, err := h.handleMkdirOp("req-4", &pb.MkdirParams{
-		Path:      "existing/new",
-		Recursive: false,
-		Mode:      0o750,
-		OwnerUser: "gameap",
+	resp, err := h.HandleFileOperation(context.Background(), &pb.FileOperationRequest{
+		RequestId: "req-4",
+		Operation: pb.FileOperationType_FILE_OPERATION_TYPE_MKDIR,
+		Parameters: &pb.FileOperationRequest_MkdirParams{
+			MkdirParams: &pb.MkdirParams{
+				Path:      "existing/new",
+				Recursive: false,
+				Mode:      0o750,
+				OwnerUser: "gameap",
+			},
+		},
 	})
 
 	require.NoError(t, err)

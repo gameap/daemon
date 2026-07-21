@@ -28,6 +28,11 @@ type Scripts struct {
 type SteamConfig struct {
 	Login    string `yaml:"login"`
 	Password string `yaml:"password"`
+
+	// Group is the shared OS group applied (with setgid) to the steamcmd
+	// directory so that game servers running under their own su_user can let
+	// steamcmd self-update. Empty falls back to the su_user primary group.
+	Group string `yaml:"group"`
 }
 
 type GRPCConfig struct {

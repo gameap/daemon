@@ -3,7 +3,7 @@ package serverscommand
 import (
 	"os"
 
-	"github.com/otiai10/copy"
+	"github.com/gameap/daemon/internal/app/fsutil"
 )
 
 type InstalledServerSuite struct {
@@ -17,7 +17,7 @@ func (suite *InstalledServerSuite) SetupTest() {
 	if err != nil {
 		suite.T().Fatal()
 	}
-	err = copy.Copy("../../../servers/scripts", suite.WorkPath+"/server")
+	err = fsutil.Copy("../../../servers/scripts", suite.WorkPath+"/server", fsutil.CopyOptions{})
 	if err != nil {
 		suite.T().Fatal()
 	}

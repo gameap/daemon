@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/test/functional/serverscommand"
-	"github.com/otiai10/copy"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -20,7 +20,7 @@ func (suite *Suite) SetupTest() {
 	if err != nil {
 		suite.T().Fatal(err)
 	}
-	err = copy.Copy("../../../files/local_repository", suite.WorkPath+"/repository")
+	err = fsutil.Copy("../../../files/local_repository", suite.WorkPath+"/repository", fsutil.CopyOptions{})
 	if err != nil {
 		suite.T().Fatal(err)
 	}

@@ -2,7 +2,9 @@ package osowner
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,4 +116,128 @@ func TestMissingSegments_TargetIsExistingFileReturnsEmpty(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, segments)
+}
+
+func TestMissingSegmentsInRoot_TargetAlreadyExistsReturnsEmpty(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, root.Mkdir("existing", 0o755))
+
+	segments, err := MissingSegmentsInRoot(root, "existing")
+
+	require.NoError(t, err)
+	assert.Empty(t, segments)
+}
+
+func TestMissingSegmentsInRoot_AllSegmentsMissingReturnsAllInOrder(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+
+	segments, err := MissingSegmentsInRoot(root, "a/b/c")
+
+	require.NoError(t, err)
+	require.Len(t, segments, 3)
+	assert.Equal(t, "a", segments[0], "shallowest missing segment first")
+	assert.Equal(t, "a/b", segments[1])
+	assert.Equal(t, "a/b/c", segments[2], "deepest (target) last")
+}
+
+func TestMissingSegmentsInRoot_SomeSegmentsExistReturnsOnlyMissing(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, root.MkdirAll("a/b", 0o755))
+
+	segments, err := MissingSegmentsInRoot(root, "a/b/c/d")
+
+	require.NoError(t, err)
+	require.Len(t, segments, 2)
+	assert.Equal(t, "a/b/c", segments[0])
+	assert.Equal(t, "a/b/c/d", segments[1])
+}
+
+func TestMissingSegmentsInRoot_RootItselfReturnsEmpty(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+
+	segments, err := MissingSegmentsInRoot(root, ".")
+
+	require.NoError(t, err)
+	assert.Empty(t, segments)
+}
+
+func TestApplyToPathInRoot_EmptyOptionsIsNoop(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, root.WriteFile("file.txt", []byte("x"), 0o644))
+
+	err = ApplyToPathInRoot(root, "file.txt", Options{})
+
+	require.NoError(t, err)
+}
+
+func TestApplyToPathInRoot_NonRootDaemonIsNoop(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, root.WriteFile("file.txt", []byte("x"), 0o644))
+
+	err = ApplyToPathInRoot(root, "file.txt", Options{User: "nonexistentuser_4j2k9c"})
+
+	require.NoError(t, err, "non-root daemon must not even attempt user.Lookup")
+}
+
+func TestApplyGroupSharedRecursive_EmptyOptionsIsNoop(t *testing.T) {
+	tempDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(tempDir, "a"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "a", "f.txt"), []byte("y"), 0o644))
+
+	err := ApplyGroupSharedRecursive(tempDir, Options{})
+
+	require.NoError(t, err)
+}
+
+func TestApplyGroupSharedRecursive_NonRootDaemonIsNoop(t *testing.T) {
+	tempDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "f.txt"), []byte("x"), 0o644))
+
+	err := ApplyGroupSharedRecursive(tempDir, Options{
+		User:  "nonexistentuser_4j2k9c",
+		Group: "nonexistentgroup_4j2k9c",
+	})
+
+	require.NoError(t, err, "non-root daemon must not even attempt user/group lookup")
+}
+
+func TestApplyGroupSharedRecursive_SetsSetgidAndGroupBitsWhenRoot(t *testing.T) {
+	if !isRootUser() || runtime.GOOS == "windows" {
+		t.Skip("requires root on a unix host")
+	}
+
+	grp, err := user.LookupGroupId("0")
+	if err != nil {
+		t.Skipf("no group with gid 0 to test with: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	subDir := filepath.Join(tempDir, "sub")
+	require.NoError(t, os.Mkdir(subDir, 0o755))
+	file := filepath.Join(subDir, "f.txt")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
+
+	err = ApplyGroupSharedRecursive(tempDir, Options{Group: grp.Name})
+	require.NoError(t, err)
+
+	dirInfo, err := os.Stat(subDir)
+	require.NoError(t, err)
+	assert.NotZero(t, dirInfo.Mode()&os.ModeSetgid, "directory must get the setgid bit")
+	assert.Equal(t, os.FileMode(0o070), dirInfo.Mode().Perm()&0o070, "directory must be group rwx")
+
+	fileInfo, err := os.Stat(file)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o060), fileInfo.Mode().Perm()&0o060, "file must be group rw")
 }
