@@ -45,6 +45,11 @@ type TaskManager struct {
 	commandsInProgress   sync.Map
 	wg                   sync.WaitGroup
 	taskStatusSender     TaskStatusSender
+
+	// predecessorWaits maps a task ID to the moment its predecessor was first
+	// seen missing, bounding the wait by predecessorMissingTimeout.
+	predecessorWaits          sync.Map
+	predecessorMissingTimeout time.Duration
 }
 
 func NewTaskManager(
@@ -54,12 +59,13 @@ func NewTaskManager(
 	config *config.Config,
 ) *TaskManager {
 	return &TaskManager{
-		config:               config,
-		cache:                cache,
-		queue:                newTaskQueue(),
-		completed:            newCompletionTracker(completionTrackerCapacity),
-		serverCommandFactory: serverCommandFactory,
-		executor:             executor,
+		config:                    config,
+		cache:                     cache,
+		queue:                     newTaskQueue(),
+		completed:                 newCompletionTracker(completionTrackerCapacity),
+		serverCommandFactory:      serverCommandFactory,
+		executor:                  executor,
+		predecessorMissingTimeout: predecessorMissingTimeout,
 	}
 }
 
@@ -82,6 +88,8 @@ func (manager *TaskManager) CancelTask(taskID int) error {
 	}
 
 	manager.queue.Remove(task)
+	manager.predecessorWaits.Delete(taskID)
+
 	return nil
 }
 
@@ -182,6 +190,7 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 
 		manager.completed.Record(task.ID(), task.Status())
 		manager.commandsInProgress.Delete(task.ID())
+		manager.predecessorWaits.Delete(task.ID())
 		manager.queue.Remove(task)
 	}
 }
@@ -203,6 +212,8 @@ func (manager *TaskManager) checkPredecessor(
 	}
 
 	if t := manager.queue.FindByID(runAfterID); t != nil {
+		manager.predecessorWaits.Delete(task.ID())
+
 		if !t.IsComplete() {
 			return predecessorWait, ""
 		}
@@ -210,15 +221,45 @@ func (manager *TaskManager) checkPredecessor(
 	}
 
 	if status, ok := manager.completed.Status(runAfterID); ok {
+		manager.predecessorWaits.Delete(task.ID())
+
 		return manager.evaluatePredecessorStatus(ctx, runAfterID, status)
 	}
 
-	logger.Logger(ctx).Warnf(
-		"predecessor task %d not found in queue or completion tracker, will retry",
-		runAfterID,
-	)
+	return manager.waitForMissingPredecessor(ctx, task, runAfterID)
+}
 
-	return predecessorWait, ""
+// waitForMissingPredecessor keeps a task waiting while its predecessor is
+// neither queued nor tracked as completed, which normally means the panel has
+// not delivered it yet. The wait is bounded: a predecessor that never arrives
+// (or was evicted from the completion tracker) would otherwise keep the task
+// in the queue forever.
+func (manager *TaskManager) waitForMissingPredecessor(
+	ctx context.Context, task *domain.GDTask, runAfterID int,
+) (predecessorDecision, string) {
+	now := time.Now()
+
+	value, loaded := manager.predecessorWaits.LoadOrStore(task.ID(), now)
+	if !loaded {
+		logger.Logger(ctx).Warnf(
+			"predecessor task %d not found in queue or completion tracker, waiting up to %s",
+			runAfterID, manager.predecessorMissingTimeout,
+		)
+
+		return predecessorWait, ""
+	}
+
+	waitingSince, ok := value.(time.Time)
+	if !ok || now.Sub(waitingSince) < manager.predecessorMissingTimeout {
+		return predecessorWait, ""
+	}
+
+	manager.predecessorWaits.Delete(task.ID())
+
+	return predecessorFail, fmt.Sprintf(
+		"predecessor task %d not found after waiting %s",
+		runAfterID, manager.predecessorMissingTimeout,
+	)
 }
 
 func (manager *TaskManager) evaluatePredecessorStatus(
@@ -355,6 +396,11 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 	output := cmd.ReadOutput()
 	isFinal := cmd.IsComplete()
 
+	// The output is sent before the terminal status, as executeCommand and
+	// executeGameCommand do: the panel closes the task on the status update and
+	// may drop anything arriving after it.
+	manager.notifyTaskOutput(task, output, isFinal)
+
 	if isFinal {
 		manager.commandsInProgress.Delete(task.ID())
 
@@ -368,8 +414,6 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 			manager.failTask(ctx, task)
 		}
 	}
-
-	manager.notifyTaskOutput(task, output, isFinal)
 
 	return nil
 }

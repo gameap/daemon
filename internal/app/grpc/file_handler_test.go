@@ -163,6 +163,52 @@ func TestHandleFileList(t *testing.T) {
 		require.Len(t, resp.Files, 0)
 	})
 
+	t.Run("recursive_regular_file_returns_error", func(t *testing.T) {
+		workDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workDir, "file.txt"), []byte("data"), 0o644))
+		h := NewGRPCFileHandler(workDir)
+
+		resp, err := h.HandleFileList(context.Background(), "req-5", &pb.FileListRequest{
+			Path:      "file.txt",
+			Recursive: true,
+		})
+
+		require.NoError(t, err)
+		assert.False(t, resp.Success)
+		assert.Contains(t, resp.Error, "not a directory")
+		require.Len(t, resp.Files, 0)
+	})
+
+	t.Run("recursive_unreadable_root_returns_error", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("directory permissions are not enforced the same way on Windows")
+		}
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses directory permissions")
+		}
+
+		workDir := t.TempDir()
+		locked := filepath.Join(workDir, "locked")
+		require.NoError(t, os.MkdirAll(locked, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(locked, "file.txt"), []byte("data"), 0o644))
+		require.NoError(t, os.Chmod(locked, 0o000))
+		t.Cleanup(func() {
+			_ = os.Chmod(locked, 0o755)
+		})
+
+		h := NewGRPCFileHandler(workDir)
+
+		resp, err := h.HandleFileList(context.Background(), "req-6", &pb.FileListRequest{
+			Path:      "locked",
+			Recursive: true,
+		})
+
+		require.NoError(t, err)
+		assert.False(t, resp.Success, "a root directory that cannot be read must not answer with an empty success")
+		assert.NotEmpty(t, resp.Error)
+		require.Len(t, resp.Files, 0)
+	})
+
 	t.Run("recursive_existing_directory_lists_entries", func(t *testing.T) {
 		workDir := t.TempDir()
 		require.NoError(t, os.MkdirAll(filepath.Join(workDir, "sub"), 0o755))

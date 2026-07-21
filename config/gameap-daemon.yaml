@@ -12,7 +12,7 @@
 ds_id: 1
 
 # API key issued by the panel (required, sent in the gRPC registration)
-api_key: KxL6shP6Q4aEJeLXIaoe8mXpkIrTTFSQMKWt1qAfBZ2TQe42YvzDzrlwVZ2F5pgH
+api_key: your-api-key-here
 
 # ------------------------------------------------------------------
 # gRPC connection to the panel

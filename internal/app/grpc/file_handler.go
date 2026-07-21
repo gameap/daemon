@@ -245,14 +245,24 @@ func listRecursive(root *os.Root, rel, requestPath, pattern string) ([]*pb.FileS
 	// fs.WalkDir reports a missing start directory through the callback, which
 	// swallows it below along with unreadable entries, so a non-existent path
 	// would answer with an empty success. Stat first to fail explicitly.
-	if _, err := fs.Stat(root.FS(), rel); err != nil {
+	rootInfo, err := fs.Stat(root.FS(), rel)
+	if err != nil {
 		return nil, err
+	}
+	if !rootInfo.IsDir() {
+		// A file start path walks a single entry that relUnder drops, which would
+		// also answer with an empty success. The flat listing fails here, so match it.
+		return nil, errors.Errorf("path %q is not a directory", requestPath)
 	}
 
 	var files []*pb.FileStat
 
-	err := fs.WalkDir(root.FS(), rel, func(name string, d fs.DirEntry, walkErr error) error {
+	err = fs.WalkDir(root.FS(), rel, func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if name == rel {
+				return walkErr
+			}
+
 			return nil //nolint:nilerr // skip unreadable entries
 		}
 

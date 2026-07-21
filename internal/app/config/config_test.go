@@ -222,22 +222,38 @@ func TestGRPCAddress(t *testing.T) {
 
 func TestIsInsecure(t *testing.T) {
 	tests := []struct {
-		apiHost  string
-		expected bool
+		name         string
+		apiHost      string
+		grpcInsecure bool
+		expected     bool
 	}{
-		{"http://localhost:8025", true},
-		{"http://example.com", true},
-		{"https://example.com", false},
-		{"https://localhost:8025", false},
-		{"example.com", false},
-		{"", false},
+		{"http api_host", "http://localhost:8025", false, true},
+		{"http api_host without port", "http://example.com", false, true},
+		{"https api_host", "https://example.com", false, false},
+		{"https api_host with port", "https://localhost:8025", false, false},
+		{"api_host without scheme", "example.com", false, false},
+		{"empty config", "", false, false},
+		{"grpc insecure flag", "", true, true},
+		{"grpc insecure flag with https api_host", "https://example.com", true, true},
 	}
 	for _, tt := range tests {
-		t.Run(tt.apiHost, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{APIHost: tt.apiHost}
+			cfg.GRPC.Insecure = tt.grpcInsecure
+
 			assert.Equal(t, tt.expected, cfg.IsInsecure())
 		})
 	}
+}
+
+func TestValidate_InsecureGRPCDoesNotRequireCertificates(t *testing.T) {
+	cfg := NewConfig()
+	cfg.NodeID = 1
+	cfg.APIKey = "api-key"
+	cfg.GRPC.Address = "panel.example.com:31718"
+	cfg.GRPC.Insecure = true
+
+	assert.NoError(t, cfg.validate())
 }
 
 func givenValidConfig(t *testing.T) *Config {

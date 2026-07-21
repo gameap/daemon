@@ -74,7 +74,7 @@ func (cm *ConnectionManager) Run(ctx context.Context) error {
 func (cm *ConnectionManager) connectAndRun(ctx context.Context) error {
 	var dialOpt grpc.DialOption
 
-	if cm.cfg.IsInsecure() || cm.cfg.GRPC.Insecure {
+	if cm.cfg.IsInsecure() {
 		log.Warn("gRPC connection is running without TLS. It is recommended to enable TLS for security")
 		dialOpt = grpc.WithTransportCredentials(insecure.NewCredentials())
 	} else {

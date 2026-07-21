@@ -65,22 +65,9 @@ func (pm *Simple) Status(
 func (pm *Simple) GetOutput(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	args, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.GetConsole, "")
-	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to build command")
-	}
-
-	result, err := pm.executor.ExecWithWriterArgs(
-		ctx,
-		args,
-		out,
-		pm.executeOptions(server),
-	)
-	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
-	}
-
-	return domain.Result(result), nil
+	// The console is read with the plain executor: the detailed one prefixes the
+	// command line and appends the exit code, which would pollute the output.
+	return pm.execCommandWith(ctx, pm.executor, server, pm.cfg.Scripts.GetConsole, "", out)
 }
 
 func (pm *Simple) SendInput(
@@ -92,12 +79,22 @@ func (pm *Simple) SendInput(
 func (pm *Simple) execCommand(
 	ctx context.Context, server *domain.Server, wrapper, serverCommand string, out io.Writer,
 ) (domain.Result, error) {
+	return pm.execCommandWith(ctx, pm.detailedExecutor, server, wrapper, serverCommand, out)
+}
+
+func (pm *Simple) execCommandWith(
+	ctx context.Context,
+	executor contracts.Executor,
+	server *domain.Server,
+	wrapper, serverCommand string,
+	out io.Writer,
+) (domain.Result, error) {
 	args, err := domain.BuildCommandArgs(pm.cfg, server, wrapper, serverCommand)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to build command")
 	}
 
-	result, err := pm.detailedExecutor.ExecWithWriterArgs(
+	result, err := executor.ExecWithWriterArgs(
 		ctx,
 		args,
 		out,

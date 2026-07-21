@@ -104,10 +104,16 @@ func (s *ServerTask) ID() uint64 {
 }
 
 func (s *ServerTask) ServerID() uint64 {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.serverID
 }
 
 func (s *ServerTask) NodeID() uint64 {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.nodeID
 }
 
@@ -119,18 +125,30 @@ func (s *ServerTask) Version() uint64 {
 }
 
 func (s *ServerTask) Command() ServerTaskCommand {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.command
 }
 
 func (s *ServerTask) Server() *Server {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.server
 }
 
 func (s *ServerTask) Repeat() int {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.repeat
 }
 
 func (s *ServerTask) RepeatPeriod() time.Duration {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.repeatPeriod
 }
 
@@ -156,30 +174,51 @@ func (s *ServerTask) Counter() int {
 }
 
 func (s *ServerTask) OverlapPolicy() ServerTaskOverlapPolicy {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.overlapPolicy
 }
 
 func (s *ServerTask) CatchupPolicy() ServerTaskCatchupPolicy {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.catchupPolicy
 }
 
 func (s *ServerTask) Name() string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.name
 }
 
 func (s *ServerTask) Timezone() string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.timezone
 }
 
 func (s *ServerTask) Payload() string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.payload
 }
 
 func (s *ServerTask) Enabled() bool {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.enabled
 }
 
 func (s *ServerTask) UpdatedAt() time.Time {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	return s.updatedAt
 }
 
@@ -199,18 +238,24 @@ func (s *ServerTask) ProlongTime() {
 }
 
 func (s *ServerTask) RepeatEndlessly() bool {
-	return s.repeat == 0 || s.repeat == -1
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	return s.repeatEndlessly()
 }
 
 func (s *ServerTask) CanExecute() bool {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	return s.RepeatEndlessly() || s.repeat > s.counter
+	return s.canExecute()
 }
 
 func (s *ServerTask) IsActive() bool {
-	return s.enabled && s.CanExecute()
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	return s.enabled && s.canExecute()
 }
 
 // UpdateFromOptions atomically applies new fields received via gRPC delta.
@@ -238,6 +283,16 @@ func (s *ServerTask) UpdateFromOptions(opts ServerTaskOptions) {
 	s.payload = opts.Payload
 	s.enabled = opts.Enabled
 	s.updatedAt = opts.UpdatedAt
+}
+
+// repeatEndlessly, canExecute and prolongTask read mutable state directly and
+// must be called with s.mutex held.
+func (s *ServerTask) repeatEndlessly() bool {
+	return s.repeat == 0 || s.repeat == -1
+}
+
+func (s *ServerTask) canExecute() bool {
+	return s.repeatEndlessly() || s.repeat > s.counter
 }
 
 func (s *ServerTask) prolongTask() {

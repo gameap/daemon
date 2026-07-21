@@ -461,9 +461,13 @@ func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.
 	}
 
 	_, _ = out.Write([]byte("Creating service " + serviceName + "\n"))
-	_, _ = out.Write([]byte("Service configuration:\n"))
-	_, _ = out.Write([]byte(serviceConfig))
-	_, _ = out.Write([]byte("binPath: " + binPath + "\n"))
+	_, _ = out.Write([]byte("Service executable: " + shawlPath + "\n"))
+
+	// The service config and binPath embed the whole game command line, which may
+	// carry credentials passed as arguments. Task output is streamed to the panel,
+	// so both stay in the local daemon log only.
+	logger.Debug(ctx, "Service configuration: "+serviceConfig)
+	logger.Debug(ctx, "Service binPath: "+binPath)
 
 	result, err := pm.executor.ExecWithWriterArgs(
 		ctx,

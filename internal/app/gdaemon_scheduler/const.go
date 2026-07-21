@@ -1,5 +1,11 @@
 package gdaemonscheduler
 
+import "time"
+
+// predecessorMissingTimeout bounds how long a task waits for a predecessor that
+// is neither queued nor tracked as completed before it is failed.
+const predecessorMissingTimeout = 5 * time.Minute
+
 const (
 	TaskWaiting = iota + 1
 	TaskWorking

@@ -298,8 +298,11 @@ func (cfg *Config) WorkDir() string {
 	return cfg.WorkPath
 }
 
+// IsInsecure reports whether the panel connection runs without TLS, either
+// because it is configured explicitly or because the deprecated api_host
+// carries an http:// scheme. Certificates are not validated in that case.
 func (cfg *Config) IsInsecure() bool {
-	return strings.HasPrefix(cfg.APIHost, "http://")
+	return cfg.GRPC.Insecure || strings.HasPrefix(cfg.APIHost, "http://")
 }
 
 func (cfg *Config) GRPCAddress() string {
