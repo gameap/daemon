@@ -59,6 +59,11 @@ type TransferHandler interface {
 	HandleFileDownloadTask(ctx context.Context, requestID string, task *pb.FileDownloadTask)
 }
 
+type ArchiveHandler interface {
+	HandleArchiveRequest(ctx context.Context, req *pb.ArchiveRequest)
+	HandleArchiveCancel(ctx context.Context, cancel *pb.ArchiveCancel)
+}
+
 type AttachHandler interface {
 	HandleAttachRequest(ctx context.Context, req *pb.AttachRequest)
 	HandleAttachInput(ctx context.Context, input *pb.AttachInput)
@@ -99,6 +104,7 @@ type GatewayClient struct {
 	fileHandler          FileHandler
 	serverHandler        ServerHandler
 	transferHandler      TransferHandler
+	archiveHandler       ArchiveHandler
 	attachHandler        AttachHandler
 	consoleLogHandler    ConsoleLogHandler
 	httpProxyHandler     HTTPProxyHandler
@@ -196,10 +202,12 @@ func (c *GatewayClient) register(ctx context.Context) error {
 	registerReq := &pb.DaemonMessage{
 		Payload: &pb.DaemonMessage_Register{
 			Register: &pb.RegisterRequest{
-				NodeId:                       uint64(c.cfg.NodeID),
-				ApiKey:                       c.cfg.APIKey,
-				Version:                      build.Version,
-				Capabilities:                 []string{"grpc", "file_transfer", "server_status", "attach", "http_proxy", "metrics"},
+				NodeId:  uint64(c.cfg.NodeID),
+				ApiKey:  c.cfg.APIKey,
+				Version: build.Version,
+				Capabilities: []string{
+					"grpc", "file_transfer", "server_status", "attach", "http_proxy", "metrics", "archive",
+				},
 				InFlightTasks:                inFlightTasks,
 				ServerTaskSnapshotVersion:    0,
 				InFlightServerTaskExecutions: inFlightServerTaskExecutions,
@@ -497,6 +505,16 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 			c.transferHandler.HandleFileDownloadTask(ctx, msg.RequestId, payload.FileDownloadTask)
 		})
 
+	case *pb.GatewayMessage_Archive:
+		c.runArchiveOp("ArchiveRequest", func() {
+			c.archiveHandler.HandleArchiveRequest(ctx, payload.Archive)
+		})
+
+	case *pb.GatewayMessage_ArchiveCancel:
+		if c.archiveHandler != nil {
+			c.archiveHandler.HandleArchiveCancel(ctx, payload.ArchiveCancel)
+		}
+
 	case *pb.GatewayMessage_AttachRequest:
 		if c.attachHandler != nil {
 			c.attachHandler.HandleAttachRequest(ctx, payload.AttachRequest)
@@ -578,6 +596,14 @@ func (c *GatewayClient) handleServerConfigBatch(ctx context.Context, batch *pb.S
 func (c *GatewayClient) runFileTransfer(name string, fn func()) {
 	if c.transferHandler == nil {
 		log.Warnf("%s received but no transfer handler configured", name)
+		return
+	}
+	go fn()
+}
+
+func (c *GatewayClient) runArchiveOp(name string, fn func()) {
+	if c.archiveHandler == nil {
+		log.Warnf("%s received but no archive handler configured", name)
 		return
 	}
 	go fn()
@@ -755,6 +781,10 @@ func (c *GatewayClient) Close() error {
 
 func (c *GatewayClient) SetTransferHandler(h TransferHandler) {
 	c.transferHandler = h
+}
+
+func (c *GatewayClient) SetArchiveHandler(h ArchiveHandler) {
+	c.archiveHandler = h
 }
 
 func (c *GatewayClient) SetAttachHandler(h AttachHandler) {

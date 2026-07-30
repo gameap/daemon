@@ -99,7 +99,7 @@ func (h *GRPCServerHandler) handleServerProto(srv *pb.Server, settings domain.Se
 			settings,
 			updatedAt,
 			int(srv.GetCpuLimit()),
-			int64(srv.GetRamLimit()),
+			srv.GetRamLimit(),
 		)
 
 		h.serverRepo.SaveToCache(existing)
@@ -131,7 +131,7 @@ func (h *GRPCServerHandler) handleServerProto(srv *pb.Server, settings domain.Se
 			settings,
 			updatedAt,
 			int(srv.GetCpuLimit()),
-			int64(srv.GetRamLimit()),
+			srv.GetRamLimit(),
 		)
 
 		h.serverRepo.SaveToCache(server)

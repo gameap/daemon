@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/hex"
 	"io"
 	"io/fs"
 	"os"
@@ -424,6 +425,9 @@ func (h *GRPCFileHandler) HandleFileOperation(
 	case pb.FileOperationType_FILE_OPERATION_TYPE_TOUCH:
 		return h.handleTouchOp(root, rid, req.GetTouchParams())
 
+	case pb.FileOperationType_FILE_OPERATION_TYPE_HASH:
+		return h.handleHashOp(root, rid, req.GetHashParams())
+
 	default:
 		return fileOpErrResp(rid, errors.Errorf("unsupported file operation: %s", req.GetOperation()))
 	}
@@ -567,6 +571,79 @@ func (h *GRPCFileHandler) handleTouchOp(
 		}
 	}
 	return fileOpOkResp(rid)
+}
+
+func (h *GRPCFileHandler) handleHashOp(
+	root *os.Root, rid string, p *pb.HashParams,
+) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("hash_params required"))
+	}
+	if _, err := hasherForAlgorithm(p.GetAlgorithm()); err != nil {
+		return fileOpErrResp(rid, err)
+	}
+
+	hashes := make([]*pb.FileHash, 0, len(p.GetPaths()))
+	for _, pth := range p.GetPaths() {
+		hashes = append(hashes, hashFileInRoot(root, pth, p.GetAlgorithm()))
+	}
+
+	return &pb.FileOperationResponse{
+		RequestId: rid,
+		Success:   true,
+		Result: &pb.FileOperationResponse_HashResult{
+			HashResult: &pb.HashResult{
+				Algorithm: p.GetAlgorithm(),
+				Hashes:    hashes,
+			},
+		},
+	}, nil
+}
+
+// hashFileInRoot hashes a single file inside root. Any failure is reported in
+// the returned FileHash.Error; per-file failures must not fail the operation.
+func hashFileInRoot(root *os.Root, path string, algorithm pb.HashAlgorithm) *pb.FileHash {
+	fh := &pb.FileHash{Path: path}
+
+	rel, err := fsutil.RootRel(path)
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+
+	info, err := root.Lstat(rel)
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+
+	if info.IsDir() {
+		fh.Error = "is a directory"
+		return fh
+	}
+
+	hasher, err := hasherForAlgorithm(algorithm)
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+
+	f, err := root.Open(rel)
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(hasher, f); err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+
+	fh.Hash = hex.EncodeToString(hasher.Sum(nil))
+	fh.Size = uint64(info.Size())
+
+	return fh
 }
 
 func fileInfoToStat(path string, info os.FileInfo) *pb.FileStat {

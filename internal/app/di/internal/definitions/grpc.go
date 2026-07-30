@@ -71,6 +71,9 @@ func CreateConnectionManager(
 	)
 	client.SetTransferHandler(transferHandler)
 
+	archiveHandler := grpcclient.NewGRPCArchiveHandler(cfg.WorkPath, client, 4)
+	client.SetArchiveHandler(archiveHandler)
+
 	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)
 	attachHandler := grpcclient.NewGRPCAttachHandler(
 		serverRepo,
