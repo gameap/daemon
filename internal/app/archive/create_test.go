@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -461,4 +462,67 @@ func TestCreateFollowSymlinks(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(workDir, "dst", "src", "link.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "followed", string(content))
+}
+
+func TestCreateDeepDirectoryNesting(t *testing.T) {
+	workDir := t.TempDir()
+
+	deep := "src"
+	for range maxFollowDepth + 10 {
+		deep += "/d"
+	}
+	writeTree(t, workDir, map[string]string{deep + "/file.txt": "deep"})
+
+	_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+		ArchivePath: "out.tar",
+		Format:      pb.ArchiveFormat_ARCHIVE_FORMAT_TAR,
+		Sources:     []string{"src"},
+	}, nil)
+	require.NoError(t, err, "deep ordinary directory nesting must not trigger the symlink depth limit")
+}
+
+func TestCreateFollowSymlinksDepthLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	writeTree(t, workDir, map[string]string{"src/file.txt": "data"})
+	require.NoError(t, os.Symlink(".", filepath.Join(workDir, "src", "loop")))
+
+	_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+		ArchivePath:    "out.tar",
+		Format:         pb.ArchiveFormat_ARCHIVE_FORMAT_TAR,
+		Sources:        []string{"src"},
+		FollowSymlinks: true,
+	}, nil)
+	require.Error(t, err)
+	// The daemon's own hop limit fires at maxFollowDepth+1; the OS may reject
+	// the accumulated path earlier with its own symlink expansion limit.
+	assert.True(t,
+		strings.Contains(err.Error(), "symlink nesting too deep") ||
+			strings.Contains(err.Error(), "too many levels of symbolic links"),
+		"unexpected error: %v", err)
+}
+
+// TestWalkSourceSymlinkDepthLimit checks the daemon's own hop counter
+// deterministically: following one more symlink past maxFollowDepth fails
+// before any OS-level resolution is attempted.
+func TestWalkSourceSymlinkDepthLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	writeTree(t, workDir, map[string]string{"src/file.txt": "data"})
+	require.NoError(t, os.Symlink(".", filepath.Join(workDir, "src", "loop")))
+
+	root, err := os.OpenRoot(workDir)
+	require.NoError(t, err)
+	defer root.Close()
+
+	var entries []sourceEntry
+	err = walkSource(root, "src/loop", "src/loop", true, maxFollowDepth, "out.tar", &entries)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "symlink nesting too deep")
 }

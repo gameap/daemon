@@ -200,20 +200,21 @@ func walkSource(
 	root *os.Root,
 	rel, name string,
 	follow bool,
-	depth int,
+	symlinkDepth int,
 	archiveRel string,
 	entries *[]sourceEntry,
 ) error {
-	if depth > maxFollowDepth {
-		return errors.Errorf("symlink nesting too deep at %q", rel)
-	}
-
 	info, err := root.Lstat(rel)
 	if err != nil {
 		return errors.Wrapf(err, "failed to stat source %q", rel)
 	}
 
 	if info.Mode()&os.ModeSymlink != 0 && follow {
+		symlinkDepth++
+		if symlinkDepth > maxFollowDepth {
+			return errors.Errorf("symlink nesting too deep at %q", rel)
+		}
+
 		info, err = root.Stat(rel)
 		if err != nil {
 			return errors.Wrapf(err, "failed to resolve symlink %q", rel)
@@ -244,7 +245,7 @@ func walkSource(
 				childName = path.Join(name, child.Name())
 			}
 
-			if err := walkSource(root, childRel, childName, follow, depth+1, archiveRel, entries); err != nil {
+			if err := walkSource(root, childRel, childName, follow, symlinkDepth, archiveRel, entries); err != nil {
 				return err
 			}
 		}

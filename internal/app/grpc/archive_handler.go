@@ -139,6 +139,17 @@ func (h *GRPCArchiveHandler) run(
 	}
 	defer h.sem.Release(1)
 
+	// Registered last so it runs first (LIFO): the failure response goes out
+	// before entry.cancel() marks the context canceled, and the remaining
+	// defers (sem release, cancel, registry delete) still run after recover.
+	defer func() {
+		if r := recover(); r != nil {
+			err := errors.Errorf("archive operation panicked: %v", r)
+			l.WithError(err).Error("Archive operation panicked")
+			h.sendErrorResponse(ctx, entry, requestID, format, err)
+		}
+	}()
+
 	var progress atomic.Pointer[archiveProgressState]
 	progressFn := func(filesProcessed, bytesProcessed int64, currentEntry string) {
 		progress.Store(&archiveProgressState{

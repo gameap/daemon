@@ -56,8 +56,9 @@ func compressWriter(w io.Writer, comp compression, level *int32) (io.Writer, io.
 	}
 }
 
-// decompressReader wraps r with the matching stream decompressor.
-func decompressReader(r io.Reader, comp compression) (io.Reader, error) {
+// decompressReader wraps r with the matching stream decompressor. Closing
+// the returned reader releases the decompressor; it never closes r itself.
+func decompressReader(r io.Reader, comp compression) (io.ReadCloser, error) {
 	switch comp {
 	case compGzip:
 		gr, err := gzip.NewReader(r)
@@ -74,7 +75,7 @@ func decompressReader(r io.Reader, comp compression) (io.Reader, error) {
 			return nil, errors.Wrap(err, "failed to init xz reader")
 		}
 
-		return xr, nil
+		return io.NopCloser(xr), nil
 	case compZstd:
 		zr, err := zstd.NewReader(r)
 		if err != nil {
@@ -83,7 +84,7 @@ func decompressReader(r io.Reader, comp compression) (io.Reader, error) {
 
 		return zr.IOReadCloser(), nil
 	default:
-		return r, nil
+		return io.NopCloser(r), nil
 	}
 }
 
@@ -102,6 +103,13 @@ func createTar(
 	if err != nil {
 		return err
 	}
+
+	closed := false
+	defer func() {
+		if closer != nil && !closed {
+			_ = closer.Close()
+		}
+	}()
 
 	tw := tar.NewWriter(stream)
 
@@ -142,6 +150,7 @@ func createTar(
 	}
 
 	if closer != nil {
+		closed = true
 		if err := closer.Close(); err != nil {
 			return errors.Wrap(err, "failed to finish compressor stream")
 		}

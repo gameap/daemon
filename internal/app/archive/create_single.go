@@ -31,12 +31,20 @@ func createSingle(
 		return err
 	}
 
+	closed := false
+	defer func() {
+		if closer != nil && !closed {
+			_ = closer.Close()
+		}
+	}()
+
 	n, err := copySource(root, e.rel, stream, acc.bytesLeft())
 	if err != nil {
 		return err
 	}
 
 	if closer != nil {
+		closed = true
 		if err := closer.Close(); err != nil {
 			return errors.Wrap(err, "failed to finish compressor stream")
 		}

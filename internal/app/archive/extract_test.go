@@ -2,7 +2,10 @@ package archive
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/binary"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -70,6 +73,89 @@ func buildZip(t *testing.T, path string, entries map[string]string) {
 
 	require.NoError(t, zw.Close())
 	require.NoError(t, f.Close())
+}
+
+// rar4Entry is one stored (uncompressed) RAR4 file entry; attr is the unix
+// st_mode value reported in the header (host OS is always unix here).
+type rar4Entry struct {
+	name string
+	attr uint32
+	data []byte
+}
+
+// buildRar4 writes a minimal RAR4 archive with stored entries: marker block,
+// main header, one file header per entry and an end-of-archive block. There
+// is no RAR encoder in the module dependencies, so the bytes are assembled
+// by hand following the layout rardecode parses.
+func buildRar4(t *testing.T, path string, entries []rar4Entry) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	buf.Write([]byte{0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00}) // RAR4 marker block
+	writeRar4Block(&buf, 0x73, 0, make([]byte, 6))              // main archive header
+
+	for _, e := range entries {
+		hdr := make([]byte, 0, 25+len(e.name))
+		hdr = binary.LittleEndian.AppendUint32(hdr, uint32(len(e.data))) // packed size
+		hdr = binary.LittleEndian.AppendUint32(hdr, uint32(len(e.data))) // unpacked size
+		hdr = append(hdr, 3)                                             // host OS: unix
+		hdr = binary.LittleEndian.AppendUint32(hdr, crc32.ChecksumIEEE(e.data))
+		hdr = binary.LittleEndian.AppendUint32(hdr, 0) // modification time (dos format)
+		hdr = append(hdr, 20)                          // minimum rar version to extract
+		hdr = append(hdr, 0x30)                        // method: store
+		hdr = binary.LittleEndian.AppendUint16(hdr, uint16(len(e.name)))
+		hdr = binary.LittleEndian.AppendUint32(hdr, e.attr)
+		hdr = append(hdr, e.name...)
+
+		writeRar4Block(&buf, 0x74, 0x8000, hdr) // 0x8000: entry data follows the header
+		buf.Write(e.data)
+	}
+
+	writeRar4Block(&buf, 0x7B, 0, nil) // end of archive
+
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o644))
+}
+
+// writeRar4Block appends one RAR4 block: crc16 (low bits of the CRC32 over
+// type..end), type, flags, header size and the header body.
+func writeRar4Block(buf *bytes.Buffer, btype byte, flags uint16, data []byte) {
+	body := make([]byte, 0, 5+len(data))
+	body = append(body, btype)
+	body = binary.LittleEndian.AppendUint16(body, flags)
+	body = binary.LittleEndian.AppendUint16(body, uint16(7+len(data)))
+	body = append(body, data...)
+
+	buf.Write(binary.LittleEndian.AppendUint16(nil, uint16(crc32.ChecksumIEEE(body))))
+	buf.Write(body)
+}
+
+func TestExtractRarSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	buildRar4(t, filepath.Join(workDir, "links.rar"), []rar4Entry{
+		{name: "target.txt", attr: 0x81A4, data: []byte("linked content\n")}, // regular 0644
+		{name: "link.txt", attr: 0xA1FF, data: []byte("target.txt")},         // symlink 0777
+	})
+
+	res, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "links.rar",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_RAR,
+		CreateDestination: true,
+	}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), res.FilesProcessed)
+
+	link, err := os.Readlink(filepath.Join(workDir, "dst", "link.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "target.txt", link, "rar symlink entry must be extracted as a symlink, not a regular file")
+
+	content, err := os.ReadFile(filepath.Join(workDir, "dst", "target.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "linked content\n", string(content))
 }
 
 func TestExtractZipSlip(t *testing.T) {

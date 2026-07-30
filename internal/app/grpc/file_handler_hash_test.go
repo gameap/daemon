@@ -229,3 +229,28 @@ func TestHandleFileOperation_HashPathTraversal(t *testing.T) {
 	assert.Contains(t, fh.GetError(), "outside work directory")
 	assert.Empty(t, fh.GetHash())
 }
+
+func TestHandleFileOperation_HashSymlink(t *testing.T) {
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "target.txt"), []byte("data"), 0o644))
+	require.NoError(t, os.Symlink("target.txt", filepath.Join(workDir, "link.txt")))
+	h := NewGRPCFileHandler(workDir)
+
+	resp, err := h.HandleFileOperation(context.Background(), hashOpRequest(&pb.HashParams{
+		Paths:     []string{"link.txt"},
+		Algorithm: pb.HashAlgorithm_HASH_ALGORITHM_SHA256,
+	}))
+
+	require.NoError(t, err)
+	require.True(t, resp.Success, resp.Error)
+
+	result := resp.GetHashResult()
+	require.NotNil(t, result)
+	require.Len(t, result.GetHashes(), 1)
+
+	fh := result.GetHashes()[0]
+	assert.Equal(t, "link.txt", fh.GetPath())
+	assert.Equal(t, "not a regular file", fh.GetError())
+	assert.Empty(t, fh.GetHash())
+	assert.Zero(t, fh.GetSize())
+}

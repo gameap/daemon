@@ -8,6 +8,8 @@
 package archive
 
 import (
+	"math"
+
 	"github.com/pkg/errors"
 
 	"github.com/gameap/daemon/internal/app/osowner"
@@ -51,6 +53,11 @@ type accumulator struct {
 func newAccumulator(maxBytes uint64, maxFiles uint32, progress ProgressFunc) *accumulator {
 	if maxBytes == 0 {
 		maxBytes = defaultMaxTotalBytes
+	}
+	// maxBytes arrives as uint64 while the counters run on int64; clamp so
+	// the conversions in bytesLeft and addEntry cannot wrap negative.
+	if maxBytes > math.MaxInt64 {
+		maxBytes = math.MaxInt64
 	}
 	if maxFiles == 0 {
 		maxFiles = defaultMaxFiles

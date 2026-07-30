@@ -213,3 +213,35 @@ func TestGRPCArchiveHandler_NoOperation(t *testing.T) {
 	assert.False(t, resp.Success)
 	assert.Equal(t, "extract or create operation required", resp.Error)
 }
+
+func TestGRPCArchiveHandler_EmptyRequestIDDropped(t *testing.T) {
+	sender := &fakeSender{}
+	h := NewGRPCArchiveHandler(t.TempDir(), sender, 4)
+
+	h.HandleArchiveRequest(context.Background(), &pb.ArchiveRequest{
+		Operation: &pb.ArchiveRequest_Create{
+			Create: &pb.CreateArchiveParams{
+				ArchivePath: "out.zip",
+				Format:      pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+			},
+		},
+	})
+
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, 0, sender.messageCount())
+}
+
+func TestGRPCArchiveHandler_Timeout(t *testing.T) {
+	workDir := setupArchiveWorkDir(t, 100)
+
+	sender := &fakeSender{}
+	h := NewGRPCArchiveHandler(workDir, sender, 4)
+
+	req := createArchiveRequest("timeout-1", "timeout.zip")
+	req.Timeout = durationpb.New(time.Nanosecond)
+	h.HandleArchiveRequest(context.Background(), req)
+
+	resp := sender.waitFinalResponse(t, "timeout-1")
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "timeout exceeded")
+}

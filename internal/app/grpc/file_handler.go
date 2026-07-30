@@ -622,6 +622,11 @@ func hashFileInRoot(root *os.Root, path string, algorithm pb.HashAlgorithm) *pb.
 		return fh
 	}
 
+	if !info.Mode().IsRegular() {
+		fh.Error = "not a regular file"
+		return fh
+	}
+
 	hasher, err := hasherForAlgorithm(algorithm)
 	if err != nil {
 		fh.Error = err.Error()
@@ -635,13 +640,14 @@ func hashFileInRoot(root *os.Root, path string, algorithm pb.HashAlgorithm) *pb.
 	}
 	defer f.Close()
 
-	if _, err := io.Copy(hasher, f); err != nil {
+	n, err := io.Copy(hasher, f)
+	if err != nil {
 		fh.Error = err.Error()
 		return fh
 	}
 
 	fh.Hash = hex.EncodeToString(hasher.Sum(nil))
-	fh.Size = uint64(info.Size())
+	fh.Size = uint64(n)
 
 	return fh
 }

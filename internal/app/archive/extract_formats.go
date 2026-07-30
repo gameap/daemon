@@ -104,6 +104,7 @@ func extractTar(ctx context.Context, archiveFile *os.File, comp compression, s *
 	if err != nil {
 		return err
 	}
+	defer stream.Close()
 
 	tr := tar.NewReader(stream)
 
@@ -170,6 +171,7 @@ func extractSingle(archiveFile *os.File, archiveRel string, format pb.ArchiveFor
 	if err != nil {
 		return err
 	}
+	defer stream.Close()
 
 	name := singleOutputName(path.Base(archiveRel), format)
 
@@ -243,10 +245,30 @@ func extractRar(ctx context.Context, archiveFile *os.File, s *sink) error {
 			continue
 		}
 
+		if hdr.Mode()&os.ModeSymlink != 0 {
+			if err := extractRarSymlink(hdr, rr, s); err != nil {
+				return err
+			}
+
+			continue
+		}
+
 		// The rar reader is sequential: putFile consumes the current entry
 		// body (or drains it when the entry is skipped).
 		if err := s.putFile(hdr.Name, hdr.Mode(), rr); err != nil {
 			return err
 		}
 	}
+}
+
+// extractRarSymlink materializes a RAR4 unix symlink entry; the link target
+// is stored as the entry body, like in zip. RAR5 redirection records are not
+// exposed by rardecode, so those symlinks are still extracted as files.
+func extractRarSymlink(hdr *rardecode.FileHeader, rr io.Reader, s *sink) error {
+	target, err := io.ReadAll(io.LimitReader(rr, maxLinkTargetBytes))
+	if err != nil {
+		return errors.Wrapf(err, "failed to read symlink entry %q", hdr.Name)
+	}
+
+	return s.putSymlink(hdr.Name, string(target))
 }
