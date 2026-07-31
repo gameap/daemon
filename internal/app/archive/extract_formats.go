@@ -97,9 +97,14 @@ func extractZip(ctx context.Context, archiveFile *os.File, s *sink) error {
 // putSymlinkFrom materializes a symlink whose target is stored as the entry
 // body — the convention zip, 7z and RAR4 share.
 func putSymlinkFrom(r io.Reader, name string, s *sink) error {
-	target, err := io.ReadAll(io.LimitReader(r, maxLinkTargetBytes))
+	// One byte past the cap, so an oversized target is reported instead of
+	// silently becoming a truncated link.
+	target, err := io.ReadAll(io.LimitReader(r, maxLinkTargetBytes+1))
 	if err != nil {
 		return errors.Wrapf(err, "failed to read symlink entry %q", name)
+	}
+	if len(target) > maxLinkTargetBytes {
+		return errors.Errorf("symlink entry %q exceeds the %d byte target limit", name, maxLinkTargetBytes)
 	}
 
 	return s.putSymlink(name, string(target))
@@ -222,26 +227,35 @@ func extract7z(ctx context.Context, archiveFile *os.File, s *sink) error {
 			continue
 		}
 
-		rc, err := f.Open()
-		if err != nil {
-			return errors.Wrapf(err, "failed to open 7z entry %q", f.Name)
-		}
+		if err := extract7zEntry(f, s); err != nil {
+			// A 7z archive can keep its header readable while only the entry
+			// data is encrypted, so "password required" first surfaces here and
+			// still has to reach the API as ErrArchiveEncrypted.
+			if encrypted7z(err) {
+				return errors.Wrap(ErrArchiveEncrypted, "7z archive")
+			}
 
-		// Like zip, a unix symlink is stored as an entry whose body is the
-		// link target.
-		if f.Mode()&os.ModeSymlink != 0 {
-			err = putSymlinkFrom(rc, f.Name, s)
-		} else {
-			err = s.putFile(f.Name, f.Mode(), rc)
-		}
-		_ = rc.Close()
-
-		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func extract7zEntry(f *sevenzip.File, s *sink) error {
+	rc, err := f.Open()
+	if err != nil {
+		return errors.Wrapf(err, "failed to open 7z entry %q", f.Name)
+	}
+	defer rc.Close()
+
+	// Like zip, a unix symlink is stored as an entry whose body is the link
+	// target.
+	if f.Mode()&os.ModeSymlink != 0 {
+		return putSymlinkFrom(rc, f.Name, s)
+	}
+
+	return s.putFile(f.Name, f.Mode(), rc)
 }
 
 func extractRar(ctx context.Context, archiveFile *os.File, s *sink) error {
@@ -299,10 +313,18 @@ func extractRarSymlink(hdr *rardecode.FileHeader, rr io.Reader, s *sink) error {
 // broken", and the API needs that distinction to prompt for a password
 // instead of showing a generic read failure.
 func wrapArchiveReadErr(err error, format string) error {
-	var readErr sevenzip.ReadError
-	if errors.Is(err, rardecode.ErrArchiveEncrypted) || (errors.As(err, &readErr) && readErr.Encrypted) {
+	if errors.Is(err, rardecode.ErrArchiveEncrypted) || encrypted7z(err) {
 		return errors.Wrapf(ErrArchiveEncrypted, "%s archive", format)
 	}
 
 	return errors.Wrapf(err, "failed to read %s archive", format)
+}
+
+// encrypted7z reports a sevenzip failure caused by missing decryption. The
+// decoder hands its read errors out as *ReadError, so the target has to be the
+// pointer type — matching the value never fires.
+func encrypted7z(err error) bool {
+	var readErr *sevenzip.ReadError
+
+	return errors.As(err, &readErr) && readErr.Encrypted
 }

@@ -151,17 +151,6 @@ func (h *GRPCArchiveHandler) run(
 	}
 	defer h.sem.Release(1)
 
-	// Registered last so it runs first (LIFO): the failure response goes out
-	// before entry.cancel() marks the context canceled, and the remaining
-	// defers (sem release, cancel, registry delete) still run after recover.
-	defer func() {
-		if r := recover(); r != nil {
-			err := errors.Errorf("archive operation panicked: %v", r)
-			l.WithError(err).Error("Archive operation panicked")
-			h.sendErrorResponse(ctx, entry, requestID, format, err)
-		}
-	}()
-
 	var progress atomic.Pointer[archiveProgressState]
 	progressFn := func(filesProcessed, bytesProcessed int64, currentEntry string) {
 		progress.Store(&archiveProgressState{
@@ -183,6 +172,29 @@ func (h *GRPCArchiveHandler) run(
 	progressStopped := make(chan struct{})
 	go h.progressLoop(ctx, progressDone, progressStopped, progressInterval, requestID, &progress)
 
+	// Waits for the reporter to actually stop, not just to be told to: the proto
+	// promises a single final response that ends the operation, and a progress
+	// message queued after it would reopen an operation the API considers done.
+	stopProgress := sync.OnceFunc(func() {
+		close(progressDone)
+		<-progressStopped
+	})
+
+	// Registered last so it runs first (LIFO): the failure response goes out
+	// before entry.cancel() marks the context canceled, and the remaining
+	// defers (sem release, cancel, registry delete) still run after recover.
+	// Registering it only here — after the reporter exists — is what lets the
+	// panic path join the reporter before it answers, same as the normal one.
+	defer func() {
+		if r := recover(); r != nil {
+			stopProgress()
+
+			err := errors.Errorf("archive operation panicked: %v", r)
+			l.WithError(err).Error("Archive operation panicked")
+			h.sendErrorResponse(ctx, entry, requestID, format, err)
+		}
+	}()
+
 	var result *daemonarchive.Result
 	var err error
 	if create := req.GetCreate(); create != nil {
@@ -194,11 +206,7 @@ func (h *GRPCArchiveHandler) run(
 		result, err = daemonarchive.Extract(ctx, h.workDir, extract, progressFn)
 	}
 
-	// Wait for the reporter to actually stop, not just to be told to: the proto
-	// promises a single final response that ends the operation, and a progress
-	// message queued after it would reopen an operation the API considers done.
-	close(progressDone)
-	<-progressStopped
+	stopProgress()
 
 	if err != nil {
 		l.WithError(err).Warn("Archive operation failed")

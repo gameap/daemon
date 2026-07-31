@@ -7,8 +7,18 @@ updates:
     open-pull-requests-limit: 10
     groups:
       # The archive decoders parse untrusted user-uploaded bytes; keep them
-      # together so a security bump lands as one reviewable change.
+      # together so a security bump lands as one reviewable change. Groups
+      # cover version updates only unless applies-to says otherwise, so the
+      # security updates these exist for need their own entry.
       archive-decoders:
+        patterns:
+          - github.com/bodgit/*
+          - github.com/nwaples/rardecode/*
+          - github.com/dsnet/compress
+          - github.com/ulikunitz/xz
+          - github.com/klauspost/compress
+      archive-decoders-security:
+        applies-to: security-updates
         patterns:
           - github.com/bodgit/*
           - github.com/nwaples/rardecode/*

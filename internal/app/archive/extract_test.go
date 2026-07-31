@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -161,6 +162,112 @@ func TestExtractSymlinkChainWithinDestination(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(workDir, "dst", "ok"))
 	require.NoError(t, err)
 	assert.Equal(t, "payload", string(content), "a chain resolving inside the destination must still work")
+}
+
+// TestExtractSymlinkEscapeThroughLaterEntry covers the same escape built the
+// other way round: "esc" is stored while "a/b" is still missing, so its target
+// resolves literally to "dst/c", and only the entry after it turns "a/b" into
+// the link that walks the finished tree out of the work directory.
+func TestExtractSymlinkEscapeThroughLaterEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	buildZipModes(t, filepath.Join(workDir, "chain.zip"), []zipEntry{
+		{name: "esc", mode: os.ModeSymlink | 0o777, body: "a/b/../../c"},
+		{name: "a/b", mode: os.ModeSymlink | 0o777, body: ".."},
+	})
+
+	_, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "chain.zip",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		CreateDestination: true,
+	}, nil)
+	require.Error(t, err)
+
+	link, readErr := os.Readlink(filepath.Join(workDir, "dst", "esc"))
+	assert.Error(t, readErr, "escaping symlink must not survive the run, points at %q", link)
+}
+
+// TestExtractSymlinkEscapeThroughOverwrittenDirectory is the overwrite variant:
+// "a/b" is a directory when "esc" is checked against it and a symlink by the
+// time the run ends.
+func TestExtractSymlinkEscapeThroughOverwrittenDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	buildZipModes(t, filepath.Join(workDir, "chain.zip"), []zipEntry{
+		{name: "a/b/", mode: os.ModeDir | 0o755},
+		{name: "esc", mode: os.ModeSymlink | 0o777, body: "a/b/../../c"},
+		{name: "a/b", mode: os.ModeSymlink | 0o777, body: ".."},
+	})
+
+	_, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "chain.zip",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		CreateDestination: true,
+		ConflictPolicy:    pb.ArchiveConflictPolicy_ARCHIVE_CONFLICT_POLICY_OVERWRITE,
+	}, nil)
+	require.Error(t, err)
+
+	link, readErr := os.Readlink(filepath.Join(workDir, "dst", "esc"))
+	assert.Error(t, readErr, "escaping symlink must not survive the run, points at %q", link)
+}
+
+// TestExtractSymlinkEscapeThroughSymlinkedParent covers the link that is not
+// stored where its name says: "s1" and "s2" both resolve back to the
+// destination, so os.Root puts "l" directly under it and its "../.." reaches
+// above the work directory, however deep the entry name looks.
+func TestExtractSymlinkEscapeThroughSymlinkedParent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	buildZipModes(t, filepath.Join(workDir, "parent.zip"), []zipEntry{
+		{name: "s1", mode: os.ModeSymlink | 0o777, body: "."},
+		{name: "s1/s2", mode: os.ModeSymlink | 0o777, body: "."},
+		{name: "s1/s2/l", mode: os.ModeSymlink | 0o777, body: "../../y"},
+	})
+
+	_, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "parent.zip",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		CreateDestination: true,
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"s1/s2/l"`)
+
+	link, readErr := os.Readlink(filepath.Join(workDir, "dst", "l"))
+	assert.Error(t, readErr, "escaping symlink must not be created, points at %q", link)
+}
+
+// TestExtractOversizedSymlinkTarget pins that a target past the cap is reported
+// instead of silently truncated into a link pointing somewhere else entirely.
+func TestExtractOversizedSymlinkTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	buildZipModes(t, filepath.Join(workDir, "big.zip"), []zipEntry{
+		{name: "link", mode: os.ModeSymlink | 0o777, body: strings.Repeat("a", maxLinkTargetBytes+1)},
+	})
+
+	_, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "big.zip",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		CreateDestination: true,
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target limit")
 }
 
 func TestExtractCorruptedArchives(t *testing.T) {

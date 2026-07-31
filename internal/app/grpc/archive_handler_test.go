@@ -19,11 +19,24 @@ import (
 type fakeSender struct {
 	mu   sync.Mutex
 	msgs []*pb.DaemonMessage
+
+	// panicOnResponse makes the first ArchiveResponse blow up inside Send. It
+	// is the one fault a test can inject on the operation's own goroutine,
+	// which is what the handler recovers from.
+	panicOnResponse bool
+	panicked        bool
 }
 
 func (f *fakeSender) Send(msg *pb.DaemonMessage) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.panicOnResponse && !f.panicked && msg.GetArchiveResponse() != nil {
+		f.panicked = true
+
+		panic("injected sender failure")
+	}
+
 	f.msgs = append(f.msgs, msg)
 }
 
@@ -158,6 +171,47 @@ func TestGRPCArchiveHandler_ProgressStopsBeforeResponse(t *testing.T) {
 	seenResponse := false
 	for _, m := range sender.msgs {
 		if m.GetRequestId() != "progress-1" {
+			continue
+		}
+		if m.GetArchiveResponse() != nil {
+			seenResponse = true
+
+			continue
+		}
+		if m.GetArchiveProgress() != nil {
+			assert.False(t, seenResponse, "progress must not be sent after the final response")
+		}
+	}
+	assert.True(t, seenResponse)
+}
+
+// TestGRPCArchiveHandler_PanicAnsweredGracefully drives the recover branch in
+// run: a panicking operation must still leave the API with one failed response
+// and nothing queued behind it, instead of a request that never ends and a
+// daemon that dies with it.
+func TestGRPCArchiveHandler_PanicAnsweredGracefully(t *testing.T) {
+	workDir := setupArchiveWorkDir(t, 100)
+
+	sender := &fakeSender{panicOnResponse: true}
+	h := NewGRPCArchiveHandler(workDir, sender, 4)
+
+	req := createArchiveRequest("panic-1", "panic.zip")
+	req.ProgressInterval = durationpb.New(time.Millisecond)
+	h.HandleArchiveRequest(context.Background(), req)
+
+	resp := sender.waitFinalResponse(t, "panic-1")
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "panicked")
+
+	// Give a reporter that outlived the recovery a chance to show up.
+	time.Sleep(200 * time.Millisecond)
+
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+
+	seenResponse := false
+	for _, m := range sender.msgs {
+		if m.GetRequestId() != "panic-1" {
 			continue
 		}
 		if m.GetArchiveResponse() != nil {

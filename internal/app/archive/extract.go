@@ -30,6 +30,14 @@ type sink struct {
 	owner    osowner.Options
 	acc      *accumulator
 	skipped  []string
+	links    []createdLink
+}
+
+// createdLink records a symlink this run put on disk so its target can be
+// checked again once the archive can no longer move anything.
+type createdLink struct {
+	path   string // where the link was stored, relative to the root
+	target string // literal target as it came out of the archive
 }
 
 // safeEntryName validates an archive entry name and returns its path relative
@@ -290,6 +298,79 @@ func (s *sink) resolveLinkTarget(linkDir, linkTarget string) (string, error) {
 	return cur, nil
 }
 
+// checkLinkTarget reports whether the symlink stored at linkPath with the given
+// literal target stays inside the destination.
+//
+// The directory holding the link is resolved first: os.Root creates the link in
+// the directory linkPath resolves to, so a parent component that is itself a
+// symlink moves the link — and with it what every ".." in its target pops off.
+// An archive storing "s -> ." and then "s/l -> ../x" has os.Root put l next to
+// s instead of below it, which turns a target the lexical path says is inside
+// the destination into one that leaves it.
+func (s *sink) checkLinkTarget(linkPath, linkTarget string) error {
+	if path.IsAbs(linkTarget) {
+		return errors.New("absolute symlink target")
+	}
+
+	linkDir, err := s.resolveLinkTarget(".", path.Dir(linkPath))
+	if err != nil {
+		return err
+	}
+
+	resolved, err := s.resolveLinkTarget(linkDir, linkTarget)
+	if err != nil {
+		return err
+	}
+	if !s.withinDest(resolved) {
+		return errors.New("symlink target escapes the destination")
+	}
+
+	return nil
+}
+
+// revalidateLinks checks every symlink this run created once more, against the
+// finished tree.
+//
+// checkLinkTarget can only see the tree as it stands when the entry arrives. A
+// later entry can turn a component an earlier target resolved through into a
+// symlink of its own — either by being stored after it or by replacing a
+// directory under the overwrite policy — so two links that are each confined on
+// their own combine into one that is not.
+//
+// A link that fails invalidates the whole run, so every link it created is
+// removed: the checks are order dependent, and dropping only the offenders
+// would leave the links validated before them resting on a tree that changed
+// underneath.
+func (s *sink) revalidateLinks() error {
+	for _, l := range s.links {
+		// A later entry may have taken the link away again (an overwritten
+		// directory takes its whole subtree with it); whatever sits there now
+		// belongs to that entry, not to this one.
+		info, err := s.root.Lstat(l.path)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+
+		if err := s.checkLinkTarget(l.path, l.target); err != nil {
+			s.removeCreatedLinks()
+
+			return errors.Wrapf(err, "symlink %q", l.path)
+		}
+	}
+
+	return nil
+}
+
+func (s *sink) removeCreatedLinks() {
+	for _, l := range s.links {
+		if info, err := s.root.Lstat(l.path); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+
+		_ = s.root.Remove(l.path)
+	}
+}
+
 func (s *sink) putSymlink(name, linkTarget string) error {
 	target, ok, err := s.safeEntryName(name)
 	if err != nil {
@@ -299,17 +380,8 @@ func (s *sink) putSymlink(name, linkTarget string) error {
 		return nil
 	}
 
-	// The link itself must stay inside the destination.
-	if path.IsAbs(linkTarget) {
-		return errors.Errorf("archive entry %q has an absolute symlink target", name)
-	}
-
-	resolved, err := s.resolveLinkTarget(path.Dir(target), linkTarget)
-	if err != nil {
+	if err := s.checkLinkTarget(target, linkTarget); err != nil {
 		return errors.Wrapf(err, "archive entry %q", name)
-	}
-	if !s.withinDest(resolved) {
-		return errors.Errorf("archive entry %q has a symlink target escaping the destination", name)
 	}
 
 	skip, _, err := s.resolveConflict(target, false)
@@ -329,6 +401,8 @@ func (s *sink) putSymlink(name, linkTarget string) error {
 	if err := s.root.Symlink(linkTarget, target); err != nil {
 		return errors.Wrapf(err, "failed to create symlink %q", target)
 	}
+
+	s.links = append(s.links, createdLink{path: target, target: linkTarget})
 
 	if err := osowner.ApplyToPathInRoot(s.root, target, s.owner); err != nil {
 		return errors.Wrapf(err, "failed to apply owner to %q", target)
@@ -431,8 +505,18 @@ func Extract(ctx context.Context, workDir string, p *pb.ExtractArchiveParams, pr
 		acc:      newAccumulator(p.GetMaxTotalBytes(), p.GetMaxFiles(), progress),
 	}
 
-	if err := extractEntries(ctx, archiveFile, archiveRel, class, format, s); err != nil {
-		return nil, err
+	extractErr := extractEntries(ctx, archiveFile, archiveRel, class, format, s)
+
+	// Symlink confinement is only settled once the archive can no longer move
+	// anything, so it is decided here — including for a run that failed, which
+	// leaves its partial tree behind and must not leave an escaping link in it.
+	linkErr := s.revalidateLinks()
+
+	if extractErr != nil {
+		return nil, extractErr
+	}
+	if linkErr != nil {
+		return nil, linkErr
 	}
 
 	return &Result{
