@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -311,6 +312,35 @@ func TestCreateMaxTotalBytesLimit(t *testing.T) {
 	assert.Contains(t, err.Error(), "max total bytes limit exceeded")
 }
 
+// TestCreateExtractHugeMaxTotalBytes pins the byte budget at the very top of
+// its range: every streaming copy is capped one byte past what is left, so the
+// largest limit a request can ask for must still archive and extract content
+// instead of overflowing that cap into a read that yields nothing.
+func TestCreateExtractHugeMaxTotalBytes(t *testing.T) {
+	workDir := t.TempDir()
+	writeTree(t, workDir, map[string]string{"src/a.txt": "alpha"})
+
+	_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+		ArchivePath:   "out.zip",
+		Format:        pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		BasePath:      "src",
+		Sources:       []string{"."},
+		MaxTotalBytes: math.MaxUint64,
+	}, nil)
+	require.NoError(t, err)
+
+	_, err = Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "out.zip",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		CreateDestination: true,
+		MaxTotalBytes:     math.MaxUint64,
+	}, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{"a.txt": "alpha"}, readTree(t, filepath.Join(workDir, "dst")))
+}
+
 func TestCreateModeOnArchive(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix permission bits are not supported on windows")
@@ -612,6 +642,42 @@ func TestCreateExcludesItself(t *testing.T) {
 		ArchivePath:       "src/out.tar",
 		Destination:       "dst",
 		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_TAR,
+		CreateDestination: true,
+	}, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{"a.txt": "alpha"}, readTree(t, filepath.Join(workDir, "dst")))
+}
+
+// TestCreateExcludesItselfThroughSymlink covers the same exclusion reached
+// through a symlink: with follow_symlinks the walker resolves the link to the
+// archive it is writing, which the identity comparison has to catch after the
+// resolution as well as before it.
+func TestCreateExcludesItselfThroughSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	writeTree(t, workDir, map[string]string{"src/a.txt": "alpha"})
+	require.NoError(t, os.Symlink("out.zip", filepath.Join(workDir, "src", "self.zip")))
+
+	_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+		ArchivePath:    "src/out.zip",
+		Format:         pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		BasePath:       "src",
+		Sources:        []string{"."},
+		FollowSymlinks: true,
+		// Bounds what archiving the archive into itself could produce if the
+		// exclusion ever regresses.
+		MaxTotalBytes: 1 << 20,
+	}, nil)
+	require.NoError(t, err)
+
+	_, err = Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "src/out.zip",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
 		CreateDestination: true,
 	}, nil)
 	require.NoError(t, err)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -248,42 +247,58 @@ func TestGRPCArchiveHandler_ExtractMissingArchive(t *testing.T) {
 	assert.NotEmpty(t, resp.Error)
 }
 
+// TestGRPCArchiveHandler_Cancel pins the cancel path: a request is registered
+// before its goroutine runs, so a cancel arriving right behind it finds the
+// operation and turns it into the one failed response, reason included. The
+// test holds the handler's only semaphore slot, which is what keeps the
+// operation registered until the cancel lands — sizing the source tree and
+// hoping the archiving outlasts the cancel would be a race.
 func TestGRPCArchiveHandler_Cancel(t *testing.T) {
-	workDir := setupArchiveWorkDir(t, 500)
+	workDir := setupArchiveWorkDir(t, 2)
 
 	sender := &fakeSender{}
-	h := NewGRPCArchiveHandler(workDir, sender, 4)
+	h := NewGRPCArchiveHandler(workDir, sender, 1)
 	ctx := context.Background()
+
+	require.NoError(t, h.sem.Acquire(ctx, 1))
+	defer h.sem.Release(1)
 
 	h.HandleArchiveRequest(ctx, createArchiveRequest("cancel-1", "cancel.zip"))
 	h.HandleArchiveCancel(ctx, &pb.ArchiveCancel{RequestId: "cancel-1", Reason: "test"})
 
 	resp := sender.waitFinalResponse(t, "cancel-1")
 	assert.False(t, resp.Success)
-	assert.Contains(t, resp.Error, "canceled")
+	assert.Contains(t, resp.Error, "canceled: test")
 }
 
+// TestGRPCArchiveHandler_DuplicateRejected pins that a second request reusing a
+// live request_id is rejected on the spot and leaves the operation it collided
+// with running. Holding the only semaphore slot keeps the first request in the
+// registry while the duplicate arrives; releasing it lets that request finish.
 func TestGRPCArchiveHandler_DuplicateRejected(t *testing.T) {
-	workDir := setupArchiveWorkDir(t, 500)
+	workDir := setupArchiveWorkDir(t, 2)
 
 	sender := &fakeSender{}
-	h := NewGRPCArchiveHandler(workDir, sender, 4)
+	h := NewGRPCArchiveHandler(workDir, sender, 1)
 	ctx := context.Background()
+
+	require.NoError(t, h.sem.Acquire(ctx, 1))
 
 	h.HandleArchiveRequest(ctx, createArchiveRequest("dup-1", "dup.zip"))
 	h.HandleArchiveRequest(ctx, createArchiveRequest("dup-1", "dup2.zip"))
 
-	resps := sender.waitFinalResponses(t, "dup-1", 2)
+	// The second call answers on the caller's goroutine, so while the first
+	// request waits for a slot its rejection is the only response that exists.
+	resps := sender.archiveResponses("dup-1")
+	require.Len(t, resps, 1, "expected an immediate 'already active' rejection")
+	assert.False(t, resps[0].Success)
+	assert.Contains(t, resps[0].Error, "already active")
+	assert.Contains(t, resps[0].Error, "dup-1")
 
-	var duplicate *pb.ArchiveResponse
-	for _, r := range resps {
-		if strings.Contains(r.Error, "already active") {
-			duplicate = r
-		}
-	}
-	require.NotNil(t, duplicate, "expected an immediate 'already active' rejection")
-	assert.False(t, duplicate.Success)
-	assert.Contains(t, duplicate.Error, "dup-1")
+	h.sem.Release(1)
+
+	resps = sender.waitFinalResponses(t, "dup-1", 2)
+	assert.True(t, resps[1].Success, "the duplicate must not disturb the request it collided with: %s", resps[1].Error)
 }
 
 func TestGRPCArchiveHandler_CancelUnknown(t *testing.T) {

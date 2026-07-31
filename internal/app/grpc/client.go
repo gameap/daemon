@@ -13,12 +13,21 @@ import (
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
 	outboundBufferSize = 500
+
+	// maxConcurrentFileOperations caps the file operations running off the
+	// receive loop. One of them can read whole files (hashing) or a whole tree
+	// (copy, delete), so without a cap the panel alone decides how much disk I/O
+	// the daemon does at once — the transfer and archive handlers bound their
+	// own work for the same reason. It sits above their caps because the cheap
+	// metadata operations share this one.
+	maxConcurrentFileOperations = 8
 )
 
 type TaskHandler interface {
@@ -122,6 +131,7 @@ type GatewayClient struct {
 	shutdown      chan struct{}
 	wg            sync.WaitGroup
 	shutdownDelay atomic.Pointer[time.Duration]
+	fileOpSem     *semaphore.Weighted
 }
 
 func NewGatewayClient(
@@ -152,6 +162,7 @@ func NewGatewayClient(
 		onlineServerCounter:  onlineServerCounter,
 		outbound:             make(chan *pb.DaemonMessage, outboundBufferSize),
 		shutdown:             make(chan struct{}),
+		fileOpSem:            semaphore.NewWeighted(maxConcurrentFileOperations),
 	}
 }
 
@@ -484,21 +495,7 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		c.handleShutdownMessage(payload.Shutdown)
 
 	case *pb.GatewayMessage_FileOperation:
-		// Off the receive loop: a file operation can be arbitrarily long
-		// (hashing walks whole files), and blocking here would stall every
-		// other gateway message — task dispatch, cancels, shutdown.
-		go func() {
-			resp, err := c.fileHandler.HandleFileOperation(ctx, payload.FileOperation)
-			if err != nil {
-				log.WithError(err).Error("Failed to handle file operation")
-				return
-			}
-			c.Send(&pb.DaemonMessage{
-				Payload: &pb.DaemonMessage_FileOperationResponse{
-					FileOperationResponse: resp,
-				},
-			})
-		}()
+		c.runFileOperation(ctx, payload.FileOperation)
 
 	case *pb.GatewayMessage_FileUploadTask:
 		c.runFileTransfer("FileUploadTask", func() {
@@ -596,6 +593,34 @@ func (c *GatewayClient) handleServerConfigBatch(ctx context.Context, batch *pb.S
 			log.WithError(err).WithField("server_id", srv.Id).Error("Failed to handle server update from batch")
 		}
 	}
+}
+
+// runFileOperation answers a file operation off the receive loop: one can be
+// arbitrarily long (hashing walks whole files), and blocking there would stall
+// every other gateway message — task dispatch, cancels, shutdown. The semaphore
+// is taken on the operation's own goroutine so the loop keeps moving while the
+// work behind it stays bounded.
+func (c *GatewayClient) runFileOperation(ctx context.Context, req *pb.FileOperationRequest) {
+	go func() {
+		if err := c.fileOpSem.Acquire(ctx, 1); err != nil {
+			log.WithError(err).WithField("request_id", req.GetRequestId()).
+				Warn("Failed to acquire file operation semaphore")
+
+			return
+		}
+		defer c.fileOpSem.Release(1)
+
+		resp, err := c.fileHandler.HandleFileOperation(ctx, req)
+		if err != nil {
+			log.WithError(err).Error("Failed to handle file operation")
+			return
+		}
+		c.Send(&pb.DaemonMessage{
+			Payload: &pb.DaemonMessage_FileOperationResponse{
+				FileOperationResponse: resp,
+			},
+		})
+	}()
 }
 
 func (c *GatewayClient) runFileTransfer(name string, fn func()) {

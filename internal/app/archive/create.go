@@ -279,6 +279,12 @@ func (w *sourceWalker) walk(rel, name string, symlinkDepth int) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to resolve symlink %q", rel)
 		}
+
+		// Following the link is what makes it point at a file: a link aimed at
+		// the archive only becomes the archive here, after the resolution.
+		if os.SameFile(info, w.limits.archive) {
+			return nil
+		}
 	}
 
 	switch {

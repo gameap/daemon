@@ -73,10 +73,14 @@ func newAccumulator(maxBytes uint64, maxFiles uint32, progress ProgressFunc) *ac
 	if maxBytes == 0 {
 		maxBytes = defaultMaxTotalBytes
 	}
-	// maxBytes arrives as uint64 while the counters run on int64; clamp so
-	// the conversions in bytesLeft and addEntry cannot wrap negative.
-	if maxBytes > math.MaxInt64 {
-		maxBytes = math.MaxInt64
+	// maxBytes arrives as uint64 while the counters run on int64; clamp so the
+	// conversions in bytesLeft and addEntry cannot wrap negative. The clamp
+	// stops one below MaxInt64 because every streaming copy reads bytesLeft()+1
+	// bytes: at MaxInt64 that sum overflows into a negative limit, which
+	// io.LimitReader reports as immediate EOF and would silently reduce every
+	// entry to nothing.
+	if maxBytes > math.MaxInt64-1 {
+		maxBytes = math.MaxInt64 - 1
 	}
 	if maxFiles == 0 {
 		maxFiles = defaultMaxFiles
