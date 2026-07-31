@@ -18,6 +18,15 @@ const (
 	defaultArchiveTimeout        = time.Hour
 	defaultProgressInterval      = time.Second
 
+	// minProgressInterval floors the requested reporting rate. Every tick puts
+	// a message on the shared outbound channel, which drops messages once it is
+	// full — an unclamped interval would let progress reports starve final
+	// responses and task statuses.
+	minProgressInterval = 100 * time.Millisecond
+	// maxArchiveTimeout caps how long one operation may hold its slot in the
+	// concurrency semaphore.
+	maxArchiveTimeout = 24 * time.Hour
+
 	maxSkippedEntries = 1000
 )
 
@@ -80,6 +89,9 @@ func (h *GRPCArchiveHandler) HandleArchiveRequest(ctx context.Context, req *pb.A
 	timeout := req.GetTimeout().AsDuration()
 	if timeout <= 0 {
 		timeout = defaultArchiveTimeout
+	}
+	if timeout > maxArchiveTimeout {
+		timeout = maxArchiveTimeout
 	}
 
 	opCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -163,9 +175,13 @@ func (h *GRPCArchiveHandler) run(
 	if progressInterval <= 0 {
 		progressInterval = defaultProgressInterval
 	}
+	if progressInterval < minProgressInterval {
+		progressInterval = minProgressInterval
+	}
 
 	progressDone := make(chan struct{})
-	go h.progressLoop(ctx, progressDone, progressInterval, requestID, &progress)
+	progressStopped := make(chan struct{})
+	go h.progressLoop(ctx, progressDone, progressStopped, progressInterval, requestID, &progress)
 
 	var result *daemonarchive.Result
 	var err error
@@ -178,7 +194,11 @@ func (h *GRPCArchiveHandler) run(
 		result, err = daemonarchive.Extract(ctx, h.workDir, extract, progressFn)
 	}
 
+	// Wait for the reporter to actually stop, not just to be told to: the proto
+	// promises a single final response that ends the operation, and a progress
+	// message queued after it would reopen an operation the API considers done.
 	close(progressDone)
+	<-progressStopped
 
 	if err != nil {
 		l.WithError(err).Warn("Archive operation failed")
@@ -189,6 +209,12 @@ func (h *GRPCArchiveHandler) run(
 	skipped := result.Skipped
 	if len(skipped) > maxSkippedEntries {
 		skipped = skipped[:maxSkippedEntries]
+	}
+
+	// The proto asks for the format the daemon actually used, which is the
+	// resolved one when the request left it unspecified.
+	if result.Format != pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED {
+		format = result.Format
 	}
 
 	h.sendResponse(&pb.ArchiveResponse{
@@ -206,18 +232,22 @@ func (h *GRPCArchiveHandler) run(
 		"files_processed": result.FilesProcessed,
 		"bytes_processed": result.BytesProcessed,
 		"archive_size":    result.ArchiveSize,
+		"format":          format,
 	}).Info("Archive operation completed")
 }
 
 // progressLoop reports the last progress snapshot on every tick until done is
-// closed. Totals stay at zero (unknown) as the proto allows.
+// closed, then closes stopped. Totals stay at zero (unknown) as the proto
+// allows.
 func (h *GRPCArchiveHandler) progressLoop(
 	ctx context.Context,
-	done chan struct{},
+	done, stopped chan struct{},
 	interval time.Duration,
 	requestID string,
 	progress *atomic.Pointer[archiveProgressState],
 ) {
+	defer close(stopped)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

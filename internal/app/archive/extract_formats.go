@@ -19,6 +19,12 @@ import (
 // link targets are a few hundred bytes at most.
 const maxLinkTargetBytes = 1 << 20
 
+// maxRarDictBytes caps the LZ window rardecode allocates up front from the
+// archive header. Its own default is 4 GiB, which a crafted RAR can demand in
+// a single allocation; WinRAR tops out at 32 MiB for the presets that produce
+// real-world archives, so this leaves generous headroom.
+const maxRarDictBytes = 256 << 20
+
 func extractEntries(
 	ctx context.Context,
 	archiveFile *os.File,
@@ -50,6 +56,10 @@ func extractZip(ctx context.Context, archiveFile *os.File, s *sink) error {
 	zr, err := zip.NewReader(archiveFile, info.Size())
 	if err != nil {
 		return errors.Wrap(err, "failed to read zip archive")
+	}
+
+	if err := s.acc.checkEntryCount(len(zr.File)); err != nil {
+		return err
 	}
 
 	for _, f := range zr.File {
@@ -84,6 +94,17 @@ func extractZip(ctx context.Context, archiveFile *os.File, s *sink) error {
 	return nil
 }
 
+// putSymlinkFrom materializes a symlink whose target is stored as the entry
+// body — the convention zip, 7z and RAR4 share.
+func putSymlinkFrom(r io.Reader, name string, s *sink) error {
+	target, err := io.ReadAll(io.LimitReader(r, maxLinkTargetBytes))
+	if err != nil {
+		return errors.Wrapf(err, "failed to read symlink entry %q", name)
+	}
+
+	return s.putSymlink(name, string(target))
+}
+
 func extractZipSymlink(f *zip.File, s *sink) error {
 	rc, err := f.Open()
 	if err != nil {
@@ -91,12 +112,7 @@ func extractZipSymlink(f *zip.File, s *sink) error {
 	}
 	defer rc.Close()
 
-	target, err := io.ReadAll(io.LimitReader(rc, maxLinkTargetBytes))
-	if err != nil {
-		return errors.Wrapf(err, "failed to read symlink entry %q", f.Name)
-	}
-
-	return s.putSymlink(f.Name, string(target))
+	return putSymlinkFrom(rc, f.Name, s)
 }
 
 func extractTar(ctx context.Context, archiveFile *os.File, comp compression, s *sink) error {
@@ -186,7 +202,11 @@ func extract7z(ctx context.Context, archiveFile *os.File, s *sink) error {
 
 	zr, err := sevenzip.NewReader(archiveFile, info.Size())
 	if err != nil {
-		return errors.Wrap(err, "failed to read 7z archive")
+		return wrapArchiveReadErr(err, "7z")
+	}
+
+	if err := s.acc.checkEntryCount(len(zr.File)); err != nil {
+		return err
 	}
 
 	for _, f := range zr.File {
@@ -207,7 +227,13 @@ func extract7z(ctx context.Context, archiveFile *os.File, s *sink) error {
 			return errors.Wrapf(err, "failed to open 7z entry %q", f.Name)
 		}
 
-		err = s.putFile(f.Name, f.Mode(), rc)
+		// Like zip, a unix symlink is stored as an entry whose body is the
+		// link target.
+		if f.Mode()&os.ModeSymlink != 0 {
+			err = putSymlinkFrom(rc, f.Name, s)
+		} else {
+			err = s.putFile(f.Name, f.Mode(), rc)
+		}
 		_ = rc.Close()
 
 		if err != nil {
@@ -219,9 +245,9 @@ func extract7z(ctx context.Context, archiveFile *os.File, s *sink) error {
 }
 
 func extractRar(ctx context.Context, archiveFile *os.File, s *sink) error {
-	rr, err := rardecode.NewReader(archiveFile)
+	rr, err := rardecode.NewReader(archiveFile, rardecode.MaxDictionarySize(maxRarDictBytes))
 	if err != nil {
-		return errors.Wrap(err, "failed to read rar archive")
+		return wrapArchiveReadErr(err, "rar")
 	}
 
 	for {
@@ -230,7 +256,7 @@ func extractRar(ctx context.Context, archiveFile *os.File, s *sink) error {
 			return nil
 		}
 		if err != nil {
-			return errors.Wrap(err, "failed to read rar archive")
+			return wrapArchiveReadErr(err, "rar")
 		}
 
 		if err := ctx.Err(); err != nil {
@@ -261,14 +287,22 @@ func extractRar(ctx context.Context, archiveFile *os.File, s *sink) error {
 	}
 }
 
-// extractRarSymlink materializes a RAR4 unix symlink entry; the link target
-// is stored as the entry body, like in zip. RAR5 redirection records are not
-// exposed by rardecode, so those symlinks are still extracted as files.
+// extractRarSymlink materializes a RAR4 unix symlink entry. RAR5 redirection
+// records are not exposed by rardecode, so those symlinks are still extracted
+// as files.
 func extractRarSymlink(hdr *rardecode.FileHeader, rr io.Reader, s *sink) error {
-	target, err := io.ReadAll(io.LimitReader(rr, maxLinkTargetBytes))
-	if err != nil {
-		return errors.Wrapf(err, "failed to read symlink entry %q", hdr.Name)
+	return putSymlinkFrom(rr, hdr.Name, s)
+}
+
+// wrapArchiveReadErr turns a decoder failure into the operation error. Both
+// decoders can tell "this archive is encrypted" apart from "this archive is
+// broken", and the API needs that distinction to prompt for a password
+// instead of showing a generic read failure.
+func wrapArchiveReadErr(err error, format string) error {
+	var readErr sevenzip.ReadError
+	if errors.Is(err, rardecode.ErrArchiveEncrypted) || (errors.As(err, &readErr) && readErr.Encrypted) {
+		return errors.Wrapf(ErrArchiveEncrypted, "%s archive", format)
 	}
 
-	return s.putSymlink(hdr.Name, string(target))
+	return errors.Wrapf(err, "failed to read %s archive", format)
 }

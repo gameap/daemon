@@ -34,11 +34,6 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 		return nil, errors.Wrap(err, "create archive canceled")
 	}
 
-	class, err := classifyForCreate(p.GetFormat())
-	if err != nil {
-		return nil, err
-	}
-
 	if len(p.GetSources()) == 0 {
 		return nil, errors.New("no sources given")
 	}
@@ -50,6 +45,21 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 	defer root.Close()
 
 	archiveRel, err := fsutil.RootRel(p.GetArchivePath())
+	if err != nil {
+		return nil, err
+	}
+
+	// The proto resolves an unset create format from the target file extension.
+	format := p.GetFormat()
+	if format == pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED {
+		if format = formatFromExtension(archiveRel); format == pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED {
+			return nil, errors.Errorf(
+				"archive format is unspecified and %q has no known extension", p.GetArchivePath(),
+			)
+		}
+	}
+
+	class, err := classifyForCreate(format)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +91,7 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 
 	acc := newAccumulator(p.GetMaxTotalBytes(), p.GetMaxFiles(), progress)
 
-	createErr := createInto(ctx, root, archiveFile, archiveRel, baseRel, p, class, acc)
+	createErr := createInto(ctx, root, archiveFile, baseRel, p, format, class, acc)
 
 	closeErr := archiveFile.Close()
 	if createErr != nil {
@@ -96,19 +106,27 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 		return nil, errors.Wrap(closeErr, "failed to close archive file")
 	}
 
+	// Everything past this point still counts as a failed operation, so the
+	// archive is removed rather than left behind with the wrong mode or owner.
 	if p.GetMode() != 0 {
 		if err := root.Chmod(archiveRel, os.FileMode(p.GetMode()).Perm()); err != nil {
+			_ = root.Remove(archiveRel)
+
 			return nil, errors.Wrap(err, "failed to chmod archive file")
 		}
 	}
 
 	owner := ownerOptions(p.GetOwnerUser(), p.GetOwnerUid(), p.GetOwnerGid())
 	if err := osowner.ApplyToPathInRoot(root, archiveRel, owner); err != nil {
+		_ = root.Remove(archiveRel)
+
 		return nil, errors.Wrap(err, "failed to apply archive owner")
 	}
 
 	info, err := root.Stat(archiveRel)
 	if err != nil {
+		_ = root.Remove(archiveRel)
+
 		return nil, errors.Wrap(err, "failed to stat archive file")
 	}
 
@@ -116,6 +134,7 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 		FilesProcessed: acc.files,
 		BytesProcessed: acc.bytes,
 		ArchiveSize:    info.Size(),
+		Format:         format,
 	}, nil
 }
 
@@ -123,18 +142,28 @@ func createInto(
 	ctx context.Context,
 	root *os.Root,
 	archiveFile *os.File,
-	archiveRel, baseRel string,
+	baseRel string,
 	p *pb.CreateArchiveParams,
+	format pb.ArchiveFormat,
 	class formatClass,
 	acc *accumulator,
 ) error {
-	entries, err := collectSources(root, baseRel, p.GetSources(), p.GetFollowSymlinks(), archiveRel)
+	archiveInfo, err := archiveFile.Stat()
+	if err != nil {
+		return errors.Wrap(err, "failed to stat archive file")
+	}
+
+	entries, err := collectSources(ctx, root, baseRel, p.GetSources(), &walkLimits{
+		follow:     p.GetFollowSymlinks(),
+		maxEntries: acc.maxFiles,
+		archive:    archiveInfo,
+	})
 	if err != nil {
 		return err
 	}
 
 	if class == classSingle {
-		return createSingle(root, archiveFile, entries, p, acc)
+		return createSingle(root, archiveFile, entries, p, format, acc)
 	}
 
 	if len(entries) == 0 {
@@ -145,19 +174,39 @@ func createInto(
 		return createZip(ctx, root, archiveFile, entries, p, acc)
 	}
 
-	return createTar(ctx, root, archiveFile, entries, p, tarCompression(p.GetFormat()), acc)
+	return createTar(ctx, root, archiveFile, entries, p, tarCompression(format), acc)
 }
 
-// collectSources expands the request sources (relative to base_path) into a
-// flat entry list. Directories are walked recursively; symlinks are stored
-// as symlinks unless follow_symlinks is set, in which case the symlink target
-// contents are archived (os.Root still refuses targets outside the work
-// directory). The archive file itself is skipped when it sits inside the
-// walked tree.
+// walkLimits bounds one source expansion.
+type walkLimits struct {
+	follow bool
+	// maxEntries stops the expansion itself, not just the write phase. The
+	// whole entry list is materialized before a single byte is archived, and
+	// with follow_symlinks a handful of links fans out into an enormous number
+	// of distinct paths, so the limit has to apply here too.
+	maxEntries uint64
+	// archive identifies the file being written, so it is never archived into
+	// itself. Comparing identity rather than the path name also covers reaching
+	// it through a symlink, where the path differs.
+	archive os.FileInfo
+}
+
+// sourceWalker expands the request sources (relative to base_path) into a flat
+// entry list. Directories are walked recursively; symlinks are stored as
+// symlinks unless follow is set, in which case the symlink target contents are
+// archived (os.Root still refuses targets outside the work directory).
+type sourceWalker struct {
+	ctx     context.Context
+	root    *os.Root
+	limits  *walkLimits
+	entries []sourceEntry
+}
+
+// collectSources expands every source into one flat, bounded entry list.
 func collectSources(
-	root *os.Root, baseRel string, sources []string, follow bool, archiveRel string,
+	ctx context.Context, root *os.Root, baseRel string, sources []string, limits *walkLimits,
 ) ([]sourceEntry, error) {
-	var entries []sourceEntry
+	w := &sourceWalker{ctx: ctx, root: root, limits: limits}
 
 	for _, src := range sources {
 		srcRel, err := fsutil.RootRel(src)
@@ -170,12 +219,22 @@ func collectSources(
 			rel = path.Join(baseRel, srcRel)
 		}
 
-		if err := walkSource(root, rel, srcRel, follow, 0, archiveRel, &entries); err != nil {
+		if err := w.walk(rel, srcRel, 0); err != nil {
 			return nil, err
 		}
 	}
 
-	return entries, nil
+	return w.entries, nil
+}
+
+func (w *sourceWalker) add(e sourceEntry) error {
+	if uint64(len(w.entries)) >= w.limits.maxEntries {
+		return errors.Errorf("max files limit exceeded (%d)", w.limits.maxEntries)
+	}
+
+	w.entries = append(w.entries, e)
+
+	return nil
 }
 
 // copySource streams one source file into an archive entry writer, capping
@@ -196,26 +255,27 @@ func copySource(root *os.Root, rel string, w io.Writer, bytesLeft int64) (int64,
 	return n, nil
 }
 
-func walkSource(
-	root *os.Root,
-	rel, name string,
-	follow bool,
-	symlinkDepth int,
-	archiveRel string,
-	entries *[]sourceEntry,
-) error {
-	info, err := root.Lstat(rel)
+func (w *sourceWalker) walk(rel, name string, symlinkDepth int) error {
+	if err := w.ctx.Err(); err != nil {
+		return errors.Wrap(err, "create archive canceled")
+	}
+
+	info, err := w.root.Lstat(rel)
 	if err != nil {
 		return errors.Wrapf(err, "failed to stat source %q", rel)
 	}
 
-	if info.Mode()&os.ModeSymlink != 0 && follow {
+	if os.SameFile(info, w.limits.archive) {
+		return nil
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 && w.limits.follow {
 		symlinkDepth++
 		if symlinkDepth > maxFollowDepth {
 			return errors.Errorf("symlink nesting too deep at %q", rel)
 		}
 
-		info, err = root.Stat(rel)
+		info, err = w.root.Stat(rel)
 		if err != nil {
 			return errors.Wrapf(err, "failed to resolve symlink %q", rel)
 		}
@@ -223,50 +283,47 @@ func walkSource(
 
 	switch {
 	case info.IsDir():
-		// The "." source contributes its children only; storing "." itself
-		// would produce a useless root entry.
-		if name != "." {
-			*entries = append(*entries, sourceEntry{rel: rel, name: name, info: info})
-		}
-
-		dirEntries, err := fs.ReadDir(root.FS(), rel)
-		if err != nil {
-			return errors.Wrapf(err, "failed to read directory %q", rel)
-		}
-
-		for _, child := range dirEntries {
-			childRel := path.Join(rel, child.Name())
-			if childRel == archiveRel {
-				continue
-			}
-
-			childName := child.Name()
-			if name != "." {
-				childName = path.Join(name, child.Name())
-			}
-
-			if err := walkSource(root, childRel, childName, follow, symlinkDepth, archiveRel, entries); err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return w.walkDir(rel, name, info, symlinkDepth)
 	case info.Mode()&os.ModeSymlink != 0:
-		link, err := root.Readlink(rel)
+		link, err := w.root.Readlink(rel)
 		if err != nil {
 			return errors.Wrapf(err, "failed to read symlink %q", rel)
 		}
 
-		*entries = append(*entries, sourceEntry{rel: rel, name: name, info: info, link: link})
-
-		return nil
+		return w.add(sourceEntry{rel: rel, name: name, info: info, link: link})
 	case info.Mode().IsRegular():
-		*entries = append(*entries, sourceEntry{rel: rel, name: name, info: info})
-
-		return nil
+		return w.add(sourceEntry{rel: rel, name: name, info: info})
 	default:
 		// Sockets, fifos and device nodes cannot be archived; game-server work
 		// directories legitimately contain unix sockets. Matches fsutil.Copy.
 		return nil
 	}
+}
+
+func (w *sourceWalker) walkDir(rel, name string, info os.FileInfo, symlinkDepth int) error {
+	// The "." source contributes its children only; storing "." itself would
+	// produce a useless root entry.
+	if name != "." {
+		if err := w.add(sourceEntry{rel: rel, name: name, info: info}); err != nil {
+			return err
+		}
+	}
+
+	dirEntries, err := fs.ReadDir(w.root.FS(), rel)
+	if err != nil {
+		return errors.Wrapf(err, "failed to read directory %q", rel)
+	}
+
+	for _, child := range dirEntries {
+		childName := child.Name()
+		if name != "." {
+			childName = path.Join(name, child.Name())
+		}
+
+		if err := w.walk(path.Join(rel, child.Name()), childName, symlinkDepth); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

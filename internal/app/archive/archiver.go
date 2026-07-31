@@ -5,6 +5,15 @@
 // refuses symlink and ".." resolution outside of it. Extracted archive entries
 // are additionally rejected lexically when their path is absolute or starts
 // with ".." (zip-slip), because the API contract requires the friendly error.
+//
+// Extraction feeds attacker-controlled bytes to third-party format decoders,
+// so the caller is expected to run it under a recover (see the gRPC archive
+// handler). One residual risk cannot be handled here: bodgit/sevenzip sizes
+// several slices directly from 7z header counts and validates them only
+// against MaxUint32, so a crafted header can request an allocation large
+// enough for the Go runtime to abort the process — a throw that no recover
+// can intercept. It exposes no option to bound this; the entry-count check
+// below runs only after its reader is already constructed.
 package archive
 
 import (
@@ -13,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/gameap/daemon/internal/app/osowner"
+	pb "github.com/gameap/gameap/pkg/proto"
 )
 
 const (
@@ -23,17 +33,26 @@ const (
 	// request does not set a limit.
 	defaultMaxFiles uint32 = 100_000
 
-	// maxFollowDepth bounds symlink-following recursion during create so a
-	// symlink loop inside the sources fails instead of archiving forever.
+	// maxFollowDepth bounds symlink-following recursion during create. It is a
+	// backstop only: os.Root refuses to resolve a path crossing more than
+	// rootMaxSymlinks (8) links, so in practice that limit fires first.
 	maxFollowDepth = 40
 )
+
+// ErrArchiveEncrypted reports an archive the daemon cannot open because it is
+// password protected. The API distinguishes this from a corrupt archive to
+// prompt the user for a password.
+var ErrArchiveEncrypted = errors.New("archive is encrypted, password required")
 
 // Result summarizes one Create or Extract call.
 type Result struct {
 	FilesProcessed int64
 	BytesProcessed int64 // uncompressed bytes
-	ArchiveSize    int64 // create only: size of the produced archive
+	ArchiveSize    int64 // produced archive when creating, source archive when extracting
 	Skipped        []string
+	// Format the operation actually used, which differs from the requested one
+	// when the request left it unspecified and the daemon resolved it.
+	Format pb.ArchiveFormat
 }
 
 // ProgressFunc is invoked after each processed entry (it may be nil).
@@ -75,6 +94,16 @@ func (a *accumulator) bytesLeft() int64 {
 	}
 
 	return left
+}
+
+// checkEntryCount rejects an archive whose entry count is known up front and
+// already exceeds the limit, so nothing is written before the operation fails.
+func (a *accumulator) checkEntryCount(n int) error {
+	if uint64(n) > a.maxFiles {
+		return errors.Errorf("max files limit exceeded (%d)", a.maxFiles)
+	}
+
+	return nil
 }
 
 // addEntry records one processed entry with n uncompressed content bytes.

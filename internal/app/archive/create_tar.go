@@ -2,6 +2,7 @@ package archive
 
 import (
 	"archive/tar"
+	"compress/bzip2"
 	"compress/gzip"
 	"context"
 	"io"
@@ -68,7 +69,12 @@ func decompressReader(r io.Reader, comp compression) (io.ReadCloser, error) {
 
 		return gr, nil
 	case compBzip2:
-		return dsbzip2.NewReader(r, nil)
+		// stdlib on the read path: it is continuously fuzzed and reports
+		// corruption as an error. dsnet/compress is kept for writing only —
+		// it is the one that exposes compression levels, but it decodes with
+		// panic-as-control-flow behind a recover that re-raises anything it
+		// does not recognize, which is not what should face untrusted input.
+		return io.NopCloser(bzip2.NewReader(r)), nil
 	case compXz:
 		xr, err := xz.NewReader(r)
 		if err != nil {

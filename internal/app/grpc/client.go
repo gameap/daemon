@@ -484,16 +484,21 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		c.handleShutdownMessage(payload.Shutdown)
 
 	case *pb.GatewayMessage_FileOperation:
-		resp, err := c.fileHandler.HandleFileOperation(ctx, payload.FileOperation)
-		if err != nil {
-			log.WithError(err).Error("Failed to handle file operation")
-			return
-		}
-		c.Send(&pb.DaemonMessage{
-			Payload: &pb.DaemonMessage_FileOperationResponse{
-				FileOperationResponse: resp,
-			},
-		})
+		// Off the receive loop: a file operation can be arbitrarily long
+		// (hashing walks whole files), and blocking here would stall every
+		// other gateway message — task dispatch, cancels, shutdown.
+		go func() {
+			resp, err := c.fileHandler.HandleFileOperation(ctx, payload.FileOperation)
+			if err != nil {
+				log.WithError(err).Error("Failed to handle file operation")
+				return
+			}
+			c.Send(&pb.DaemonMessage{
+				Payload: &pb.DaemonMessage_FileOperationResponse{
+					FileOperationResponse: resp,
+				},
+			})
+		}()
 
 	case *pb.GatewayMessage_FileUploadTask:
 		c.runFileTransfer("FileUploadTask", func() {

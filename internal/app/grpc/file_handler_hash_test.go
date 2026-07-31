@@ -181,6 +181,42 @@ func TestHandleFileOperation_HashMultiplePaths(t *testing.T) {
 	assert.Empty(t, missing.GetHash())
 }
 
+func TestHandleFileOperation_HashTooManyPaths(t *testing.T) {
+	h := NewGRPCFileHandler(t.TempDir())
+
+	paths := make([]string, maxHashPaths+1)
+	for i := range paths {
+		paths[i] = "f.txt"
+	}
+
+	resp, err := h.HandleFileOperation(context.Background(), hashOpRequest(&pb.HashParams{
+		Paths:     paths,
+		Algorithm: pb.HashAlgorithm_HASH_ALGORITHM_SHA256,
+	}))
+
+	require.NoError(t, err)
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "too many paths")
+}
+
+func TestHandleFileOperation_HashCanceled(t *testing.T) {
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("data"), 0o644))
+	h := NewGRPCFileHandler(workDir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp, err := h.HandleFileOperation(ctx, hashOpRequest(&pb.HashParams{
+		Paths:     []string{"f.txt"},
+		Algorithm: pb.HashAlgorithm_HASH_ALGORITHM_SHA256,
+	}))
+
+	require.NoError(t, err)
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "canceled")
+}
+
 func TestHandleFileOperation_HashNilParams(t *testing.T) {
 	h := NewGRPCFileHandler(t.TempDir())
 

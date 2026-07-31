@@ -16,17 +16,18 @@ func createSingle(
 	archiveFile io.Writer,
 	entries []sourceEntry,
 	p *pb.CreateArchiveParams,
+	format pb.ArchiveFormat,
 	acc *accumulator,
 ) error {
 	if len(entries) != 1 || !entries[0].info.Mode().IsRegular() {
 		return errors.Errorf(
-			"archive format %s requires exactly one regular file source", p.GetFormat(),
+			"archive format %s requires exactly one regular file source", format,
 		)
 	}
 
 	e := entries[0]
 
-	stream, closer, err := compressWriter(archiveFile, singleCompression(p.GetFormat()), p.CompressionLevel)
+	stream, closer, err := compressWriter(archiveFile, singleCompression(format), p.CompressionLevel)
 	if err != nil {
 		return err
 	}

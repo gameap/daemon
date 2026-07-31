@@ -123,8 +123,8 @@ func (s *sink) putDir(name string, archiveMode os.FileMode) error {
 		return nil
 	}
 
-	if err := s.root.MkdirAll(target, s.dirPerm(archiveMode)); err != nil {
-		return errors.Wrapf(err, "failed to create directory %q", target)
+	if err := mkdirAllOwned(s.root, target, s.dirPerm(archiveMode), s.owner); err != nil {
+		return err
 	}
 
 	// MkdirAll applies umask; chmod for the exact requested permissions. A
@@ -210,6 +210,86 @@ func (s *sink) putFile(name string, archiveMode os.FileMode, r io.Reader) error 
 	return nil
 }
 
+// maxSymlinkResolveHops bounds symlink expansion while validating a link
+// target. It matches os.Root's own rootMaxSymlinks, so a target accepted here
+// is one os.Root will also agree to resolve later.
+const maxSymlinkResolveHops = 8
+
+func (s *sink) withinDest(resolved string) bool {
+	if s.dest == "." {
+		return resolved != ".." && !strings.HasPrefix(resolved, "../")
+	}
+
+	return resolved == s.dest || strings.HasPrefix(resolved, s.dest+"/")
+}
+
+// resolveLinkTarget resolves linkTarget the way the kernel would: relative to
+// the directory holding the link, expanding any path component that is itself
+// a symlink already present under the root.
+//
+// Resolving lexically is not enough. An archive can first store dst/a/b/l with
+// target "../..", which cleans to dst and is accepted, and then store dst/esc
+// with target "a/b/l/../../../x". That cleans to dst/x — apparently inside the
+// destination — while the kernel walks it to three levels above the work
+// directory, leaving an escaping symlink on disk for whatever reads that tree
+// without os.Root.
+func (s *sink) resolveLinkTarget(linkDir, linkTarget string) (string, error) {
+	cur := linkDir
+	pending := strings.Split(linkTarget, "/")
+	hops := 0
+
+	for len(pending) > 0 {
+		part := pending[0]
+		pending = pending[1:]
+
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if cur == "." {
+				return "", errors.New("symlink target escapes the work directory")
+			}
+			cur = path.Dir(cur)
+
+			continue
+		}
+
+		next := part
+		if cur != "." {
+			next = path.Join(cur, part)
+		}
+
+		info, statErr := s.root.Lstat(next)
+		if statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+			// Missing entries resolve literally: the archive may create them
+			// later, and a dangling link is not by itself an escape.
+			cur = next
+
+			continue
+		}
+
+		hops++
+		if hops > maxSymlinkResolveHops {
+			return "", errors.New("symlink target crosses too many links")
+		}
+
+		nested, linkErr := s.root.Readlink(next)
+		if linkErr != nil {
+			return "", errors.Wrapf(linkErr, "failed to read symlink %q", next)
+		}
+		if path.IsAbs(nested) {
+			return "", errors.New("symlink target crosses an absolute symlink")
+		}
+
+		// The kernel replaces the link with its target resolved from the
+		// directory holding it, so cur stays put and the target is spliced in
+		// front of what is left to walk.
+		pending = append(strings.Split(nested, "/"), pending...)
+	}
+
+	return cur, nil
+}
+
 func (s *sink) putSymlink(name, linkTarget string) error {
 	target, ok, err := s.safeEntryName(name)
 	if err != nil {
@@ -219,19 +299,16 @@ func (s *sink) putSymlink(name, linkTarget string) error {
 		return nil
 	}
 
-	// The link itself must stay inside the destination: resolve the target
-	// lexically relative to the directory containing the link and reject
-	// absolute or escaping targets.
+	// The link itself must stay inside the destination.
 	if path.IsAbs(linkTarget) {
 		return errors.Errorf("archive entry %q has an absolute symlink target", name)
 	}
 
-	resolved := path.Clean(path.Join(path.Dir(target), linkTarget))
-	if s.dest == "." {
-		if resolved == ".." || strings.HasPrefix(resolved, "../") {
-			return errors.Errorf("archive entry %q has a symlink target escaping the destination", name)
-		}
-	} else if resolved != s.dest && !strings.HasPrefix(resolved, s.dest+"/") {
+	resolved, err := s.resolveLinkTarget(path.Dir(target), linkTarget)
+	if err != nil {
+		return errors.Wrapf(err, "archive entry %q", name)
+	}
+	if !s.withinDest(resolved) {
 		return errors.Errorf("archive entry %q has a symlink target escaping the destination", name)
 	}
 
@@ -266,8 +343,27 @@ func (s *sink) ensureParent(target string) error {
 		return nil
 	}
 
-	if err := s.root.MkdirAll(parent, defaultDirPerm); err != nil {
-		return errors.Wrapf(err, "failed to create directory %q", parent)
+	return mkdirAllOwned(s.root, parent, defaultDirPerm, s.owner)
+}
+
+// mkdirAllOwned creates rel and applies the owner to exactly the directories it
+// had to create, leaving pre-existing (often shared) parents alone. Without
+// this, a game server running as an unprivileged su_user cannot traverse into
+// the tree the daemon just unpacked for it.
+func mkdirAllOwned(root *os.Root, rel string, perm os.FileMode, owner osowner.Options) error {
+	created, err := osowner.MissingSegmentsInRoot(root, rel)
+	if err != nil {
+		return errors.Wrapf(err, "failed to inspect directory %q", rel)
+	}
+
+	if err := root.MkdirAll(rel, perm); err != nil {
+		return errors.Wrapf(err, "failed to create directory %q", rel)
+	}
+
+	for _, segment := range created {
+		if err := osowner.ApplyToPathInRoot(root, segment, owner); err != nil {
+			return errors.Wrapf(err, "failed to apply owner to %q", segment)
+		}
 	}
 
 	return nil
@@ -278,15 +374,6 @@ func (s *sink) ensureParent(target string) error {
 func Extract(ctx context.Context, workDir string, p *pb.ExtractArchiveParams, progress ProgressFunc) (*Result, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, errors.Wrap(err, "extract archive canceled")
-	}
-
-	if p.GetFormat() == pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED {
-		return nil, errors.New("archive format is unspecified")
-	}
-
-	class, err := classify(p.GetFormat())
-	if err != nil {
-		return nil, err
 	}
 
 	root, err := os.OpenRoot(workDir)
@@ -315,6 +402,25 @@ func Extract(ctx context.Context, workDir string, p *pb.ExtractArchiveParams, pr
 	}
 	defer archiveFile.Close()
 
+	archiveInfo, err := archiveFile.Stat()
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to stat archive %q", p.GetArchivePath())
+	}
+
+	// The proto lets the request leave the format unset and expects the daemon
+	// to work it out from the content or the file name.
+	format := p.GetFormat()
+	if format == pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED {
+		if format, err = detectFormat(archiveFile, archiveRel); err != nil {
+			return nil, err
+		}
+	}
+
+	class, err := classify(format)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &sink{
 		root:     root,
 		dest:     destRel,
@@ -325,14 +431,17 @@ func Extract(ctx context.Context, workDir string, p *pb.ExtractArchiveParams, pr
 		acc:      newAccumulator(p.GetMaxTotalBytes(), p.GetMaxFiles(), progress),
 	}
 
-	if err := extractEntries(ctx, archiveFile, archiveRel, class, p.GetFormat(), s); err != nil {
+	if err := extractEntries(ctx, archiveFile, archiveRel, class, format, s); err != nil {
 		return nil, err
 	}
 
 	return &Result{
 		FilesProcessed: s.acc.files,
 		BytesProcessed: s.acc.bytes,
-		Skipped:        s.skipped,
+		// The proto defines archive_size as the source archive when extracting.
+		ArchiveSize: archiveInfo.Size(),
+		Skipped:     s.skipped,
+		Format:      format,
 	}, nil
 }
 
@@ -352,13 +461,9 @@ func prepareDestination(root *os.Root, destRel string, p *pb.ExtractArchiveParam
 			)
 		}
 
-		if err := root.MkdirAll(destRel, defaultDirPerm); err != nil {
-			return errors.Wrapf(err, "failed to create destination %q", p.GetDestination())
-		}
-
 		owner := ownerOptions(p.GetOwnerUser(), p.GetOwnerUid(), p.GetOwnerGid())
-		if err := osowner.ApplyToPathInRoot(root, destRel, owner); err != nil {
-			return errors.Wrap(err, "failed to apply destination owner")
+		if err := mkdirAllOwned(root, destRel, defaultDirPerm, owner); err != nil {
+			return errors.Wrapf(err, "failed to create destination %q", p.GetDestination())
 		}
 
 		return nil

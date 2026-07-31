@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -168,17 +169,17 @@ func TestSingleFileExtractNoSuffix(t *testing.T) {
 }
 
 func TestCreateErrors(t *testing.T) {
-	t.Run("unspecified format", func(t *testing.T) {
+	t.Run("unspecified format without a known extension", func(t *testing.T) {
 		workDir := t.TempDir()
 		writeTree(t, workDir, map[string]string{"a.txt": "a"})
 
 		_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
-			ArchivePath: "out.zip",
+			ArchivePath: "out.bundle",
 			Format:      pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED,
 			Sources:     []string{"a.txt"},
 		}, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unspecified")
+		assert.Contains(t, err.Error(), "no known extension")
 	})
 
 	t.Run("extract-only formats", func(t *testing.T) {
@@ -521,8 +522,137 @@ func TestWalkSourceSymlinkDepthLimit(t *testing.T) {
 	require.NoError(t, err)
 	defer root.Close()
 
-	var entries []sourceEntry
-	err = walkSource(root, "src/loop", "src/loop", true, maxFollowDepth, "out.tar", &entries)
+	w := &sourceWalker{
+		ctx:    context.Background(),
+		root:   root,
+		limits: &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
+	}
+
+	err = w.walk("src/loop", "src/loop", maxFollowDepth)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink nesting too deep")
+}
+
+func defaultMaxFilesLimit() uint64 {
+	return uint64(defaultMaxFiles)
+}
+
+// TestCreateFollowSymlinksFanOutIsBounded builds a symlink DAG that stays under
+// os.Root's own 8-hop limit, so no single path is ever rejected while the
+// number of distinct paths grows exponentially. The entry limit has to apply
+// during the walk, not only when entries are written.
+func TestCreateFollowSymlinksFanOutIsBounded(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	const levels = 7
+
+	workDir := t.TempDir()
+	writeTree(t, workDir, map[string]string{
+		filepath.ToSlash(filepath.Join("src", fmt.Sprintf("d%d", levels), "leaf.txt")): "leaf",
+	})
+
+	for lvl := range levels {
+		dir := filepath.Join(workDir, "src", fmt.Sprintf("d%d", lvl))
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+
+		for k := range 3 {
+			require.NoError(t, os.Symlink(
+				fmt.Sprintf("../d%d", lvl+1),
+				filepath.Join(dir, fmt.Sprintf("l%d", k)),
+			))
+		}
+	}
+
+	_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+		ArchivePath:    "out.tar",
+		Format:         pb.ArchiveFormat_ARCHIVE_FORMAT_TAR,
+		Sources:        []string{"src"},
+		FollowSymlinks: true,
+		MaxFiles:       50,
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max files limit exceeded")
+}
+
+func TestSourceWalkerRespectsContext(t *testing.T) {
+	workDir := t.TempDir()
+	writeTree(t, workDir, map[string]string{"src/a.txt": "a"})
+
+	root, err := os.OpenRoot(workDir)
+	require.NoError(t, err)
+	defer root.Close()
+
+	w := &sourceWalker{
+		ctx:    canceledContext(t),
+		root:   root,
+		limits: &walkLimits{maxEntries: defaultMaxFilesLimit()},
+	}
+
+	err = w.walk("src", "src", 0)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// TestCreateExcludesItself covers the archive sitting inside the tree being
+// walked: it must not be archived into itself while it is being written.
+func TestCreateExcludesItself(t *testing.T) {
+	workDir := t.TempDir()
+	writeTree(t, workDir, map[string]string{"src/a.txt": "alpha"})
+
+	_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+		ArchivePath: "src/out.tar",
+		Format:      pb.ArchiveFormat_ARCHIVE_FORMAT_TAR,
+		BasePath:    "src",
+		Sources:     []string{"."},
+	}, nil)
+	require.NoError(t, err)
+
+	_, err = Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "src/out.tar",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_TAR,
+		CreateDestination: true,
+	}, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{"a.txt": "alpha"}, readTree(t, filepath.Join(workDir, "dst")))
+}
+
+// TestFormatDetection checks the proto contract that an unset format is
+// resolved from the archive itself, including telling tar.gz from a bare gz —
+// the two share a magic number and differ only in what the stream contains.
+func TestFormatDetection(t *testing.T) {
+	detect := func(t *testing.T, name, ext, source string, format pb.ArchiveFormat) {
+		t.Helper()
+
+		t.Run(name, func(t *testing.T) {
+			workDir := t.TempDir()
+			writeTree(t, workDir, map[string]string{"src/a.txt": "alpha"})
+
+			_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+				ArchivePath: "out." + ext,
+				Format:      format,
+				Sources:     []string{source},
+			}, nil)
+			require.NoError(t, err)
+
+			res, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+				ArchivePath:       "out." + ext,
+				Destination:       "dst",
+				Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED,
+				CreateDestination: true,
+			}, nil)
+			require.NoError(t, err)
+			assert.Equal(t, format, res.Format)
+		})
+	}
+
+	for _, tc := range roundtripFormats {
+		detect(t, tc.name, tc.ext, "src", tc.format)
+	}
+
+	for _, tc := range singleFormats {
+		detect(t, tc.name, tc.ext, "src/a.txt", tc.format)
+	}
 }

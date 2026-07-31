@@ -75,6 +75,129 @@ func buildZip(t *testing.T, path string, entries map[string]string) {
 	require.NoError(t, f.Close())
 }
 
+// zipEntry is one entry for buildZipModes, carrying a full os.FileMode so
+// symlink and directory entries can be constructed.
+type zipEntry struct {
+	name string
+	mode os.FileMode
+	body string
+}
+
+// buildZipModes writes a zip preserving entry order, so entries that depend on
+// earlier ones (a symlink into a directory unpacked before it) behave the way
+// they would in a real archive.
+func buildZipModes(t *testing.T, path string, entries []zipEntry) {
+	t.Helper()
+
+	f, err := os.Create(path)
+	require.NoError(t, err)
+
+	zw := zip.NewWriter(f)
+	for _, e := range entries {
+		hdr := &zip.FileHeader{Name: e.name, Method: zip.Store}
+		hdr.SetMode(e.mode)
+
+		w, createErr := zw.CreateHeader(hdr)
+		require.NoError(t, createErr)
+		_, writeErr := w.Write([]byte(e.body))
+		require.NoError(t, writeErr)
+	}
+
+	require.NoError(t, zw.Close())
+	require.NoError(t, f.Close())
+}
+
+// TestExtractSymlinkChainEscape covers a target that a purely lexical check
+// accepts: "a/b/l/../../../x" cleans to "dst/x", but "a/b/l" is itself a link
+// to "../..", so the kernel walks the path out of the work directory.
+func TestExtractSymlinkChainEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	buildZipModes(t, filepath.Join(workDir, "chain.zip"), []zipEntry{
+		{name: "a/b/", mode: os.ModeDir | 0o755},
+		{name: "a/b/l", mode: os.ModeSymlink | 0o777, body: "../.."},
+		{name: "esc", mode: os.ModeSymlink | 0o777, body: "a/b/l/../../../x"},
+	})
+
+	_, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "chain.zip",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		CreateDestination: true,
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"esc"`)
+
+	link, readErr := os.Readlink(filepath.Join(workDir, "dst", "esc"))
+	assert.Error(t, readErr, "escaping symlink must not be created, points at %q", link)
+}
+
+// TestExtractSymlinkChainWithinDestination is the counterpart: the same kind of
+// chain must keep working as long as it stays inside the destination.
+func TestExtractSymlinkChainWithinDestination(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+
+	workDir := t.TempDir()
+	buildZipModes(t, filepath.Join(workDir, "chain.zip"), []zipEntry{
+		{name: "a/b/", mode: os.ModeDir | 0o755},
+		{name: "a/b/l", mode: os.ModeSymlink | 0o777, body: "../.."},
+		{name: "ok", mode: os.ModeSymlink | 0o777, body: "a/b/l/payload.txt"},
+		{name: "payload.txt", mode: 0o644, body: "payload"},
+	})
+
+	_, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:       "chain.zip",
+		Destination:       "dst",
+		Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+		CreateDestination: true,
+	}, nil)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(filepath.Join(workDir, "dst", "ok"))
+	require.NoError(t, err)
+	assert.Equal(t, "payload", string(content), "a chain resolving inside the destination must still work")
+}
+
+func TestExtractCorruptedArchives(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		fixture string
+		format  pb.ArchiveFormat
+	}{
+		{"7z", "test.7z", pb.ArchiveFormat_ARCHIVE_FORMAT_7Z},
+		{"rar", "test.rar", pb.ArchiveFormat_ARCHIVE_FORMAT_RAR},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			copyFixture(t, workDir, tc.fixture)
+
+			p := filepath.Join(workDir, tc.fixture)
+			data, err := os.ReadFile(p)
+			require.NoError(t, err)
+
+			// Keep the signature so the decoder commits to parsing, then feed
+			// it garbage: this must surface as an error, never a panic.
+			for i := 8; i < len(data); i++ {
+				data[i] ^= 0xFF
+			}
+			require.NoError(t, os.WriteFile(p, data, 0o644))
+
+			_, err = Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+				ArchivePath:       tc.fixture,
+				Destination:       "dst",
+				Format:            tc.format,
+				CreateDestination: true,
+			}, nil)
+			require.Error(t, err)
+		})
+	}
+}
+
 // rar4Entry is one stored (uncompressed) RAR4 file entry; attr is the unix
 // st_mode value reported in the header (host OS is always unix here).
 type rar4Entry struct {
@@ -382,17 +505,19 @@ func TestExtractDestination(t *testing.T) {
 		assert.Contains(t, err.Error(), "not a directory")
 	})
 
-	t.Run("unspecified format", func(t *testing.T) {
+	t.Run("unspecified format is detected", func(t *testing.T) {
 		workDir := t.TempDir()
 		setup(t, workDir)
 
-		_, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
-			ArchivePath: "out.zip",
-			Destination: "dst",
-			Format:      pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED,
+		res, err := Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+			ArchivePath:       "out.zip",
+			Destination:       "dst",
+			Format:            pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED,
+			CreateDestination: true,
 		}, nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unspecified")
+		require.NoError(t, err)
+		assert.Equal(t, pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP, res.Format)
+		assert.Equal(t, map[string]string{"a.txt": "a"}, readTree(t, filepath.Join(workDir, "dst")))
 	})
 }
 

@@ -133,6 +133,45 @@ func TestGRPCArchiveHandler_CreateZip(t *testing.T) {
 	}
 }
 
+// TestGRPCArchiveHandler_ProgressStopsBeforeResponse pins the proto rule that a
+// single final response ends the operation: no progress may be queued after it,
+// which means the reporter has to be joined, not merely signalled.
+func TestGRPCArchiveHandler_ProgressStopsBeforeResponse(t *testing.T) {
+	workDir := setupArchiveWorkDir(t, 300)
+
+	sender := &fakeSender{}
+	h := NewGRPCArchiveHandler(workDir, sender, 4)
+
+	req := createArchiveRequest("progress-1", "out.zip")
+	req.ProgressInterval = durationpb.New(time.Nanosecond)
+	h.HandleArchiveRequest(context.Background(), req)
+
+	resp := sender.waitFinalResponse(t, "progress-1")
+	require.True(t, resp.Success, resp.Error)
+
+	// Give a straggling reporter a chance to show up before asserting.
+	time.Sleep(200 * time.Millisecond)
+
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+
+	seenResponse := false
+	for _, m := range sender.msgs {
+		if m.GetRequestId() != "progress-1" {
+			continue
+		}
+		if m.GetArchiveResponse() != nil {
+			seenResponse = true
+
+			continue
+		}
+		if m.GetArchiveProgress() != nil {
+			assert.False(t, seenResponse, "progress must not be sent after the final response")
+		}
+	}
+	assert.True(t, seenResponse)
+}
+
 func TestGRPCArchiveHandler_ExtractMissingArchive(t *testing.T) {
 	workDir := t.TempDir()
 

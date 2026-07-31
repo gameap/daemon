@@ -71,7 +71,8 @@ func CreateConnectionManager(
 	)
 	client.SetTransferHandler(transferHandler)
 
-	archiveHandler := grpcclient.NewGRPCArchiveHandler(cfg.WorkPath, client, 4)
+	// 0 selects the handler's own default concurrency.
+	archiveHandler := grpcclient.NewGRPCArchiveHandler(cfg.WorkPath, client, 0)
 	client.SetArchiveHandler(archiveHandler)
 
 	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)
