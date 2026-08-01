@@ -62,9 +62,10 @@ func (c *Container) SetError(err error) {
 type ServicesContainer struct {
 	*Container
 
-	executor       contracts.Executor
-	processManager contracts.ProcessManager
-	gdTaskManager  *gdaemonscheduler.TaskManager
+	executor           contracts.Executor
+	extendableExecutor contracts.Executor
+	processManager     contracts.ProcessManager
+	gdTaskManager      *gdaemonscheduler.TaskManager
 }
 
 type RepositoryContainer struct {
@@ -165,10 +166,10 @@ func (c *ServicesContainer) Executor(ctx context.Context) contracts.Executor {
 }
 
 func (c *ServicesContainer) ExtendableExecutor(ctx context.Context) contracts.Executor {
-	if c.executor == nil && c.err == nil {
-		c.executor = definitions.CreateServiceExtendableExecutor(ctx, c)
+	if c.extendableExecutor == nil && c.err == nil {
+		c.extendableExecutor = definitions.CreateServiceExtendableExecutor(ctx, c)
 	}
-	return c.executor
+	return c.extendableExecutor
 }
 
 func (c *ServicesContainer) ProcessManager(ctx context.Context) contracts.ProcessManager {

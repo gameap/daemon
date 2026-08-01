@@ -32,7 +32,8 @@ type Container struct {
 }
 
 type ServicesContainer struct {
-	executor contracts.Executor
+	executor           contracts.Executor
+	extendableExecutor contracts.Executor
 
 	gdTaskManager *gdaemonscheduler.TaskManager
 }
