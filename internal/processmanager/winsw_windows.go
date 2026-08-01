@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -362,25 +363,23 @@ func (pm *WinSW) makeService(ctx context.Context, server *domain.Server, out io.
 }
 
 func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
-	cmd := domain.MakeFullCommand(
+	cmdArr, err := domain.BuildCommandArgs(
 		pm.cfg,
 		server,
 		pm.cfg.Scripts.Start,
 		server.StartCommand(),
 	)
-
-	if cmd == "" {
-		return "", ErrEmptyCommand
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to build command")
 	}
 
-	cmdArr, err := shellquote.Split(cmd)
-	if err != nil {
-		return "", errors.WithMessage(err, "failed to split command")
+	if len(cmdArr) == 0 {
+		return "", ErrEmptyCommand
 	}
 
 	executable := cmdArr[0]
 
-	argArr := make([]string, 0, len(cmdArr)*2)
+	argArr := make([]string, 0, len(cmdArr)+1)
 
 	if filepath.Ext(executable) == ".bat" {
 		executable = "cmd.exe"
@@ -391,8 +390,8 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 
 	var arguments string
 
-	if len(cmdArr) > 1 {
-		arguments = strings.Join(argArr, " ")
+	if len(argArr) > 0 {
+		arguments = shellquote.WindowsJoin(argArr...)
 	}
 
 	serviceName := pm.serviceName(server)
@@ -440,6 +439,16 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 	serviceConfig.ServiceAccount.Username = server.User()
 	serviceConfig.ServiceAccount.Password = password
 
+	envVars := server.EnvironmentVars()
+	envKeys := make([]string, 0, len(envVars))
+	for k := range envVars {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
+		serviceConfig.Env = append(serviceConfig.Env, winswEnv{Name: k, Value: envVars[k]})
+	}
+
 	out, err := xml.MarshalIndent(struct {
 		WinSWServiceConfig
 		XMLName struct{} `xml:"service"`
@@ -476,6 +485,8 @@ type WinSWServiceConfig struct {
 	Arguments        string `xml:"arguments,omitempty"`
 	WorkingDirectory string `xml:"workingdirectory,omitempty"`
 
+	Env []winswEnv `xml:"env,omitempty"`
+
 	StopExecutable string `xml:"stopexecutable,omitempty"`
 	StopArguments  string `xml:"stoparguments,omitempty"`
 	StopTimeout    string `xml:"stoptimeout,omitempty"`
@@ -492,6 +503,11 @@ type WinSWServiceConfig struct {
 		Username string `xml:"username,omitempty"`
 		Password string `xml:"password,omitempty"`
 	} `xml:"serviceaccount,omitempty"`
+}
+
+type winswEnv struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value,attr"`
 }
 
 type onFailure struct {

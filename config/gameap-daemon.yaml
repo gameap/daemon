@@ -1,4 +1,8 @@
 # GameAP Daemon configuration
+#
+# The daemon communicates with the GameAP panel over gRPC only. The
+# easiest way to produce a working config is the enroll command:
+#   gameap-daemon enroll --connect grpc://panel.example.com:31718/<setup-key>
 
 # ------------------------------------------------------------------
 # Node
@@ -7,39 +11,41 @@
 # Dedicated server ID (required, must match the node ID in GameAP panel)
 ds_id: 1
 
-# ------------------------------------------------------------------
-# Listener
-# ------------------------------------------------------------------
-
-listen_ip: 0.0.0.0
-# listen_port: 31717
+# API key issued by the panel (required, sent in the gRPC registration)
+api_key: your-api-key-here
 
 # ------------------------------------------------------------------
-# GameAP API
+# gRPC connection to the panel
 # ------------------------------------------------------------------
 
-api_host: http://localhost:2080
-api_key: KxL6shP6Q4aEJeLXIaoe8mXpkIrTTFSQMKWt1qAfBZ2TQe42YvzDzrlwVZ2F5pgH
+grpc:
+  # Panel gRPC endpoint (host:port). If not set, the address is derived
+  # from the deprecated api_host key (host:31718).
+  address: localhost:31718
+
+  # Disable TLS (plaintext connection). Also enabled when the deprecated
+  # api_host starts with http://
+  # insecure: false
+
+  # heartbeat_interval: 30s
+  # connect_timeout: 30s
+  # initial_reconnect_delay: 1s
+  # max_reconnect_delay: 60s
+
+# Deprecated: kept only as a fallback source for the gRPC address and
+# the insecure transport detection. Prefer grpc.address / grpc.insecure.
+# api_host: http://localhost:2080
 
 # ------------------------------------------------------------------
-# Authentication
-# ------------------------------------------------------------------
-
-daemon_login: sEcreT-L0gin
-daemon_password: seCrEt-PaSSW0rD
-
-# Enable login/password authentication for the daemon RPC (default: false).
-# password_authentication: false
-
-# ------------------------------------------------------------------
-# TLS / Certificates
+# TLS / Certificates (mTLS for the gRPC connection)
 # Relative paths are resolved against the config file directory.
+# The enroll command downloads these automatically.
 # ------------------------------------------------------------------
 
 # Certificates can be specified as file paths:
-ca_certificate_file: ./certs_panel/ca.crt
-certificate_chain_file: ./certs_panel/server.crt
-private_key_file: ./certs_panel/server.key
+ca_certificate_file: ./certs/ca.crt
+certificate_chain_file: ./certs/server.crt
+private_key_file: ./certs/server.key
 
 # Or as inline PEM values (takes precedence over file paths):
 # ca_certificate: |
@@ -61,15 +67,14 @@ private_key_file: ./certs_panel/server.key
 # If your private key is encrypted, you can specify the password here:
 # private_key_password: abracadabra
 
-dh_file: /etc/gameap-daemon/certs_panel/dh2048.pem
-
 # ------------------------------------------------------------------
-# Statistics
+# Metrics filters
+# Restrict which network interfaces and disks are reported by the
+# metrics collector. Leave empty (or remove) to auto-select physical,
+# non-loopback interfaces and the root "/" filesystem plus the
+# work_path drive.
 # ------------------------------------------------------------------
 
-# Network interfaces and disk mounts reported in node metrics.
-# Leave empty (or remove) to auto-select physical, non-loopback interfaces
-# and the root "/" filesystem plus the work_path drive.
 if_list:
   - eth0
   - eth1
@@ -77,9 +82,6 @@ if_list:
 drives_list:
   - /
   - /home/server
-
-stats_update_period: 60
-stats_db_update_period: 300
 
 # ------------------------------------------------------------------
 # Logging
@@ -101,8 +103,9 @@ log_level: debug
 # Directory for additional tools (added to PATH). Defaults to {work_path}/tools.
 # tools_path: /srv/gameap/tools
 
-# Path to the steamcmd executable used for game installations.
-# steamcmd_path: /srv/gameap/steamcmd/steamcmd.sh
+# Directory that contains steamcmd (steamcmd.sh / steamcmd.exe), used for
+# game installations. The enroll command writes it automatically.
+# steamcmd_path: /srv/gameap/steamcmd
 
 # Windows-only paths:
 # path_7zip: C:\gameap\tools\7zip\7za.exe
@@ -117,13 +120,44 @@ log_level: debug
 #   password: your-steam-pass
 
 # ------------------------------------------------------------------
+# Remote repository replacements
+# Replace the domain of game/mod remote repository URLs with mirrors.
+# Key is a host (optionally host:port) from the original URL; a key with
+# a port matches "host:port" exactly, a key without a port matches the
+# hostname regardless of the port.
+# Replacement value is "[scheme://]host[:port][/path-prefix]" — parts that
+# are not set are kept from the original URL. Query string is preserved.
+# Mirrors are tried from the highest priority to the lowest (a plain
+# string means priority 0; equal priorities keep the config order).
+# The original URL is always tried last, after all replacements failed.
+#
+# Example: with the rules below and the original URL
+#   http://files.gameap.ru/cstrike-1.6/hlcs_base.tar.xz
+# the daemon tries
+#   1. http://cdn.gameap.com/cstrike-1.6/hlcs_base.tar.xz
+#   2. https://mirror.gameap.ru/files/cstrike-1.6/hlcs_base.tar.xz
+#   3. http://files.gameap.ru/cstrike-1.6/hlcs_base.tar.xz  (original)
+# ------------------------------------------------------------------
+
+# remote_repository_replacements:
+#   files.gameap.ru:
+#     - replace: cdn.gameap.com
+#       priority: 10
+#     - replace: https://mirror.gameap.ru/files
+#       priority: 9
+#
+#   # Short forms:
+#   files.example.com: cdn.example.com   # single replacement
+#   files.example.org:                   # list order = priority
+#     - cdn1.example.org
+#     - cdn2.example.org
+
+# ------------------------------------------------------------------
 # Task manager
 # ------------------------------------------------------------------
 
 # task_manager:
-#   update_period: 1s       # how often to poll the API for new tasks
-#   run_task_period: 10ms   # delay between dequeued task executions
-#   workers_count: 4
+#   task_timeout: 2h        # per-task execution timeout
 
 # ------------------------------------------------------------------
 # Metrics

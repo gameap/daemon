@@ -5,6 +5,7 @@ import (
 
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/repositories"
+	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 )
 
 func CreateGameStore() *grpcclient.GameStore {
@@ -70,6 +71,10 @@ func CreateConnectionManager(
 	)
 	client.SetTransferHandler(transferHandler)
 
+	// 0 selects the handler's own default concurrency.
+	archiveHandler := grpcclient.NewGRPCArchiveHandler(cfg.WorkPath, client, 0)
+	client.SetArchiveHandler(archiveHandler)
+
 	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)
 	attachHandler := grpcclient.NewGRPCAttachHandler(
 		serverRepo,
@@ -93,6 +98,16 @@ func CreateConnectionManager(
 	}
 
 	c.Services().GdTaskManager(ctx).SetTaskStatusSender(client)
+
+	scheduler := serversscheduler.NewScheduler(
+		cfg,
+		c.ServerCommandFactory(ctx),
+		serverRepo,
+		client,
+	)
+	client.SetServerTaskFlow(scheduler)
+	c.SetServersScheduler(scheduler)
+	c.ProcessRunner(ctx).SetServersScheduler(scheduler)
 
 	cm := grpcclient.NewConnectionManager(cfg, client)
 	cm.OnConnect(fileTransferClient.SetConnection)

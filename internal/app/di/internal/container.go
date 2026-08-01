@@ -9,12 +9,12 @@ import (
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/metrics"
 	"github.com/gameap/daemon/internal/app/services"
-	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
 
 	"github.com/gameap/daemon/internal/app/di/internal/definitions"
 	"github.com/gameap/daemon/internal/app/domain"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
+	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
 )
 
 type Container struct {
@@ -32,6 +32,7 @@ type Container struct {
 	fileTransferClient   *grpcclient.FileTransferClient
 	serverStatusReporter *grpcclient.ServerStatusReporter
 	metricsService       *metrics.Service
+	serversScheduler     *serversscheduler.Scheduler
 
 	services     *ServicesContainer
 	repositories *RepositoryContainer
@@ -61,8 +62,6 @@ func (c *Container) SetError(err error) {
 type ServicesContainer struct {
 	*Container
 
-	resty          *resty.Client
-	apiCaller      contracts.APIRequestMaker
 	executor       contracts.Executor
 	processManager contracts.ProcessManager
 	gdTaskManager  *gdaemonscheduler.TaskManager
@@ -71,9 +70,7 @@ type ServicesContainer struct {
 type RepositoryContainer struct {
 	*Container
 
-	gdTaskRepository     domain.GDTaskRepository
-	serverRepository     domain.ServerRepository
-	serverTaskRepository domain.ServerTaskRepository
+	serverRepository domain.ServerRepository
 }
 
 func (c *Container) Cfg(_ context.Context) *config.Config {
@@ -148,22 +145,16 @@ func (c *Container) MetricsService(ctx context.Context) *metrics.Service {
 	return c.metricsService
 }
 
+func (c *Container) ServersScheduler(_ context.Context) *serversscheduler.Scheduler {
+	return c.serversScheduler
+}
+
+func (c *Container) SetServersScheduler(s *serversscheduler.Scheduler) {
+	c.serversScheduler = s
+}
+
 func (c *Container) Services() definitions.ServicesContainer {
 	return c.services
-}
-
-func (c *ServicesContainer) Resty(ctx context.Context) *resty.Client {
-	if c.resty == nil && c.err == nil {
-		c.resty = definitions.CreateServicesResty(ctx, c)
-	}
-	return c.resty
-}
-
-func (c *ServicesContainer) APICaller(ctx context.Context) contracts.APIRequestMaker {
-	if c.apiCaller == nil && c.err == nil {
-		c.apiCaller = definitions.CreateServicesAPICaller(ctx, c)
-	}
-	return c.apiCaller
 }
 
 func (c *ServicesContainer) Executor(ctx context.Context) contracts.Executor {
@@ -199,25 +190,11 @@ func (c *Container) Repositories() definitions.RepositoryContainer {
 	return c.repositories
 }
 
-func (c *RepositoryContainer) GdTaskRepository(ctx context.Context) domain.GDTaskRepository {
-	if c.gdTaskRepository == nil && c.err == nil {
-		c.gdTaskRepository = definitions.CreateRepositoriesGdTaskRepository(ctx, c)
-	}
-	return c.gdTaskRepository
-}
-
 func (c *RepositoryContainer) ServerRepository(ctx context.Context) domain.ServerRepository {
 	if c.serverRepository == nil && c.err == nil {
 		c.serverRepository = definitions.CreateRepositoriesServerRepository(ctx, c)
 	}
 	return c.serverRepository
-}
-
-func (c *RepositoryContainer) ServerTaskRepository(ctx context.Context) domain.ServerTaskRepository {
-	if c.serverTaskRepository == nil && c.err == nil {
-		c.serverTaskRepository = definitions.CreateRepositoriesServerTaskRepository(ctx, c)
-	}
-	return c.serverTaskRepository
 }
 
 func (c *Container) SetCfg(s *config.Config) {
@@ -226,10 +203,6 @@ func (c *Container) SetCfg(s *config.Config) {
 
 func (c *Container) SetLogger(s *logrus.Logger) {
 	c.logger = s
-}
-
-func (c *ServicesContainer) SetAPICaller(s contracts.APIRequestMaker) {
-	c.apiCaller = s
 }
 
 func (c *Container) Close() {}

@@ -11,7 +11,6 @@ func TestUpdatePaths(t *testing.T) {
 		CACertificateFile:    "./certs/ca.crt",
 		CertificateChainFile: "./certs/server.crt",
 		PrivateKeyFile:       "./certs/server.key",
-		DHFile:               "./certs/dh2048.pem",
 	}
 
 	updatedCfg := updatePaths(configPath, cfg)
@@ -19,7 +18,6 @@ func TestUpdatePaths(t *testing.T) {
 	assert.Equal(t, caCertificateFilePath, updatedCfg.CACertificateFile)
 	assert.Equal(t, certificateChainFilePath, updatedCfg.CertificateChainFile)
 	assert.Equal(t, privateKeyFilePath, updatedCfg.PrivateKeyFile)
-	assert.Equal(t, dhFilePathPath, updatedCfg.DHFile)
 }
 
 func TestUpdatePaths_EmptyFilePaths(t *testing.T) {
@@ -30,5 +28,4 @@ func TestUpdatePaths_EmptyFilePaths(t *testing.T) {
 	assert.Empty(t, updatedCfg.CACertificateFile)
 	assert.Empty(t, updatedCfg.CertificateChainFile)
 	assert.Empty(t, updatedCfg.PrivateKeyFile)
-	assert.Empty(t, updatedCfg.DHFile)
 }

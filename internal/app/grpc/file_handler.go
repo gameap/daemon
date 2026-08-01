@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/hex"
 	"io"
 	"io/fs"
 	"os"
@@ -19,6 +20,11 @@ import (
 const (
 	defaultFileChunkSize = 64 * 1024
 	maxFileSize          = 100 * 1024 * 1024
+
+	// maxHashPaths caps one hash request. Each path costs a full file read, and
+	// every result is carried in a single response message, so an unbounded
+	// list is both a work amplifier and a way to outgrow the gRPC frame limit.
+	maxHashPaths = 1000
 )
 
 type GRPCFileHandler struct {
@@ -167,7 +173,7 @@ func (h *GRPCFileHandler) HandleFileWrite(
 		}
 	}
 
-	mode := os.FileMode(req.Mode)
+	mode := permMode(req.Mode)
 	if mode == 0 {
 		mode = 0644
 	}
@@ -242,10 +248,27 @@ func listFlat(root *os.Root, rel, requestPath, pattern string) ([]*pb.FileStat, 
 }
 
 func listRecursive(root *os.Root, rel, requestPath, pattern string) ([]*pb.FileStat, error) {
+	// fs.WalkDir reports a missing start directory through the callback, which
+	// swallows it below along with unreadable entries, so a non-existent path
+	// would answer with an empty success. Stat first to fail explicitly.
+	rootInfo, err := fs.Stat(root.FS(), rel)
+	if err != nil {
+		return nil, err
+	}
+	if !rootInfo.IsDir() {
+		// A file start path walks a single entry that relUnder drops, which would
+		// also answer with an empty success. The flat listing fails here, so match it.
+		return nil, errors.Errorf("path %q is not a directory", requestPath)
+	}
+
 	var files []*pb.FileStat
 
-	err := fs.WalkDir(root.FS(), rel, func(name string, d fs.DirEntry, walkErr error) error {
+	err = fs.WalkDir(root.FS(), rel, func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if name == rel {
+				return walkErr
+			}
+
 			return nil //nolint:nilerr // skip unreadable entries
 		}
 
@@ -294,6 +317,14 @@ func relUnder(base, name string) (string, bool) {
 	return name[len(prefix):], true
 }
 
+// permMode keeps only the permission bits of a caller-supplied mode. Go maps
+// os.ModeSetuid/Setgid/Sticky onto the real S_ISUID/S_ISGID/S_ISVTX bits, and
+// umask does not strip them, so an unmasked mode would let an API caller ask a
+// root daemon to create a setuid file inside a game-server directory.
+func permMode(mode int32) os.FileMode {
+	return os.FileMode(mode).Perm() //nolint:gosec // masked to 0777 by Perm
+}
+
 func fileOpErrResp(requestID string, err error) (*pb.FileOperationResponse, error) {
 	return &pb.FileOperationResponse{
 		RequestId: requestID,
@@ -310,7 +341,7 @@ func fileOpOkResp(requestID string) (*pb.FileOperationResponse, error) {
 }
 
 func (h *GRPCFileHandler) HandleFileOperation(
-	_ context.Context, req *pb.FileOperationRequest,
+	ctx context.Context, req *pb.FileOperationRequest,
 ) (*pb.FileOperationResponse, error) {
 	rid := req.GetRequestId()
 
@@ -382,7 +413,7 @@ func (h *GRPCFileHandler) HandleFileOperation(
 		if relErr != nil {
 			return fileOpErrResp(rid, relErr)
 		}
-		if err := root.Chmod(rel, os.FileMode(p.GetMode())); err != nil {
+		if err := root.Chmod(rel, permMode(p.GetMode())); err != nil {
 			return fileOpErrResp(rid, err)
 		}
 		return fileOpOkResp(rid)
@@ -406,6 +437,9 @@ func (h *GRPCFileHandler) HandleFileOperation(
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_TOUCH:
 		return h.handleTouchOp(root, rid, req.GetTouchParams())
+
+	case pb.FileOperationType_FILE_OPERATION_TYPE_HASH:
+		return h.handleHashOp(ctx, root, rid, req.GetHashParams())
 
 	default:
 		return fileOpErrResp(rid, errors.Errorf("unsupported file operation: %s", req.GetOperation()))
@@ -490,7 +524,7 @@ func (h *GRPCFileHandler) handleMkdirOp(
 		GID:  p.GetOwnerGid(),
 	}
 
-	mode := os.FileMode(p.GetMode())
+	mode := permMode(p.GetMode())
 	if mode == 0 {
 		mode = 0755
 	}
@@ -550,6 +584,111 @@ func (h *GRPCFileHandler) handleTouchOp(
 		}
 	}
 	return fileOpOkResp(rid)
+}
+
+func (h *GRPCFileHandler) handleHashOp(
+	ctx context.Context, root *os.Root, rid string, p *pb.HashParams,
+) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("hash_params required"))
+	}
+	if _, err := hasherForAlgorithm(p.GetAlgorithm()); err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	if len(p.GetPaths()) > maxHashPaths {
+		return fileOpErrResp(rid, errors.Errorf(
+			"too many paths to hash: %d, limit is %d", len(p.GetPaths()), maxHashPaths,
+		))
+	}
+
+	hashes := make([]*pb.FileHash, 0, len(p.GetPaths()))
+	for _, pth := range p.GetPaths() {
+		if err := ctx.Err(); err != nil {
+			return fileOpErrResp(rid, errors.Wrap(err, "hash operation canceled"))
+		}
+
+		hashes = append(hashes, hashFileInRoot(ctx, root, pth, p.GetAlgorithm()))
+	}
+
+	return &pb.FileOperationResponse{
+		RequestId: rid,
+		Success:   true,
+		Result: &pb.FileOperationResponse_HashResult{
+			HashResult: &pb.HashResult{
+				Algorithm: p.GetAlgorithm(),
+				Hashes:    hashes,
+			},
+		},
+	}, nil
+}
+
+// hashFileInRoot hashes a single file inside root. Any failure is reported in
+// the returned FileHash.Error; per-file failures must not fail the operation.
+func hashFileInRoot(
+	ctx context.Context, root *os.Root, path string, algorithm pb.HashAlgorithm,
+) *pb.FileHash {
+	fh := &pb.FileHash{Path: path}
+
+	rel, err := fsutil.RootRel(path)
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+
+	info, err := root.Lstat(rel)
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+
+	if info.IsDir() {
+		fh.Error = "is a directory"
+		return fh
+	}
+
+	if !info.Mode().IsRegular() {
+		fh.Error = "not a regular file"
+		return fh
+	}
+
+	hasher, err := hasherForAlgorithm(algorithm)
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+
+	f, err := root.Open(rel)
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+	defer f.Close()
+
+	n, err := io.Copy(hasher, &ctxReader{ctx: ctx, r: f})
+	if err != nil {
+		fh.Error = err.Error()
+		return fh
+	}
+
+	fh.Hash = hex.EncodeToString(hasher.Sum(nil))
+	fh.Size = uint64(n)
+
+	return fh
+}
+
+// ctxReader aborts a streaming read when ctx is done. Hashing a multi-gigabyte
+// file otherwise runs to completion no matter what happens to the connection.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r *ctxReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, errors.Wrap(err, "read canceled")
+	}
+
+	return r.r.Read(p)
 }
 
 func fileInfoToStat(path string, info os.FileInfo) *pb.FileStat {

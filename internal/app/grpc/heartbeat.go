@@ -4,9 +4,9 @@ import (
 	"runtime"
 
 	pb "github.com/gameap/gameap/pkg/proto"
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/load"
-	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/load"
+	"github.com/shirou/gopsutil/v4/mem"
 	log "github.com/sirupsen/logrus"
 )
 

@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,17 +13,34 @@ import (
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
 	outboundBufferSize = 500
+
+	// maxConcurrentFileOperations caps the file operations running off the
+	// receive loop. One of them can read whole files (hashing) or a whole tree
+	// (copy, delete), so without a cap the panel alone decides how much disk I/O
+	// the daemon does at once — the transfer and archive handlers bound their
+	// own work for the same reason. It sits above their caps because the cheap
+	// metadata operations share this one.
+	maxConcurrentFileOperations = 8
 )
 
 type TaskHandler interface {
 	HandleTask(ctx context.Context, task *pb.DaemonTask) error
 	HandleTaskCancel(ctx context.Context, cancel *pb.TaskCancel) error
+}
+
+type ServerTaskFlow interface {
+	ApplySnapshot(snap *pb.ServerTaskSnapshot)
+	ApplyDelta(delta *pb.ServerTaskDelta)
+	CancelExecution(req *pb.ServerTaskExecutionCancel)
+	AckExecution(ack *pb.ServerTaskExecutionAck)
+	InFlightExecutions() []*pb.InFlightServerTaskExecution
 }
 
 type CommandHandler interface {
@@ -48,6 +66,11 @@ type ServerHandler interface {
 type TransferHandler interface {
 	HandleFileUploadTask(ctx context.Context, requestID string, task *pb.FileUploadTask)
 	HandleFileDownloadTask(ctx context.Context, requestID string, task *pb.FileDownloadTask)
+}
+
+type ArchiveHandler interface {
+	HandleArchiveRequest(ctx context.Context, req *pb.ArchiveRequest)
+	HandleArchiveCancel(ctx context.Context, cancel *pb.ArchiveCancel)
 }
 
 type AttachHandler interface {
@@ -85,10 +108,12 @@ type GatewayClient struct {
 	mu     sync.RWMutex
 
 	taskHandler          TaskHandler
+	serverTaskFlow       ServerTaskFlow
 	commandHandler       CommandHandler
 	fileHandler          FileHandler
 	serverHandler        ServerHandler
 	transferHandler      TransferHandler
+	archiveHandler       ArchiveHandler
 	attachHandler        AttachHandler
 	consoleLogHandler    ConsoleLogHandler
 	httpProxyHandler     HTTPProxyHandler
@@ -106,6 +131,7 @@ type GatewayClient struct {
 	shutdown      chan struct{}
 	wg            sync.WaitGroup
 	shutdownDelay atomic.Pointer[time.Duration]
+	fileOpSem     *semaphore.Weighted
 }
 
 func NewGatewayClient(
@@ -136,6 +162,7 @@ func NewGatewayClient(
 		onlineServerCounter:  onlineServerCounter,
 		outbound:             make(chan *pb.DaemonMessage, outboundBufferSize),
 		shutdown:             make(chan struct{}),
+		fileOpSem:            semaphore.NewWeighted(maxConcurrentFileOperations),
 	}
 }
 
@@ -178,14 +205,23 @@ func (c *GatewayClient) register(ctx context.Context) error {
 		inFlightTasks = c.inFlightTaskProvider.InFlightTasks()
 	}
 
+	var inFlightServerTaskExecutions []*pb.InFlightServerTaskExecution
+	if c.serverTaskFlow != nil {
+		inFlightServerTaskExecutions = c.serverTaskFlow.InFlightExecutions()
+	}
+
 	registerReq := &pb.DaemonMessage{
 		Payload: &pb.DaemonMessage_Register{
 			Register: &pb.RegisterRequest{
-				NodeId:        uint64(c.cfg.NodeID),
-				ApiKey:        c.cfg.APIKey,
-				Version:       build.Version,
-				Capabilities:  []string{"grpc", "file_transfer", "server_status", "attach", "http_proxy", "metrics"},
-				InFlightTasks: inFlightTasks,
+				NodeId:  uint64(c.cfg.NodeID),
+				ApiKey:  c.cfg.APIKey,
+				Version: build.Version,
+				Capabilities: []string{
+					"grpc", "file_transfer", "server_status", "attach", "http_proxy", "metrics", "archive",
+				},
+				InFlightTasks:                inFlightTasks,
+				ServerTaskSnapshotVersion:    0,
+				InFlightServerTaskExecutions: inFlightServerTaskExecutions,
 			},
 		},
 	}
@@ -257,6 +293,10 @@ func (c *GatewayClient) processRegisterAck(ctx context.Context, ack *pb.Register
 			log.WithError(err).WithField("task_id", task.Id).
 				Warn("Failed to queue pending task from RegisterAck")
 		}
+	}
+
+	if ack.ServerTaskSnapshot != nil && c.serverTaskFlow != nil {
+		c.serverTaskFlow.ApplySnapshot(ack.ServerTaskSnapshot)
 	}
 }
 
@@ -362,6 +402,26 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 			log.WithError(err).Error("Failed to handle task cancel")
 		}
 
+	case *pb.GatewayMessage_ServerTaskSnapshot:
+		if c.serverTaskFlow != nil {
+			c.serverTaskFlow.ApplySnapshot(payload.ServerTaskSnapshot)
+		}
+
+	case *pb.GatewayMessage_ServerTaskDelta:
+		if c.serverTaskFlow != nil {
+			c.serverTaskFlow.ApplyDelta(payload.ServerTaskDelta)
+		}
+
+	case *pb.GatewayMessage_ServerTaskExecutionCancel:
+		if c.serverTaskFlow != nil {
+			c.serverTaskFlow.CancelExecution(payload.ServerTaskExecutionCancel)
+		}
+
+	case *pb.GatewayMessage_ServerTaskExecutionAck:
+		if c.serverTaskFlow != nil {
+			c.serverTaskFlow.AckExecution(payload.ServerTaskExecutionAck)
+		}
+
 	case *pb.GatewayMessage_Command:
 		resp, err := c.commandHandler.HandleCommand(ctx, msg.RequestId, payload.Command)
 		if err != nil {
@@ -435,16 +495,7 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		c.handleShutdownMessage(payload.Shutdown)
 
 	case *pb.GatewayMessage_FileOperation:
-		resp, err := c.fileHandler.HandleFileOperation(ctx, payload.FileOperation)
-		if err != nil {
-			log.WithError(err).Error("Failed to handle file operation")
-			return
-		}
-		c.Send(&pb.DaemonMessage{
-			Payload: &pb.DaemonMessage_FileOperationResponse{
-				FileOperationResponse: resp,
-			},
-		})
+		c.runFileOperation(ctx, payload.FileOperation)
 
 	case *pb.GatewayMessage_FileUploadTask:
 		c.runFileTransfer("FileUploadTask", func() {
@@ -455,6 +506,16 @@ func (c *GatewayClient) handleMessage(ctx context.Context, msg *pb.GatewayMessag
 		c.runFileTransfer("FileDownloadTask", func() {
 			c.transferHandler.HandleFileDownloadTask(ctx, msg.RequestId, payload.FileDownloadTask)
 		})
+
+	case *pb.GatewayMessage_Archive:
+		c.runArchiveOp("ArchiveRequest", func() {
+			c.archiveHandler.HandleArchiveRequest(ctx, payload.Archive)
+		})
+
+	case *pb.GatewayMessage_ArchiveCancel:
+		if c.archiveHandler != nil {
+			c.archiveHandler.HandleArchiveCancel(ctx, payload.ArchiveCancel)
+		}
 
 	case *pb.GatewayMessage_AttachRequest:
 		if c.attachHandler != nil {
@@ -534,9 +595,45 @@ func (c *GatewayClient) handleServerConfigBatch(ctx context.Context, batch *pb.S
 	}
 }
 
+// runFileOperation answers a file operation off the receive loop: one can be
+// arbitrarily long (hashing walks whole files), and blocking there would stall
+// every other gateway message — task dispatch, cancels, shutdown. The semaphore
+// is taken on the operation's own goroutine so the loop keeps moving while the
+// work behind it stays bounded.
+func (c *GatewayClient) runFileOperation(ctx context.Context, req *pb.FileOperationRequest) {
+	go func() {
+		if err := c.fileOpSem.Acquire(ctx, 1); err != nil {
+			log.WithError(err).WithField("request_id", req.GetRequestId()).
+				Warn("Failed to acquire file operation semaphore")
+
+			return
+		}
+		defer c.fileOpSem.Release(1)
+
+		resp, err := c.fileHandler.HandleFileOperation(ctx, req)
+		if err != nil {
+			log.WithError(err).Error("Failed to handle file operation")
+			return
+		}
+		c.Send(&pb.DaemonMessage{
+			Payload: &pb.DaemonMessage_FileOperationResponse{
+				FileOperationResponse: resp,
+			},
+		})
+	}()
+}
+
 func (c *GatewayClient) runFileTransfer(name string, fn func()) {
 	if c.transferHandler == nil {
 		log.Warnf("%s received but no transfer handler configured", name)
+		return
+	}
+	go fn()
+}
+
+func (c *GatewayClient) runArchiveOp(name string, fn func()) {
+	if c.archiveHandler == nil {
+		log.Warnf("%s received but no archive handler configured", name)
 		return
 	}
 	go fn()
@@ -626,7 +723,12 @@ func (c *GatewayClient) Send(msg *pb.DaemonMessage) {
 	select {
 	case c.outbound <- msg:
 	default:
-		log.Warn("Outbound buffer full, dropping message")
+		// A dropped response leaves the API-side request hanging until its
+		// dispatch timeout, so this must be visible at the default log level.
+		log.WithFields(log.Fields{
+			"request_id":   msg.GetRequestId(),
+			"payload_type": fmt.Sprintf("%T", msg.GetPayload()),
+		}).Error("Outbound buffer full, dropping message")
 	}
 }
 
@@ -711,6 +813,10 @@ func (c *GatewayClient) SetTransferHandler(h TransferHandler) {
 	c.transferHandler = h
 }
 
+func (c *GatewayClient) SetArchiveHandler(h ArchiveHandler) {
+	c.archiveHandler = h
+}
+
 func (c *GatewayClient) SetAttachHandler(h AttachHandler) {
 	c.attachHandler = h
 }
@@ -721,6 +827,10 @@ func (c *GatewayClient) SetConsoleLogHandler(h ConsoleLogHandler) {
 
 func (c *GatewayClient) SetHTTPProxyHandler(h HTTPProxyHandler) {
 	c.httpProxyHandler = h
+}
+
+func (c *GatewayClient) SetServerTaskFlow(f ServerTaskFlow) {
+	c.serverTaskFlow = f
 }
 
 func (c *GatewayClient) SetMetricsHandler(h MetricsHandler) {

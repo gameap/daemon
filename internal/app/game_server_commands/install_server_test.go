@@ -1,9 +1,14 @@
 package gameservercommands
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -189,6 +194,49 @@ func TestInstallationRuleDefiner_GameModInvalidRemoteRepository_ExpectLocalRepo(
 	assert.Equal(t, copyDirectoryFromLocalRepository, rules[0].Action)
 }
 
+func TestGameRulesDefiner_RemoteRepositoryWithReplacements_ExpectMirrorsThenOriginal(t *testing.T) {
+	rulesDefiner := installationRulesDefiner{
+		replacements: config.RepositoryReplacements{
+			"example.com": {
+				{Replace: "mirror2.example.com", Priority: 9},
+				{Replace: "mirror1.example.com", Priority: 10},
+			},
+		},
+	}
+	game := &domain.Game{
+		RemoteRepository: "https://example.com/file.zip",
+	}
+
+	rules := rulesDefiner.DefineGameRules(game)
+
+	require.Len(t, rules, 3)
+	assert.Equal(t, "https://mirror1.example.com/file.zip", rules[0].SourceValue)
+	assert.Equal(t, downloadAnUnpackFromRemoteRepository, rules[0].Action)
+	assert.Equal(t, "https://mirror2.example.com/file.zip", rules[1].SourceValue)
+	assert.Equal(t, downloadAnUnpackFromRemoteRepository, rules[1].Action)
+	assert.Equal(t, "https://example.com/file.zip", rules[2].SourceValue)
+	assert.Equal(t, downloadAnUnpackFromRemoteRepository, rules[2].Action)
+}
+
+func TestInstallationRuleDefiner_GameModRemoteRepositoryWithReplacements_ExpectMirrorsThenOriginal(t *testing.T) {
+	rulesDefiner := installationRulesDefiner{
+		replacements: config.RepositoryReplacements{
+			"example.com": {{Replace: "https://mirror.example.com/mods"}},
+		},
+	}
+	gameMod := &domain.GameMod{
+		RemoteRepository: "https://example.com/file.zip",
+	}
+
+	rules := rulesDefiner.DefineGameModRules(gameMod)
+
+	require.Len(t, rules, 2)
+	assert.Equal(t, "https://mirror.example.com/mods/file.zip", rules[0].SourceValue)
+	assert.Equal(t, downloadAnUnpackFromRemoteRepository, rules[0].Action)
+	assert.Equal(t, "https://example.com/file.zip", rules[1].SourceValue)
+	assert.Equal(t, downloadAnUnpackFromRemoteRepository, rules[1].Action)
+}
+
 func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 	workPath, err := os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
 	defer func(path string) {
@@ -218,6 +266,59 @@ func TestInstallation_ServerInstalledFromRemoterRepository(t *testing.T) {
 	require.Nil(t, err)
 	assert.FileExists(t, workPath+"/test-server/run.sh")
 	assert.FileExists(t, workPath+"/test-server/.gamemodinstalled")
+}
+
+func TestInstallation_FirstMirrorUnavailable_ServerInstalledFromNextMirror(t *testing.T) {
+	unavailableMirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer unavailableMirror.Close()
+	archive := givenTarGzArchive(t, map[string]string{"mirror_file.txt": "content from mirror"})
+	workingMirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	defer workingMirror.Close()
+	workPath, err := os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}(workPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		WorkPath: workPath,
+		RemoteRepositoryReplacements: config.RepositoryReplacements{
+			"files.unavailable-repo.test": {
+				{Replace: hostOfURL(t, unavailableMirror.URL), Priority: 10},
+				{Replace: hostOfURL(t, workingMirror.URL), Priority: 9},
+			},
+		},
+	}
+	install := newInstallServer(
+		cfg,
+		components.NewExecutor(),
+		processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
+		mocks.NewServerRepository(),
+		commandmocks.LoadServerCommand(domain.Status),
+		commandmocks.LoadServerCommand(domain.Stop),
+		commandmocks.LoadServerCommand(domain.Start),
+	)
+	game := domain.Game{
+		StartCode:        "test",
+		RemoteRepository: "http://files.unavailable-repo.test/game.tar.gz",
+	}
+	gameMod := domain.GameMod{Name: "test"}
+
+	err = install.Execute(context.Background(), givenServer(t, game, gameMod))
+
+	require.Nil(t, err)
+	assert.FileExists(t, workPath+"/test-server/mirror_file.txt")
+	output := string(install.ReadOutput())
+	assert.Contains(t, output, unavailableMirror.URL)
+	assert.Contains(t, output, workingMirror.URL)
 }
 
 func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
@@ -468,6 +569,48 @@ func givenServer(t *testing.T, game domain.Game, gameMod domain.GameMod) *domain
 	)
 }
 
+func givenTarGzArchive(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	buf := &bytes.Buffer{}
+	gzWriter := gzip.NewWriter(buf)
+	tarWriter := tar.NewWriter(gzWriter)
+
+	for name, content := range files {
+		err := tarWriter.WriteHeader(&tar.Header{
+			Name: name,
+			Mode: 0o644,
+			Size: int64(len(content)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tarWriter.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	return buf.Bytes()
+}
+
+func hostOfURL(t *testing.T, rawURL string) string {
+	t.Helper()
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return u.Host
+}
+
 type testExecutor struct {
 	command string
 	options contracts.ExecutorOptions
@@ -488,6 +631,18 @@ func (ex *testExecutor) ExecWithWriter(
 	ex.command = command
 	ex.options = options
 
+	return 0, nil
+}
+
+func (ex *testExecutor) ExecArgs(
+	_ context.Context, _ []string, _ contracts.ExecutorOptions,
+) ([]byte, int, error) {
+	return []byte(""), 0, nil
+}
+
+func (ex *testExecutor) ExecWithWriterArgs(
+	_ context.Context, _ []string, _ io.Writer, _ contracts.ExecutorOptions,
+) (int, error) {
 	return 0, nil
 }
 

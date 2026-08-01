@@ -43,8 +43,6 @@ func (suite *Suite) SetupTest() {
 }
 
 func (suite *Suite) TearDownTest() {
-	suite.GDTaskRepository.Clear()
-
 	err := os.RemoveAll(suite.WorkPath)
 	if err != nil {
 		suite.T().Log(err)

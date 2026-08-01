@@ -2,55 +2,13 @@ package definitions
 
 import (
 	"context"
-	"net/http"
-	"time"
 
 	"github.com/gameap/daemon/internal/app/components"
 	"github.com/gameap/daemon/internal/app/components/customhandlers"
 	"github.com/gameap/daemon/internal/app/contracts"
 	gdaemonscheduler "github.com/gameap/daemon/internal/app/gdaemon_scheduler"
-	"github.com/gameap/daemon/internal/app/services"
 	"github.com/gameap/daemon/internal/processmanager"
-	"github.com/go-resty/resty/v2"
 )
-
-func CreateServicesResty(ctx context.Context, c Container) *resty.Client {
-	restyClient := resty.New()
-	restyClient.SetBaseURL(c.Cfg(ctx).APIHost)
-	restyClient.SetHeader("User-Agent", "GameAP Daemon/3.0")
-	restyClient.RetryCount = 30
-	restyClient.RetryMaxWaitTime = 10 * time.Minute
-	restyClient.SetTimeout(10 * time.Second)
-	restyClient.SetLogger(c.Logger(ctx))
-
-	restyClient.AddRetryCondition(
-		func(r *resty.Response, err error) bool {
-			return r.StatusCode() == http.StatusTooManyRequests ||
-				r.StatusCode() == http.StatusBadGateway
-		},
-	)
-
-	return restyClient
-}
-
-func CreateServicesAPICaller(ctx context.Context, c Container) contracts.APIRequestMaker {
-	if c.Cfg(ctx).GRPC.Enabled {
-		return &services.NoopAPICaller{}
-	}
-
-	client, err := services.NewAPICaller(
-		ctx,
-		c.Cfg(ctx),
-		c.Services().Resty(ctx),
-	)
-
-	if err != nil {
-		c.SetError(err)
-		return nil
-	}
-
-	return client
-}
 
 func CreateServicesExecutor(_ context.Context, _ Container) contracts.Executor {
 	return components.NewCleanExecutor()
@@ -96,7 +54,6 @@ func CreateServicesProcessManager(ctx context.Context, c Container) contracts.Pr
 
 func CreateServicesGdTaskManager(ctx context.Context, c Container) *gdaemonscheduler.TaskManager {
 	return gdaemonscheduler.NewTaskManager(
-		c.Repositories().GdTaskRepository(ctx),
 		c.CacheManager(ctx),
 		c.ServerCommandFactory(ctx),
 		c.Services().ExtendableExecutor(ctx),

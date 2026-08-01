@@ -16,15 +16,12 @@ func TestWriteEnrollConfig(t *testing.T) {
 	cfg := &EnrollConfig{
 		NodeID:               42,
 		APIKey:               "test-api-key",
-		ListenIP:             "0.0.0.0",
-		ListenPort:           31717,
 		CACertificateFile:    "/etc/gameap-daemon/certs/ca.crt",
 		CertificateChainFile: "/etc/gameap-daemon/certs/server.crt",
 		PrivateKeyFile:       "/etc/gameap-daemon/certs/server.key",
 		WorkPath:             "/srv/gameap",
 		LogLevel:             "info",
 		GRPC: EnrollGRPC{
-			Enabled: true,
 			Address: "panel.example.com:31718",
 		},
 	}
@@ -38,8 +35,6 @@ func TestWriteEnrollConfig(t *testing.T) {
 	content := string(data)
 	assert.Contains(t, content, "ds_id: 42")
 	assert.Contains(t, content, "api_key: test-api-key")
-	assert.Contains(t, content, "listen_ip: 0.0.0.0")
-	assert.Contains(t, content, "listen_port: 31717")
 	assert.Contains(t, content, "ca_certificate_file: /etc/gameap-daemon/certs/ca.crt")
 	assert.Contains(t, content, "certificate_chain_file: /etc/gameap-daemon/certs/server.crt")
 	assert.Contains(t, content, "private_key_file: /etc/gameap-daemon/certs/server.key")
@@ -47,7 +42,6 @@ func TestWriteEnrollConfig(t *testing.T) {
 	assert.Contains(t, content, "if_list:")
 	assert.Contains(t, content, "drives_list:")
 	assert.Contains(t, content, "log_level: info")
-	assert.Contains(t, content, "enabled: true")
 	assert.Contains(t, content, "address: panel.example.com:31718")
 
 	info, err := os.Stat(path)
@@ -60,10 +54,8 @@ func TestWriteEnrollConfig_CreatesParentDir(t *testing.T) {
 	path := filepath.Join(dir, "subdir", "nested", "gameap-daemon.yaml")
 
 	cfg := &EnrollConfig{
-		NodeID:     1,
-		ListenPort: 31717,
+		NodeID: 1,
 		GRPC: EnrollGRPC{
-			Enabled: true,
 			Address: "localhost:31718",
 		},
 	}

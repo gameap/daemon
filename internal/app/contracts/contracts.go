@@ -36,21 +36,16 @@ type GameServerCommand interface {
 	Execute(ctx context.Context, server *domain.Server) error
 }
 
-type APIRequestMaker interface {
-	Request(ctx context.Context, request domain.APIRequest) (APIResponse, error)
-}
-
-type APIResponse interface {
-	Body() []byte
-	Status() string
-	StatusCode() int
-
-	Error() interface{}
-}
-
 type Executor interface {
 	Exec(ctx context.Context, command string, options ExecutorOptions) ([]byte, int, error)
 	ExecWithWriter(ctx context.Context, command string, out io.Writer, options ExecutorOptions) (int, error)
+
+	// ExecArgs and ExecWithWriterArgs execute a pre-tokenized argument vector
+	// directly, without any shell-style splitting. Callers that build a command
+	// from user-controlled values must use these so each value stays a single
+	// argument.
+	ExecArgs(ctx context.Context, args []string, options ExecutorOptions) ([]byte, int, error)
+	ExecWithWriterArgs(ctx context.Context, args []string, out io.Writer, options ExecutorOptions) (int, error)
 }
 
 type ProcessManager interface {

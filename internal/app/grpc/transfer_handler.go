@@ -100,9 +100,12 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 		}
 	}
 
-	// Duplicate check: if transfer is already active, skip.
+	// Duplicate check: if transfer is already active, reject this request so the
+	// API fails fast instead of waiting for a dispatch timeout; the original
+	// transfer keeps running and answers its own request.
 	if _, loaded := h.activeTransfers.LoadOrStore(task.TransferId, struct{}{}); loaded {
-		l.Warn("Transfer already active, skipping duplicate")
+		l.Warn("Transfer already active, rejecting duplicate")
+		h.sendResponse(requestID, false, "transfer already active: "+task.TransferId)
 		return
 	}
 	defer h.activeTransfers.Delete(task.TransferId)

@@ -19,7 +19,6 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
-	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
@@ -700,23 +699,25 @@ func (pm *SystemD) installTarget() string {
 }
 
 func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
-	startCMD := domain.ReplaceShortCodes(server.StartCommand(), pm.cfg, server)
+	args, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to build command")
+	}
 
-	if startCMD == "" {
+	if len(args) == 0 {
 		return "", ErrEmptyCommand
 	}
 
-	parts, err := shellquote.Split(startCMD)
-	if err != nil {
-		return "", errors.WithMessage(err, "failed to split command")
-	}
-
-	cmd := parts[0]
-	args := parts[1:]
+	cmd := args[0]
 
 	var foundPath string
 
-	if !filepath.IsAbs(cmd) {
+	if filepath.IsAbs(cmd) {
+		foundPath, err = exec.LookPath(cmd)
+		if err != nil {
+			return "", errors.WithMessagef(err, "failed to find command '%s'", cmd)
+		}
+	} else {
 		foundPath, err = exec.LookPath(filepath.Join(server.WorkDir(pm.cfg), cmd))
 		if err != nil {
 			foundPath, err = exec.LookPath(cmd)
@@ -726,21 +727,55 @@ func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
 		}
 	}
 
-	if filepath.IsAbs(cmd) {
-		foundPath, err = exec.LookPath(cmd)
-		if err != nil {
-			return "", errors.WithMessagef(err, "failed to find command '%s'", cmd)
+	args[0] = foundPath
+
+	return systemdQuoteArgs(args), nil
+}
+
+// systemdQuoteArgs serializes an argument vector for a systemd ExecStart= line.
+// systemd's parser is not a POSIX shell: it performs environment ("$", "${}")
+// and specifier ("%") expansion even inside quotes, so those are escaped as "$$"
+// and "%%", and each argument is double-quoted when it contains whitespace or
+// quoting characters so it stays a single argument.
+func systemdQuoteArgs(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = systemdQuoteArg(arg)
+	}
+
+	return strings.Join(quoted, " ")
+}
+
+func systemdQuoteArg(arg string) string {
+	arg = strings.NewReplacer("%", "%%", "$", "$$").Replace(arg)
+
+	if arg == "" {
+		return `""`
+	}
+
+	if !strings.ContainsAny(arg, " \t\n'\"\\") {
+		return arg
+	}
+
+	var b strings.Builder
+	b.Grow(len(arg) + 2)
+	b.WriteByte('"')
+
+	for i := 0; i < len(arg); i++ {
+		switch arg[i] {
+		case '"', '\\':
+			b.WriteByte('\\')
+			b.WriteByte(arg[i])
+		case '\n':
+			b.WriteString(`\n`)
+		default:
+			b.WriteByte(arg[i])
 		}
 	}
 
-	startCommand := shellquote.Join(append([]string{foundPath}, args...)...)
+	b.WriteByte('"')
 
-	result := domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, startCommand)
-	if result == "" {
-		return "", ErrEmptyCommand
-	}
-
-	return result, nil
+	return b.String()
 }
 
 func (pm *SystemD) makeSocket(ctx context.Context, server *domain.Server) error {
@@ -1109,6 +1144,8 @@ func escapeSystemdEnv(key, value string) string {
 			sb.WriteString("\\n")
 		case '\t':
 			sb.WriteString("\\t")
+		case '%':
+			sb.WriteString("%%")
 		default:
 			sb.WriteRune(r)
 		}

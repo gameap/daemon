@@ -22,7 +22,6 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
-	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -731,11 +730,16 @@ func addPortBinding(portBindings network.PortMap, exposedPorts network.PortSet, 
 }
 
 func (pm *Docker) parseCommand(server *domain.Server) ([]string, error) {
-	cmd := domain.ReplaceShortCodes(server.StartCommand(), pm.cfg, server)
-	if cmd == "" {
+	args, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	if err != nil {
+		return nil, err
+	}
+
+	if len(args) == 0 {
 		return nil, ErrEmptyCommand
 	}
-	return shellquote.Split(cmd)
+
+	return args, nil
 }
 
 func (pm *Docker) containerName(server *domain.Server) string {

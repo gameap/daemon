@@ -18,8 +18,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var updateTimeout = 5 * time.Second
-
 type TaskStatusSender interface {
 	SendTaskStatus(taskID int, status string, message string)
 	SendTaskOutput(taskID int, output []byte, isFinal bool)
@@ -38,47 +36,41 @@ var taskServerCommandMap = map[domain.GDTaskCommand]domain.ServerCommand{
 }
 
 type TaskManager struct {
-	lastUpdated          time.Time
-	repository           domain.GDTaskRepository
 	executor             contracts.Executor
 	cache                contracts.Cache
 	config               *config.Config
 	serverCommandFactory *gameservercommands.ServerCommandFactory
-	mutex                *sync.Mutex
 	queue                *taskQueue
 	completed            *completionTracker
 	commandsInProgress   sync.Map
 	wg                   sync.WaitGroup
-	consecutiveFailures  int
 	taskStatusSender     TaskStatusSender
-	grpcMode             bool
+
+	// predecessorWaits maps a task ID to the moment its predecessor was first
+	// seen missing, bounding the wait by predecessorMissingTimeout.
+	predecessorWaits          sync.Map
+	predecessorMissingTimeout time.Duration
 }
 
 func NewTaskManager(
-	repository domain.GDTaskRepository,
 	cache contracts.Cache,
 	serverCommandFactory *gameservercommands.ServerCommandFactory,
 	executor contracts.Executor,
 	config *config.Config,
 ) *TaskManager {
 	return &TaskManager{
-		config:               config,
-		repository:           repository,
-		cache:                cache,
-		queue:                newTaskQueue(),
-		completed:            newCompletionTracker(completionTrackerCapacity),
-		serverCommandFactory: serverCommandFactory,
-		mutex:                &sync.Mutex{},
-		executor:             executor,
+		config:                    config,
+		cache:                     cache,
+		queue:                     newTaskQueue(),
+		completed:                 newCompletionTracker(completionTrackerCapacity),
+		serverCommandFactory:      serverCommandFactory,
+		executor:                  executor,
+		predecessorMissingTimeout: predecessorMissingTimeout,
 	}
 }
 
 func (manager *TaskManager) SetTaskStatusSender(sender TaskStatusSender) {
 	manager.taskStatusSender = sender
-}
-
-func (manager *TaskManager) SetGRPCMode(enabled bool) {
-	manager.grpcMode = enabled
 }
 
 func (manager *TaskManager) InsertTask(task *domain.GDTask) {
@@ -96,43 +88,18 @@ func (manager *TaskManager) CancelTask(taskID int) error {
 	}
 
 	manager.queue.Remove(task)
+	manager.predecessorWaits.Delete(taskID)
+
 	return nil
 }
 
 func (manager *TaskManager) Run(ctx context.Context) error {
-	if !manager.grpcMode {
-		manager.failWorkingTaskAfterRestart(ctx)
-
-		err := manager.updateTasksIfNeeded(ctx)
-		if err != nil {
-			logger.Logger(ctx).Error(err)
-		}
-	}
-
 	go manager.RunWorker(ctx)
 
-	updatePeriod := manager.config.TaskManager.UpdatePeriod
-	if updatePeriod <= 0 {
-		updatePeriod = 1 * time.Second
-	}
+	<-ctx.Done()
+	manager.wg.Wait()
 
-	updateTicker := time.NewTicker(updatePeriod)
-	defer updateTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			manager.wg.Wait()
-			return nil
-		case <-updateTicker.C:
-			if !manager.grpcMode {
-				err := manager.updateTasksIfNeeded(ctx)
-				if err != nil {
-					logger.Logger(ctx).Error(err)
-				}
-			}
-		}
-	}
+	return nil
 }
 
 func (manager *TaskManager) RunWorker(ctx context.Context) {
@@ -167,27 +134,6 @@ func (manager *TaskManager) Stats() domain.GDTaskStats {
 	return stats
 }
 
-func (manager *TaskManager) failWorkingTaskAfterRestart(ctx context.Context) {
-	workingTasks, err := manager.repository.FindByStatus(ctx, domain.GDTaskStatusWorking)
-	if err != nil {
-		logger.Logger(ctx).Error(err)
-	}
-
-	for _, task := range workingTasks {
-		err = task.SetStatus(domain.GDTaskStatusError)
-		if err != nil {
-			logger.Logger(ctx).Error(err)
-			continue
-		}
-
-		manager.appendTaskOutput(ctx, task, []byte("Working task failed. GameAP Daemon was restarted."))
-		err = manager.repository.Save(ctx, task)
-		if err != nil {
-			logger.Logger(ctx).Error(err)
-		}
-	}
-}
-
 func (manager *TaskManager) runNext(ctx context.Context) {
 	task := manager.queue.Next()
 	if task == nil {
@@ -215,7 +161,6 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		return
 	case predecessorFail:
 		output := []byte(reason)
-		go manager.appendTaskOutput(ctx, task, output)
 		manager.notifyTaskOutput(task, output, true)
 		manager.failTask(ctx, task)
 	case predecessorProceed:
@@ -232,7 +177,6 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 		logger.Logger(ctx).WithError(err).Error("task execution failed")
 
 		output := []byte(err.Error())
-		go manager.appendTaskOutput(ctx, task, output)
 		manager.notifyTaskOutput(task, output, true)
 		manager.failTask(ctx, task)
 	}
@@ -246,15 +190,8 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 
 		manager.completed.Record(task.ID(), task.Status())
 		manager.commandsInProgress.Delete(task.ID())
+		manager.predecessorWaits.Delete(task.ID())
 		manager.queue.Remove(task)
-
-		if !manager.grpcMode {
-			err = manager.repository.Save(ctx, task)
-			if err != nil {
-				err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
-				logger.Error(ctx, err)
-			}
-		}
 	}
 }
 
@@ -275,6 +212,8 @@ func (manager *TaskManager) checkPredecessor(
 	}
 
 	if t := manager.queue.FindByID(runAfterID); t != nil {
+		manager.predecessorWaits.Delete(task.ID())
+
 		if !t.IsComplete() {
 			return predecessorWait, ""
 		}
@@ -282,21 +221,45 @@ func (manager *TaskManager) checkPredecessor(
 	}
 
 	if status, ok := manager.completed.Status(runAfterID); ok {
+		manager.predecessorWaits.Delete(task.ID())
+
 		return manager.evaluatePredecessorStatus(ctx, runAfterID, status)
 	}
 
-	predecessor, err := manager.repository.FindByID(ctx, runAfterID)
-	if err != nil {
-		logger.Logger(ctx).WithError(err).
-			Warnf("failed to fetch predecessor task %d, will retry", runAfterID)
+	return manager.waitForMissingPredecessor(ctx, task, runAfterID)
+}
+
+// waitForMissingPredecessor keeps a task waiting while its predecessor is
+// neither queued nor tracked as completed, which normally means the panel has
+// not delivered it yet. The wait is bounded: a predecessor that never arrives
+// (or was evicted from the completion tracker) would otherwise keep the task
+// in the queue forever.
+func (manager *TaskManager) waitForMissingPredecessor(
+	ctx context.Context, task *domain.GDTask, runAfterID int,
+) (predecessorDecision, string) {
+	now := time.Now()
+
+	value, loaded := manager.predecessorWaits.LoadOrStore(task.ID(), now)
+	if !loaded {
+		logger.Logger(ctx).Warnf(
+			"predecessor task %d not found in queue or completion tracker, waiting up to %s",
+			runAfterID, manager.predecessorMissingTimeout,
+		)
+
 		return predecessorWait, ""
 	}
-	if predecessor == nil {
-		return predecessorFail, fmt.Sprintf("predecessor task %d not found", runAfterID)
+
+	waitingSince, ok := value.(time.Time)
+	if !ok || now.Sub(waitingSince) < manager.predecessorMissingTimeout {
+		return predecessorWait, ""
 	}
 
-	manager.completed.Record(predecessor.ID(), predecessor.Status())
-	return manager.evaluatePredecessorStatus(ctx, runAfterID, predecessor.Status())
+	manager.predecessorWaits.Delete(task.ID())
+
+	return predecessorFail, fmt.Sprintf(
+		"predecessor task %d not found after waiting %s",
+		runAfterID, manager.predecessorMissingTimeout,
+	)
 }
 
 func (manager *TaskManager) evaluatePredecessorStatus(
@@ -331,14 +294,6 @@ func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask
 	}
 
 	manager.notifyTaskStatus(task, "Task started")
-
-	if !manager.grpcMode {
-		err = manager.repository.Save(ctx, task)
-		if err != nil {
-			err = errors.WithMessage(err, "[gdaemon_scheduler.TaskManager] failed to save task")
-			logger.Error(ctx, err)
-		}
-	}
 
 	if task.Task() == domain.GDTaskCommandExecute {
 		return manager.executeCommand(ctx, task)
@@ -379,7 +334,6 @@ func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDT
 		if err != nil {
 			logger.Warn(ctx, err)
 			output := []byte(err.Error())
-			manager.appendTaskOutput(ctx, task, output)
 			manager.notifyTaskOutput(task, output, true)
 			manager.failTask(ctx, task)
 		}
@@ -423,7 +377,6 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 		if err != nil {
 			logger.Warn(ctx, err)
 			output := append(cmdFunc.ReadOutput(), err.Error()...)
-			manager.appendTaskOutput(ctx, task, output)
 			manager.notifyTaskOutput(task, output, true)
 			manager.failTask(ctx, task)
 		}
@@ -443,6 +396,11 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 	output := cmd.ReadOutput()
 	isFinal := cmd.IsComplete()
 
+	// The output is sent before the terminal status, as executeCommand and
+	// executeGameCommand do: the panel closes the task on the status update and
+	// may drop anything arriving after it.
+	manager.notifyTaskOutput(task, output, isFinal)
+
 	if isFinal {
 		manager.commandsInProgress.Delete(task.ID())
 
@@ -456,9 +414,6 @@ func (manager *TaskManager) proceedTask(ctx context.Context, task *domain.GDTask
 			manager.failTask(ctx, task)
 		}
 	}
-
-	go manager.appendTaskOutput(ctx, task, output)
-	manager.notifyTaskOutput(task, output, isFinal)
 
 	return nil
 }
@@ -482,49 +437,6 @@ func (manager *TaskManager) notifyTaskOutput(task *domain.GDTask, output []byte,
 	if manager.taskStatusSender != nil && len(output) > 0 {
 		manager.taskStatusSender.SendTaskOutput(task.ID(), output, isFinal)
 	}
-}
-
-func (manager *TaskManager) appendTaskOutput(ctx context.Context, task *domain.GDTask, output []byte) {
-	if len(output) == 0 {
-		return
-	}
-
-	if manager.grpcMode {
-		return
-	}
-
-	err := manager.repository.AppendOutput(ctx, task, output)
-	if err != nil {
-		logger.Logger(ctx).Error(err)
-	}
-}
-
-func (manager *TaskManager) updateTasksIfNeeded(ctx context.Context) error {
-	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
-
-	backoff := updateTimeout * time.Duration(1<<min(manager.consecutiveFailures, 6))
-	if time.Since(manager.lastUpdated) <= backoff {
-		return nil
-	}
-
-	tasks, err := manager.repository.FindByStatus(ctx, domain.GDTaskStatusWaiting)
-	if err != nil {
-		manager.consecutiveFailures++
-		manager.lastUpdated = time.Now()
-
-		return err
-	}
-
-	manager.consecutiveFailures = 0
-
-	if len(tasks) > 0 {
-		manager.queue.Insert(tasks)
-	}
-
-	manager.lastUpdated = time.Now()
-
-	return nil
 }
 
 type taskQueue struct {

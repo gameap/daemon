@@ -9,5 +9,4 @@ const (
 	caCertificateFilePath    = "C:\\gameap\\certs\\ca.crt"
 	certificateChainFilePath = "C:\\gameap\\certs\\server.crt"
 	privateKeyFilePath       = "C:\\gameap\\certs\\server.key"
-	dhFilePathPath           = "C:\\gameap\\certs\\dh2048.pem"
 )

@@ -138,50 +138,38 @@ func initialize(c *cli.Context) error {
 
 	group, ctx := errgroup.WithContext(ctx)
 
-	if cfg.GRPC.Enabled {
-		log.Info("Starting gRPC Client...")
+	log.Info("Starting gRPC Client...")
 
-		connectionManager, err := container.ConnectionManager(ctx)
-		if err != nil {
-			return err
-		}
-
-		statusReporter, err := container.ServerStatusReporter(ctx)
-		if err != nil {
-			return err
-		}
-
-		processRunner.SetGRPCComponents(connectionManager, statusReporter)
-		processRunner.EnableGRPCMode()
-
-		group.Go(processRunner.RunGRPCClient(ctx, cfg))
-		group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))
-		group.Go(processRunner.RunServersLoopWithReporter(ctx, cfg))
-		group.Go(processRunner.RunServerScheduler(ctx, cfg))
-
-		if cfg.Metrics.IsEnabled() {
-			metricsService, err := container.MetricsService(ctx)
-			if err != nil {
-				return err
-			}
-			group.Go(func() error { return metricsService.Run(ctx) })
-			log.WithFields(log.Fields{
-				"interval":  cfg.Metrics.CollectionInterval,
-				"retention": cfg.Metrics.RetentionDuration,
-			}).Info("Starting metrics collector")
-		}
-
-		log.Info("Running in gRPC mode")
-	} else {
-		log.Info("Starting GDaemon Server...")
-
-		group.Go(processRunner.RunGDaemonServer(ctx, cfg))
-		group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))
-		group.Go(processRunner.RunServersLoop(ctx, cfg))
-		group.Go(processRunner.RunServerScheduler(ctx, cfg))
-
-		log.Info("Running in legacy mode")
+	connectionManager, err := container.ConnectionManager(ctx)
+	if err != nil {
+		return err
 	}
+
+	statusReporter, err := container.ServerStatusReporter(ctx)
+	if err != nil {
+		return err
+	}
+
+	processRunner.SetGRPCComponents(connectionManager, statusReporter)
+
+	group.Go(processRunner.RunGRPCClient(ctx, cfg))
+	group.Go(processRunner.RunGDaemonTaskScheduler(ctx, cfg))
+	group.Go(processRunner.RunServersLoop(ctx, cfg))
+	group.Go(processRunner.RunServerScheduler(ctx, cfg))
+
+	if cfg.Metrics.IsEnabled() {
+		metricsService, err := container.MetricsService(ctx)
+		if err != nil {
+			return err
+		}
+		group.Go(func() error { return metricsService.Run(ctx) })
+		log.WithFields(log.Fields{
+			"interval":  cfg.Metrics.CollectionInterval,
+			"retention": cfg.Metrics.RetentionDuration,
+		}).Info("Starting metrics collector")
+	}
+
+	log.Info("Running in gRPC mode")
 
 	err = group.Wait()
 	if err != nil {

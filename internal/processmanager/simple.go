@@ -41,80 +41,62 @@ func (pm *Simple) Uninstall(_ context.Context, _ *domain.Server, _ io.Writer) (d
 func (pm *Simple) Start(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	return pm.execCommand(
-		ctx,
-		server,
-		domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand()),
-		out,
-	)
+	return pm.execCommand(ctx, server, pm.cfg.Scripts.Start, server.StartCommand(), out)
 }
 
 func (pm *Simple) Stop(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	return pm.execCommand(
-		ctx,
-		server,
-		domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Stop, server.StopCommand()),
-		out,
-	)
+	return pm.execCommand(ctx, server, pm.cfg.Scripts.Stop, server.StopCommand(), out)
 }
 
 func (pm *Simple) Restart(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	return pm.execCommand(
-		ctx,
-		server,
-		domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Restart, server.RestartCommand()),
-		out,
-	)
+	return pm.execCommand(ctx, server, pm.cfg.Scripts.Restart, server.RestartCommand(), out)
 }
 
 func (pm *Simple) Status(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	return pm.execCommand(
-		ctx,
-		server,
-		domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Status, ""),
-		out,
-	)
+	return pm.execCommand(ctx, server, pm.cfg.Scripts.Status, "", out)
 }
 
 func (pm *Simple) GetOutput(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	result, err := pm.executor.ExecWithWriter(
-		ctx,
-		domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.GetConsole, ""),
-		out,
-		pm.executeOptions(server),
-	)
-	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
-	}
-
-	return domain.Result(result), nil
+	// The console is read with the plain executor: the detailed one prefixes the
+	// command line and appends the exit code, which would pollute the output.
+	return pm.execCommandWith(ctx, pm.executor, server, pm.cfg.Scripts.GetConsole, "", out)
 }
 
 func (pm *Simple) SendInput(
 	ctx context.Context, input string, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	return pm.execCommand(
-		ctx,
-		server,
-		domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.SendCommand, input),
-		out,
-	)
+	return pm.execCommand(ctx, server, pm.cfg.Scripts.SendCommand, input, out)
 }
 
 func (pm *Simple) execCommand(
-	ctx context.Context, server *domain.Server, command string, out io.Writer,
+	ctx context.Context, server *domain.Server, wrapper, serverCommand string, out io.Writer,
 ) (domain.Result, error) {
-	result, err := pm.detailedExecutor.ExecWithWriter(
+	return pm.execCommandWith(ctx, pm.detailedExecutor, server, wrapper, serverCommand, out)
+}
+
+func (pm *Simple) execCommandWith(
+	ctx context.Context,
+	executor contracts.Executor,
+	server *domain.Server,
+	wrapper, serverCommand string,
+	out io.Writer,
+) (domain.Result, error) {
+	args, err := domain.BuildCommandArgs(pm.cfg, server, wrapper, serverCommand)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to build command")
+	}
+
+	result, err := executor.ExecWithWriterArgs(
 		ctx,
-		command,
+		args,
 		out,
 		pm.executeOptions(server),
 	)

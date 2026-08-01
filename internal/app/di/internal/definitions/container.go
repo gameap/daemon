@@ -11,12 +11,9 @@ import (
 func CreateProcessRunner(ctx context.Context, c Container) *services.Runner {
 	processRunner, err := services.NewProcessRunner(
 		c.Cfg(ctx),
-		c.Services().ExtendableExecutor(ctx),
 		c.ServerCommandFactory(ctx),
-		c.Services().APICaller(ctx),
 		c.Services().GdTaskManager(ctx),
 		c.Repositories().ServerRepository(ctx),
-		c.Repositories().ServerTaskRepository(ctx),
 	)
 	if err != nil {
 		c.SetError(err)

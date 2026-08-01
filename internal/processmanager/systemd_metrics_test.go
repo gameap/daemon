@@ -37,6 +37,16 @@ func (f *fakeExecutor) ExecWithWriter(_ context.Context, _ string, _ io.Writer, 
 	return 0, nil
 }
 
+func (f *fakeExecutor) ExecArgs(_ context.Context, _ []string, _ contracts.ExecutorOptions) ([]byte, int, error) {
+	f.calls++
+
+	return f.output, f.code, f.err
+}
+
+func (f *fakeExecutor) ExecWithWriterArgs(_ context.Context, _ []string, _ io.Writer, _ contracts.ExecutorOptions) (int, error) {
+	return 0, nil
+}
+
 func ptrUint64(v uint64) *uint64 { return &v }
 
 func TestParseSystemctlShow_HappyPath(t *testing.T) {
