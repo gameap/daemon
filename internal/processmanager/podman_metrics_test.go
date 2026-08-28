@@ -23,14 +23,21 @@ func TestPodmanStatsToMetrics_EmitsZeroValueCountersAndCPU(t *testing.T) {
 		CPU: 0, NetInput: 0, NetOutput: 0, BlockInput: 0, BlockOutput: 0,
 	})
 
+	cpu := collectByName(got, metricServerCPUUsagePercent)
+	if assert.Len(t, cpu, 1, "cpu_usage_percent must be emitted with zero value") {
+		assert.Equal(t, float64(0), cpu[0].Value.Float64())
+	}
+
 	for _, name := range []string{
-		metricServerCPUUsagePercent,
 		metricServerNetworkReceiveBytesTotal,
 		metricServerNetworkTransmitBytesTotal,
 		metricServerBlockIOReadBytesTotal,
 		metricServerBlockIOWriteBytesTotal,
 	} {
-		assert.Len(t, collectByName(got, name), 1, "metric %q must be emitted with zero value", name)
+		collected := collectByName(got, name)
+		if assert.Len(t, collected, 1, "metric %q must be emitted with zero value", name) {
+			assert.Equal(t, uint64(0), collected[0].Value.Uint64(), "metric %q must be zero", name)
+		}
 	}
 }
 

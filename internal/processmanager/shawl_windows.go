@@ -3,7 +3,6 @@
 package processmanager
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
 	"io"
@@ -227,7 +226,7 @@ func (pm *Shawl) GetOutput(ctx context.Context, server *domain.Server, out io.Wr
 		}
 	}
 
-	scanner := bufio.NewScanner(f)
+	scanner := newShawlLogScanner(f)
 	for scanner.Scan() {
 		msg := parseShawlLogLine(scanner.Text())
 		if msg != "" {
@@ -652,23 +651,21 @@ func (pm *Shawl) writeLogTail(out io.Writer, server *domain.Server) {
 		_ = f.Close()
 	}()
 
-	lines := make([]string, 0, shawlLogTailLines)
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		msg := parseShawlLogLine(scanner.Text())
-		if msg == "" {
-			continue
-		}
-
-		if len(lines) == shawlLogTailLines {
-			lines = lines[1:]
-		}
-
-		lines = append(lines, msg)
+	// Only the end of the log can hold the lines that explain the failure, and the file grows
+	// until the daily rotation, so it is read from the same bound GetOutput uses.
+	stat, err := f.Stat()
+	if err != nil {
+		return
 	}
 
-	if len(lines) == 0 {
+	if stat.Size() > shawlOutputSizeLimit {
+		if _, err := f.Seek(-shawlOutputSizeLimit, io.SeekEnd); err != nil {
+			return
+		}
+	}
+
+	lines, err := readShawlLogTail(f, shawlLogTailLines)
+	if err != nil || len(lines) == 0 {
 		return
 	}
 

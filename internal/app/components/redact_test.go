@@ -33,6 +33,36 @@ func TestRedactCommand(t *testing.T) {
 			expected: "api_key=*** apikey=***",
 		},
 		{
+			name:     "hyphenated_api_key_assignment",
+			input:    "tool --api-key=abc",
+			expected: "tool --api-key=***",
+		},
+		{
+			name:     "hyphenated_api_key_separate_value",
+			input:    "tool --api-key abc --verbose",
+			expected: "tool --api-key *** --verbose",
+		},
+		{
+			name:     "password_as_separate_value",
+			input:    "mysql -u root --password s3cret",
+			expected: "mysql -u root --password ***",
+		},
+		{
+			name:     "short_password_flag_as_separate_value",
+			input:    "mysql -u root -p s3cret",
+			expected: "mysql -u root -p ***",
+		},
+		{
+			name:     "quoted_assignment_with_spaces",
+			input:    `sc create svc password="my secret" binPath=shawl.exe`,
+			expected: "sc create svc password=*** binPath=shawl.exe",
+		},
+		{
+			name:     "quoted_separate_value_with_spaces",
+			input:    `tool --token "a b c" --verbose`,
+			expected: "tool --token *** --verbose",
+		},
+		{
 			name:     "nothing_to_redact",
 			input:    "sc query gameapServer1",
 			expected: "sc query gameapServer1",
@@ -71,6 +101,16 @@ func TestRedactArgs(t *testing.T) {
 			name:     "long_flag",
 			input:    []string{"tool", "--password", "s3cret", "--verbose"},
 			expected: []string{"tool", "--password", "***", "--verbose"},
+		},
+		{
+			name:     "hyphenated_api_key_flag",
+			input:    []string{"tool", "--api-key", "abc", "--verbose"},
+			expected: []string{"tool", "--api-key", "***", "--verbose"},
+		},
+		{
+			name:     "hyphenated_api_key_assignment",
+			input:    []string{"tool", "--api-key=abc"},
+			expected: []string{"tool", "--api-key=***"},
 		},
 		{
 			name:     "flag_at_end_has_no_value",

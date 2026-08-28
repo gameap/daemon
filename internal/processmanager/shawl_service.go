@@ -1,11 +1,14 @@
 package processmanager
 
 import (
+	"bufio"
+	"io"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/gameap/gameapctl/pkg/oscore"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -14,7 +17,61 @@ const (
 	shawlStopTimeout        = "10000"
 	shawlLogRotate          = "daily"
 	shawlLogRetain          = "7"
+
+	// A game server can write more than bufio.Scanner's default 64 KiB in one line, which would
+	// otherwise abort the scan with bufio.ErrTooLong and lose the rest of the log.
+	shawlLogScannerBufferSize = 64 * 1024
+	shawlLogMaxLineSize       = 1024 * 1024
 )
+
+// newShawlLogScanner reads a shawl log with a buffer large enough for the lines a game server
+// actually writes.
+func newShawlLogScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, shawlLogScannerBufferSize), shawlLogMaxLineSize)
+
+	return scanner
+}
+
+// readShawlLogTail returns the last limit parsed messages from r, oldest first.
+//
+// The messages are kept in a fixed window whose oldest entry is overwritten where it sits, so
+// reading a long log does not reallocate once per line.
+func readShawlLogTail(r io.Reader, limit int) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	window := make([]string, limit)
+	count := 0
+
+	scanner := newShawlLogScanner(r)
+	for scanner.Scan() {
+		msg := parseShawlLogLine(scanner.Text())
+		if msg == "" {
+			continue
+		}
+
+		window[count%limit] = msg
+		count++
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, errors.Wrap(err, "failed to read log file")
+	}
+
+	oldest, size := 0, count
+	if count > limit {
+		oldest, size = count%limit, limit
+	}
+
+	tail := make([]string, 0, size)
+	for i := range size {
+		tail = append(tail, window[(oldest+i)%limit])
+	}
+
+	return tail, nil
+}
 
 // shawlServiceConfigVersion is stamped as the first line of every generated marker file.
 // Bumping it invalidates the markers written by older daemons, so each installation recreates
@@ -61,11 +118,13 @@ func buildShawlRunArgs(serviceName, workDir, logDir string, cmdArr []string) ([]
 	executable := cmdArr[0]
 	var cmdArgs []string
 
-	if strings.EqualFold(filepath.Ext(executable), ".bat") {
+	// Windows runs .cmd scripts through the command interpreter exactly as it runs .bat ones.
+	switch strings.ToLower(filepath.Ext(executable)) {
+	case ".bat", ".cmd":
 		executable = "cmd.exe"
 		cmdArgs = append(cmdArgs, "/c", cmdArr[0])
 		cmdArgs = append(cmdArgs, cmdArr[1:]...)
-	} else {
+	default:
 		cmdArgs = cmdArr[1:]
 	}
 

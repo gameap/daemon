@@ -1,6 +1,7 @@
 package processmanager
 
 import (
+	"bufio"
 	"strings"
 	"testing"
 
@@ -123,6 +124,16 @@ func TestBuildShawlRunArgs(t *testing.T) {
 			expected: append(append([]string{}, prefix...), "cmd.exe", "/c", `C:\gameap\servers\srv1\start.bat`, "-console"),
 		},
 		{
+			name:     "cmd_script_runs_through_cmd",
+			cmdArr:   []string{`C:\gameap\servers\srv1\start.cmd`, "-console"},
+			expected: append(append([]string{}, prefix...), "cmd.exe", "/c", `C:\gameap\servers\srv1\start.cmd`, "-console"),
+		},
+		{
+			name:     "cmd_script_extension_is_case_insensitive",
+			cmdArr:   []string{`C:\gameap\servers\srv1\start.CMD`},
+			expected: append(append([]string{}, prefix...), "cmd.exe", "/c", `C:\gameap\servers\srv1\start.CMD`),
+		},
+		{
 			name:     "batch_file_extension_is_case_insensitive",
 			cmdArr:   []string{`C:\gameap\servers\srv1\start.BAT`},
 			expected: append(append([]string{}, prefix...), "cmd.exe", "/c", `C:\gameap\servers\srv1\start.BAT`),
@@ -229,4 +240,105 @@ func TestParseShawlLogLine(t *testing.T) {
 			assert.Equal(t, tt.expected, parseShawlLogLine(tt.input))
 		})
 	}
+}
+
+func shawlLogLines(messages ...string) string {
+	var b strings.Builder
+
+	for _, msg := range messages {
+		b.WriteString(`2025-11-29 00:07:35 [DEBUG] stdout: "` + msg + `"` + "\n")
+	}
+
+	return b.String()
+}
+
+func TestReadShawlLogTail(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages []string
+		limit    int
+		expected []string
+	}{
+		{
+			name:     "empty_log",
+			messages: nil,
+			limit:    3,
+			expected: []string{},
+		},
+		{
+			name:     "fewer_lines_than_limit",
+			messages: []string{"a", "b"},
+			limit:    3,
+			expected: []string{"a", "b"},
+		},
+		{
+			name:     "exactly_the_limit",
+			messages: []string{"a", "b", "c"},
+			limit:    3,
+			expected: []string{"a", "b", "c"},
+		},
+		{
+			name:     "one_line_over_the_limit",
+			messages: []string{"a", "b", "c", "d"},
+			limit:    3,
+			expected: []string{"b", "c", "d"},
+		},
+		{
+			name:     "wraps_the_window_more_than_once",
+			messages: []string{"a", "b", "c", "d", "e", "f", "g"},
+			limit:    3,
+			expected: []string{"e", "f", "g"},
+		},
+		{
+			name:     "exact_multiple_of_the_limit",
+			messages: []string{"a", "b", "c", "d", "e", "f"},
+			limit:    3,
+			expected: []string{"d", "e", "f"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := readShawlLogTail(strings.NewReader(shawlLogLines(tt.messages...)), tt.limit)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestReadShawlLogTail_SkipsEmptyMessages(t *testing.T) {
+	log := shawlLogLines("a") + "\n" + shawlLogLines("b")
+
+	got, err := readShawlLogTail(strings.NewReader(log), 5)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, got)
+}
+
+func TestReadShawlLogTail_NonPositiveLimit(t *testing.T) {
+	got, err := readShawlLogTail(strings.NewReader(shawlLogLines("a")), 0)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestReadShawlLogTail_ReadsLineLongerThanScannerDefault(t *testing.T) {
+	// bufio.Scanner stops at 64 KiB per line by default, which would abort the scan and lose
+	// everything after the long line.
+	long := strings.Repeat("x", 200*1024)
+
+	got, err := readShawlLogTail(strings.NewReader(shawlLogLines(long, "after")), 2)
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, long, got[0])
+	assert.Equal(t, "after", got[1])
+}
+
+func TestReadShawlLogTail_ReportsLineOverTheHardLimit(t *testing.T) {
+	got, err := readShawlLogTail(strings.NewReader(strings.Repeat("x", shawlLogMaxLineSize+1)), 2)
+
+	assert.ErrorIs(t, err, bufio.ErrTooLong)
+	assert.Nil(t, got)
 }
