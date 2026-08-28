@@ -255,6 +255,11 @@ log_level: debug
 #   gameap: base64:cGFzc3dvcmQ=
 #   srcds: MySecretPassword
 
-# If true, Windows services run under "NT AUTHORITY\NETWORK SERVICE"
+# If true, Windows services run under "NT AUTHORITY\NetworkService"
 # and the `users` map is ignored. Default: false.
+#
+# The spelling matters: the service control manager accepts only this exact,
+# locale-invariant name for the account. The localized display name shown by
+# Windows on a non-English system resolves to the same account but is rejected
+# when a service is registered.
 # use_network_service_user: false

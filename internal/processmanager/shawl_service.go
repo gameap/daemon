@@ -1,0 +1,259 @@
+package processmanager
+
+import (
+	"bufio"
+	"io"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/gameap/gameapctl/pkg/oscore"
+	"github.com/pkg/errors"
+)
+
+const (
+	shawlServicesConfigPath = `C:\gameap\services`
+	shawlServicePrefix      = "gameapServer"
+	shawlStopTimeout        = "10000"
+	shawlLogRotate          = "daily"
+	shawlLogRetain          = "7"
+
+	// A game server can write more than bufio.Scanner's default 64 KiB in one line, which would
+	// otherwise abort the scan with bufio.ErrTooLong and lose the rest of the log.
+	shawlLogScannerBufferSize = 64 * 1024
+	shawlLogMaxLineSize       = 1024 * 1024
+)
+
+// newShawlLogScanner reads a shawl log with a buffer large enough for the lines a game server
+// actually writes.
+func newShawlLogScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, shawlLogScannerBufferSize), shawlLogMaxLineSize)
+
+	return scanner
+}
+
+// readShawlLogTail returns the last limit parsed messages from r, oldest first.
+//
+// The messages are kept in a fixed window whose oldest entry is overwritten where it sits, so
+// reading a long log does not reallocate once per line. Set skipPartialLine when r starts at a
+// byte offset rather than at the beginning of the file: the bytes before the first newline are
+// then the tail of an entry whose beginning is gone, not an entry of their own.
+func readShawlLogTail(r io.Reader, limit int, skipPartialLine bool) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	window := make([]string, limit)
+	count := 0
+
+	scanner := newShawlLogScanner(r)
+
+	if skipPartialLine {
+		scanner.Scan()
+	}
+
+	for scanner.Scan() {
+		msg := parseShawlLogLine(scanner.Text())
+		if msg == "" {
+			continue
+		}
+
+		window[count%limit] = msg
+		count++
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, errors.Wrap(err, "failed to read log file")
+	}
+
+	oldest, size := 0, count
+	if count > limit {
+		oldest, size = count%limit, limit
+	}
+
+	tail := make([]string, 0, size)
+	for i := range size {
+		tail = append(tail, window[(oldest+i)%limit])
+	}
+
+	return tail, nil
+}
+
+// shawlServiceConfigVersion is stamped as the first line of every generated marker file.
+// Bumping it invalidates the markers written by older daemons, so each installation recreates
+// its services once and picks up changes to the way they are registered.
+const shawlServiceConfigVersion = 2
+
+// shawlServiceFingerprint is everything about a game server service that requires the Windows
+// service to be registered again when it changes.
+//
+// It deliberately carries no password material, not even a digest: the marker file sits in
+// C:\gameap\services and a digest there would be offline-crackable for no real benefit. A
+// password that changed in the config without anything else changing is recovered instead by
+// the ERROR_SERVICE_LOGON_FAILED branch in Shawl.Start, which recreates the service and retries.
+type shawlServiceFingerprint struct {
+	ServiceName        string
+	Account            string
+	NetworkServiceUser bool
+	WorkDir            string
+	BinaryPathName     string
+	Command            string
+}
+
+func (f shawlServiceFingerprint) String() string {
+	var b strings.Builder
+
+	b.WriteString("version=" + strconv.Itoa(shawlServiceConfigVersion) + "\n")
+	b.WriteString("service=" + f.ServiceName + "\n")
+	b.WriteString("account=" + f.Account + "\n")
+	b.WriteString("network_service_user=" + strconv.FormatBool(f.NetworkServiceUser) + "\n")
+	b.WriteString("workdir=" + f.WorkDir + "\n")
+	b.WriteString("binpath=" + f.BinaryPathName + "\n")
+	b.WriteString("command=" + f.Command + "\n")
+
+	return b.String()
+}
+
+// buildShawlRunArgs builds the argument vector shawl is registered with. The service control
+// manager quotes the arguments itself, so they are passed through unquoted.
+func buildShawlRunArgs(serviceName, workDir, logDir string, cmdArr []string) ([]string, error) {
+	if len(cmdArr) == 0 {
+		return nil, ErrEmptyCommand
+	}
+
+	executable := cmdArr[0]
+	var cmdArgs []string
+
+	// Windows runs .cmd scripts through the command interpreter exactly as it runs .bat ones.
+	switch strings.ToLower(filepath.Ext(executable)) {
+	case ".bat", ".cmd":
+		executable = "cmd.exe"
+		cmdArgs = append(cmdArgs, "/c", cmdArr[0])
+		cmdArgs = append(cmdArgs, cmdArr[1:]...)
+	default:
+		cmdArgs = cmdArr[1:]
+	}
+
+	args := make([]string, 0, 18+len(cmdArgs))
+	args = append(args,
+		"run",
+		"--name", serviceName,
+		"--restart",
+		"--stop-timeout", shawlStopTimeout,
+		"--cwd", workDir,
+		"--log-dir", logDir,
+		"--log-as", serviceName+".log",
+		"--log-rotate", shawlLogRotate,
+		"--log-retain", shawlLogRetain,
+		"--",
+		executable,
+	)
+
+	return append(args, cmdArgs...), nil
+}
+
+// serviceStateName names a SERVICE_* state. The numbers come from the service control manager
+// and are locale-invariant, unlike the words sc.exe prints for them.
+func serviceStateName(state uint32) string {
+	switch state {
+	case 1:
+		return "STOPPED"
+	case 2:
+		return "START_PENDING"
+	case 3:
+		return "STOP_PENDING"
+	case 4:
+		return "RUNNING"
+	case 5:
+		return "CONTINUE_PENDING"
+	case 6:
+		return "PAUSE_PENDING"
+	case 7:
+		return "PAUSED"
+	default:
+		return "UNKNOWN(" + strconv.FormatUint(uint64(state), 10) + ")"
+	}
+}
+
+// serviceErrorSymbol names a Win32 service error. The daemon prints this instead of relying on
+// the message the OS formats for the code, which is translated into the system language and so
+// cannot be searched for or matched against.
+func serviceErrorSymbol(code uint32) string {
+	switch code {
+	case 1053:
+		return "ERROR_SERVICE_REQUEST_TIMEOUT"
+	case 1056:
+		return "ERROR_SERVICE_ALREADY_RUNNING"
+	case 1057:
+		return "ERROR_INVALID_SERVICE_ACCOUNT"
+	case 1060:
+		return "ERROR_SERVICE_DOES_NOT_EXIST"
+	case 1062:
+		return "ERROR_SERVICE_NOT_ACTIVE"
+	case 1068:
+		return "ERROR_SERVICE_DEPENDENCY_FAIL"
+	case 1069:
+		return "ERROR_SERVICE_LOGON_FAILED"
+	case 1072:
+		return "ERROR_SERVICE_MARKED_FOR_DELETE"
+	case 1073:
+		return "ERROR_SERVICE_EXISTS"
+	default:
+		return ""
+	}
+}
+
+// serviceErrorHint explains what a service error means for a game server service, in English,
+// so a report from a non-English system stays actionable.
+func serviceErrorHint(code uint32, account, logDir string) string {
+	switch code {
+	case 1053:
+		return "The service did not report back in time. " +
+			"Check the shawl log in " + logDir + "."
+	case 1057, 1069:
+		return "The service control manager rejected the account " + quoteName(account) + ". " +
+			"Well-known accounts must be spelled exactly " + quoteName(oscore.WindowsNetworkServiceAccount) +
+			"; localized and display names are not accepted. " +
+			"For a local user, check that the password in the daemon config matches the Windows one."
+	case 1068:
+		return "The service process could not be started. Check that shawl is installed and that " +
+			quoteName(account) + " may read it and write to " + logDir + "."
+	case 1072:
+		return "The service is still marked for deletion. It is removed once every handle to it is closed."
+	default:
+		return ""
+	}
+}
+
+// quoteName wraps a Windows account or service name in quotes for a message. strconv.Quote is
+// not used because it escapes the backslash in a name like "NT AUTHORITY\\NetworkService",
+// which is exactly the part of the message the reader has to compare against.
+func quoteName(name string) string {
+	return `"` + name + `"`
+}
+
+// parseShawlLogLine extracts the message content from a shawl log line.
+// Input format: 2025-11-29 00:07:35 [DEBUG] stdout: "message"
+// Output: message
+func parseShawlLogLine(line string) string {
+	bracketEnd := strings.Index(line, "] ")
+	if bracketEnd == -1 {
+		return line
+	}
+
+	rest := line[bracketEnd+2:]
+
+	colonPos := strings.Index(rest, ": ")
+	if colonPos == -1 {
+		return rest
+	}
+
+	msg := rest[colonPos+2:]
+
+	if len(msg) >= 2 && msg[0] == '"' && msg[len(msg)-1] == '"' {
+		msg = msg[1 : len(msg)-1]
+	}
+
+	return msg
+}

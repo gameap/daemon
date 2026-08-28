@@ -11,6 +11,9 @@ var (
 	ErrNotImplemented        = errors.New("not implemented")
 	ErrContainerNotRunning   = errors.New("container is not running")
 	ErrServiceNotRunning     = errors.New("service is not running")
+	ErrServiceNotFound       = errors.New("service is not registered")
+	ErrServiceStateTimeout   = errors.New("timeout waiting for the service to change state")
+	ErrServiceStoppedOnStart = errors.New("service stopped immediately after start")
 	ErrUserMismatch          = errors.New(
 		"server user does not match daemon user (required for systemctl --user mode)",
 	)

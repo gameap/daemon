@@ -13,7 +13,7 @@ require (
 	github.com/dsnet/compress v0.0.1
 	github.com/emirpasic/gods v1.18.1
 	github.com/gameap/gameap v0.0.0-20260729224522-5d77d14698ba
-	github.com/gameap/gameapctl v0.30.1
+	github.com/gameap/gameapctl v0.32.1
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485

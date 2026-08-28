@@ -46,7 +46,7 @@ func (e *Executor) ExecWithWriter(
 	options contracts.ExecutorOptions,
 ) (int, error) {
 	if e.appendCommandAndExitCode {
-		_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, command)))
+		_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, redactCommand(command))))
 	}
 
 	result, err := ExecWithWriter(ctx, command, out, options)
@@ -71,7 +71,7 @@ func (e *Executor) ExecWithWriterArgs(
 	options contracts.ExecutorOptions,
 ) (int, error) {
 	if e.appendCommandAndExitCode {
-		_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, shellquote.Join(args...))))
+		_, _ = out.Write([]byte(fmt.Sprintf("%s# %s\n\n", options.WorkDir, shellquote.Join(redactArgs(args)...))))
 	}
 
 	result, err := ExecWithWriterArgs(ctx, args, out, options)
