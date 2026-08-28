@@ -80,6 +80,63 @@ process_manager:
 
 PID-based stats and metric collection paths are identical in both scopes.
 
+## Shawl (Windows)
+
+`shawl` is the default process manager on Windows. Each game server becomes a Windows
+service named `gameapServer<serverID>`, whose binary is the `shawl` supervisor wrapping the
+server's start command. The daemon talks to the service control manager through its API
+rather than through `sc.exe`, so service state is read as a number and failures carry a Win32
+error code instead of a sentence in the system language.
+
+### Service account
+
+With `use_network_service_user: true` every service runs as
+`NT AUTHORITY\NetworkService`; otherwise it runs as the panel-supplied `server.user`, whose
+password is taken from the `users:` map.
+
+That account name is spelled the way the service control manager requires, and only that
+spelling works. Windows localizes the display names of the well-known accounts — on a
+Norwegian system the Network Service account shows up as `NT AUTHORITY\NETTVERKSTJENESTE` —
+and while such a name still resolves to the right SID, `CreateService` will not accept it.
+Neither will the English display form `NT AUTHORITY\NETWORK SERVICE`. Account names are
+therefore normalized through `oscore.NormalizeWindowsServiceAccount` before they reach the
+service control manager, and converted to the well-known SID (`*S-1-5-20`) by
+`oscore.Grant` before they reach `icacls`.
+
+### Permissions
+
+The service account is granted Modify on the server working directory when the service is
+registered, and on `C:\gameap\services\logs` on every start. shawl writes its log as the
+service account, so without the second grant the supervisor cannot open its log file and the
+service dies during startup — which the service control manager reports only as an opaque
+start failure.
+
+### Registering and re-registering
+
+`C:\gameap\services\gameapServer<ID>.yaml` records how a service was set up. It is
+informational: the daemon compares against the registered service itself, never against this
+file, because the file says nothing about a service that was removed or reconfigured behind
+the daemon's back. (The `.yaml` extension is historical; the content is not YAML.)
+
+A service is registered again when it is missing, when its `ServiceStartName` is not the
+account the config asks for, or when its `BinaryPathName` is not the command line the config
+produces. Anything else leaves a running server alone. This is what repairs an installation
+whose services were registered by an older daemon under a name the service control manager
+will not start.
+
+A start that fails with `ERROR_SERVICE_LOGON_FAILED` triggers one re-registration and retry,
+which recovers a password that was rotated in the daemon config alone. No password is written
+to the marker file.
+
+### Diagnostics
+
+`Start` waits for the service to reach `RUNNING` rather than reporting success as soon as the
+service control manager accepts the request, and tails the shawl log when a service stops
+immediately. Because shawl restarts the game process itself, a running service proves the
+supervisor came up, not that the game stayed up.
+
+Metrics are liveness-only; see the table above.
+
 ## Configuration
 
 Process manager is configured in the daemon configuration file:

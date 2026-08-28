@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -19,34 +18,30 @@ import (
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/gameap/daemon/pkg/logger"
-	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/gameap/gameapctl/pkg/oscore"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
 )
 
 const (
-	shawlServicesConfigPath = "C:\\gameap\\services"
-	shawlServicePrefix      = "gameapServer"
-	shawlOutputSizeLimit    = 30000
-	shawlStopTimeout        = "10000"
-	shawlLogRotate          = "daily"
-	shawlLogRetain          = "7"
+	shawlOutputSizeLimit = 30000
+	shawlLogTailLines    = 40
 
-	stopTickerInterval = 500 * time.Millisecond
-	stopTimeout        = 1 * time.Minute
+	stateTickerInterval = 500 * time.Millisecond
+	stopTimeout         = 1 * time.Minute
+	startTimeout        = 30 * time.Second
+	deleteTimeout       = 15 * time.Second
 )
 
 type Shawl struct {
-	cfg      *config.Config
-	executor contracts.Executor
+	cfg *config.Config
 }
 
-func NewShawl(cfg *config.Config, _, detailedExecutor contracts.Executor) *Shawl {
-	return &Shawl{
-		cfg:      cfg,
-		executor: detailedExecutor,
-	}
+// NewShawl builds the Windows process manager. It drives the service control manager through
+// its API rather than sc.exe, so it needs no executor.
+func NewShawl(cfg *config.Config, _, _ contracts.Executor) *Shawl {
+	return &Shawl{cfg: cfg}
 }
 
 func (pm *Shawl) Install(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
@@ -67,28 +62,17 @@ func (pm *Shawl) Install(ctx context.Context, server *domain.Server, out io.Writ
 func (pm *Shawl) Uninstall(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	serviceName := pm.serviceName(server)
 
-	// Stop service first (ignore errors if not running)
 	_, _ = pm.Stop(ctx, server, out)
 
-	// Delete the service
 	_, _ = out.Write([]byte("Deleting service " + serviceName + "\n"))
-	result, err := pm.executor.ExecWithWriter(
-		ctx,
-		fmt.Sprintf("sc delete %s", serviceName),
-		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
-	)
-	if err != nil {
+
+	err := deleteService(serviceName)
+	if err != nil && !errors.Is(err, ErrServiceNotFound) {
+		writeServiceError(out, err, pm.accountHintFor(server), pm.logDir())
+
 		return domain.ErrorResult, errors.WithMessage(err, "failed to delete service")
 	}
 
-	if result != 0 {
-		logger.Warn(ctx, "sc delete returned non-zero exit code")
-	}
-
-	// Remove config file
 	configFile := pm.configFile(server)
 	if err := os.Remove(configFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		logger.WithError(ctx, err).Warn("failed to remove service config file")
@@ -105,30 +89,42 @@ func (pm *Shawl) Start(ctx context.Context, server *domain.Server, out io.Writer
 		}
 	}
 
-	// Ensure service exists and config is up to date
-	_, err := pm.makeService(ctx, server, out)
-	if err != nil {
+	if _, err := pm.makeService(ctx, server, out); err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to make service")
 	}
 
 	serviceName := pm.serviceName(server)
 	_, _ = out.Write([]byte("Starting service " + serviceName + "\n"))
 
-	result, err := pm.executor.ExecWithWriter(
-		ctx,
-		fmt.Sprintf("sc start %s", serviceName),
-		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
-	)
+	err := startService(serviceName)
+
+	if isServiceErrno(err, windows.ERROR_SERVICE_ALREADY_RUNNING) {
+		_, _ = out.Write([]byte("Service is already running\n"))
+
+		return domain.SuccessResult, nil
+	}
+
+	// A password that changed in the daemon config alone does not change the service
+	// fingerprint, so the service still carries the old credentials. Registering it again with
+	// the current ones is the only way to tell a rotated password from a wrong one.
+	if isServiceErrno(err, windows.ERROR_SERVICE_LOGON_FAILED) {
+		_, _ = out.Write([]byte("Service credentials were rejected, registering the service again\n"))
+
+		if recreateErr := pm.recreateService(ctx, server, out); recreateErr != nil {
+			return domain.ErrorResult, errors.WithMessage(recreateErr, "failed to recreate service")
+		}
+
+		err = startService(serviceName)
+	}
+
 	if err != nil {
+		writeServiceError(out, err, pm.accountHintFor(server), pm.logDir())
+
 		return domain.ErrorResult, errors.WithMessage(err, "failed to start service")
 	}
 
-	// sc start returns 0 on success
-	if result != 0 {
-		return domain.ErrorResult, errors.New("failed to start service")
+	if err := pm.waitForServiceRunning(ctx, server, out); err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to wait for service to start")
 	}
 
 	return domain.SuccessResult, nil
@@ -138,59 +134,32 @@ func (pm *Shawl) Stop(ctx context.Context, server *domain.Server, out io.Writer)
 	serviceName := pm.serviceName(server)
 	_, _ = out.Write([]byte("Stopping service " + serviceName + "\n"))
 
-	result, err := pm.executor.ExecWithWriter(
-		ctx,
-		fmt.Sprintf("sc stop %s", serviceName),
-		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
-	)
-	if err != nil {
+	err := stopService(serviceName)
+
+	switch {
+	case errors.Is(err, ErrServiceNotFound):
+		_, _ = out.Write([]byte("Service is not registered\n"))
+
+		return domain.SuccessResult, nil
+	case isServiceErrno(err, windows.ERROR_SERVICE_NOT_ACTIVE):
+		_, _ = out.Write([]byte("Service is already stopped\n"))
+
+		return domain.SuccessResult, nil
+	case err != nil:
+		writeServiceError(out, err, pm.accountHintFor(server), pm.logDir())
+
 		return domain.ErrorResult, errors.WithMessage(err, "failed to stop service")
 	}
 
-	// sc stop returns 0 on success (or if already stopped in some cases)
-	if result != 0 {
-		// Check if service is already stopped
-		status, _ := pm.Status(ctx, server, io.Discard)
-		if status == domain.ErrorResult {
-			// Service is not running, that's fine
-			return domain.SuccessResult, nil
-		}
-		return domain.ErrorResult, errors.New("failed to stop service")
-	}
-
-	// Wait for service to stop
 	_, _ = out.Write([]byte("Waiting for service to stop...\n"))
-	if err := pm.waitForServiceStopped(ctx, server); err != nil {
+
+	if err := pm.waitForServiceState(ctx, serviceName, svc.Stopped, stopTimeout); err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to wait for service to stop")
 	}
 
 	_, _ = out.Write([]byte("Service stopped\n"))
+
 	return domain.SuccessResult, nil
-}
-
-func (pm *Shawl) waitForServiceStopped(ctx context.Context, server *domain.Server) error {
-	ticker := time.NewTicker(stopTickerInterval)
-	defer ticker.Stop()
-
-	timeout := time.After(stopTimeout)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeout:
-			return errors.New("timeout waiting for service to stop")
-		case <-ticker.C:
-			status, _ := pm.Status(ctx, server, io.Discard)
-			if status == domain.ErrorResult {
-				// Service is not running (stopped)
-				return nil
-			}
-		}
-	}
 }
 
 func (pm *Shawl) Restart(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
@@ -205,54 +174,22 @@ func (pm *Shawl) Restart(ctx context.Context, server *domain.Server, out io.Writ
 func (pm *Shawl) Status(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	serviceName := pm.serviceName(server)
 
-	// Check if config file exists
-	if _, err := os.Stat(pm.configFile(server)); err != nil {
-		logger.Debug(ctx, "Service config file not found")
+	status, err := queryService(serviceName)
+	if errors.Is(err, ErrServiceNotFound) {
+		logger.Debug(ctx, "Service "+serviceName+" is not registered")
+		_, _ = out.Write([]byte("Service " + serviceName + " is not registered\n"))
+
 		return domain.ErrorResult, nil
 	}
-
-	result, err := pm.executor.ExecWithWriter(
-		ctx,
-		fmt.Sprintf("sc query %s", serviceName),
-		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
-	)
 	if err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to query service status")
+		return domain.ErrorResult, errors.WithMessage(err, "failed to query service status")
 	}
 
-	// sc query returns 0 if service exists
-	// We need to parse output to check if RUNNING
-	if result != 0 {
-		// Service doesn't exist
-		return domain.ErrorResult, nil
-	}
+	_, _ = out.Write([]byte(
+		"Service " + serviceName + " state: " + serviceStateName(uint32(status.State)) + "\n",
+	))
 
-	// For a more accurate check, we'd need to parse the output
-	// But since we're writing to out, we can use a buffer to check
-	return pm.checkServiceRunning(ctx, server)
-}
-
-func (pm *Shawl) checkServiceRunning(ctx context.Context, server *domain.Server) (domain.Result, error) {
-	serviceName := pm.serviceName(server)
-
-	var output strings.Builder
-	_, err := pm.executor.ExecWithWriter(
-		ctx,
-		fmt.Sprintf("sc query %s", serviceName),
-		&output,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
-	)
-	if err != nil {
-		return domain.ErrorResult, nil
-	}
-
-	// Check if output contains "RUNNING"
-	if strings.Contains(output.String(), "RUNNING") {
+	if status.State == svc.Running {
 		return domain.SuccessResult, nil
 	}
 
@@ -265,73 +202,44 @@ func (pm *Shawl) GetOutput(ctx context.Context, server *domain.Server, out io.Wr
 	f, err := os.Open(logFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			_, _ = out.Write([]byte(fmt.Sprintf("Log file %s does not exist\n", logFile)))
+			_, _ = out.Write([]byte("Log file " + logFile + " does not exist\n"))
+
 			return domain.SuccessResult, nil
 		}
-		return domain.ErrorResult, errors.WithMessage(err, "failed to open log file")
+
+		return domain.ErrorResult, errors.Wrap(err, "failed to open log file")
 	}
 	defer func() {
 		if err := f.Close(); err != nil {
-			logger.Warn(ctx, errors.WithMessage(err, "failed to close log file"))
+			logger.Warn(ctx, errors.Wrap(err, "failed to close log file"))
 		}
 	}()
 
 	stat, err := f.Stat()
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to get file stat")
+		return domain.ErrorResult, errors.Wrap(err, "failed to get file stat")
 	}
 
 	if stat.Size() > shawlOutputSizeLimit {
 		_, err = f.Seek(-shawlOutputSizeLimit, io.SeekEnd)
 		if err != nil {
-			return domain.ErrorResult, errors.WithMessage(err, "failed to seek file")
+			return domain.ErrorResult, errors.Wrap(err, "failed to seek file")
 		}
 	}
 
-	// Parse shawl log format and extract message content
-	// Format: 2025-11-29 00:07:35 [DEBUG] stdout: "message"
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
-		msg := parseShawlLogLine(line)
+		msg := parseShawlLogLine(scanner.Text())
 		if msg != "" {
 			_, _ = out.Write([]byte(msg + "\n"))
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to read log file")
+		return domain.ErrorResult, errors.Wrap(err, "failed to read log file")
 	}
 
 	return domain.SuccessResult, nil
-}
-
-// parseShawlLogLine extracts the message content from a shawl log line.
-// Input format: 2025-11-29 00:07:35 [DEBUG] stdout: "message"
-// Output: message
-func parseShawlLogLine(line string) string {
-	// Find the position after the log level bracket, e.g., after "[DEBUG] "
-	bracketEnd := strings.Index(line, "] ")
-	if bracketEnd == -1 {
-		return line
-	}
-
-	rest := line[bracketEnd+2:]
-
-	// Find the colon after stdout/stderr
-	colonPos := strings.Index(rest, ": ")
-	if colonPos == -1 {
-		return rest
-	}
-
-	msg := rest[colonPos+2:]
-
-	// Remove surrounding quotes if present
-	if len(msg) >= 2 && msg[0] == '"' && msg[len(msg)-1] == '"' {
-		msg = msg[1 : len(msg)-1]
-	}
-
-	return msg
 }
 
 func (pm *Shawl) SendInput(
@@ -340,250 +248,481 @@ func (pm *Shawl) SendInput(
 	return domain.ErrorResult, errors.New("input is not supported on Windows")
 }
 
-func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.Writer) (bool, error) {
-	serviceName := pm.serviceName(server)
-	configFile := pm.configFile(server)
+// shawlServicePlan is the service a server should have: everything needed to register it, plus
+// the marker file that records it.
+type shawlServicePlan struct {
+	serviceName string
+	account     string
+	password    string
+	executable  string
+	arguments   []string
+	binaryPath  string
+	config      string
+}
 
-	// Ensure services directory exists
-	if _, err := os.Stat(shawlServicesConfigPath); errors.Is(err, os.ErrNotExist) {
-		_, _ = out.Write([]byte("Creating directory " + shawlServicesConfigPath + "\n"))
-		if err := os.MkdirAll(shawlServicesConfigPath, 0755); err != nil {
-			return false, errors.WithMessage(err, "failed to create services directory")
+func (pm *Shawl) buildServicePlan(server *domain.Server) (shawlServicePlan, error) {
+	serviceName := pm.serviceName(server)
+
+	shawlPath, err := exec.LookPath("shawl")
+	if err != nil {
+		return shawlServicePlan{}, errors.Wrap(err, "failed to find shawl executable in PATH")
+	}
+
+	cmdArr, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	if err != nil {
+		return shawlServicePlan{}, errors.WithMessage(err, "failed to build command")
+	}
+
+	arguments, err := buildShawlRunArgs(serviceName, server.WorkDir(pm.cfg), pm.logDir(), cmdArr)
+	if err != nil {
+		return shawlServicePlan{}, errors.WithMessage(err, "failed to build shawl arguments")
+	}
+
+	command := domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	if command == "" {
+		return shawlServicePlan{}, ErrEmptyCommand
+	}
+
+	account := oscore.WindowsNetworkServiceAccount
+	password := ""
+
+	if !pm.cfg.UseNetworkServiceUser {
+		account = server.User()
+
+		password, err = pm.userPassword(server)
+		if err != nil {
+			return shawlServicePlan{}, err
 		}
 	}
 
-	// Build the new service configuration
-	serviceConfig, err := pm.buildServiceConfig(server)
+	plan := shawlServicePlan{
+		serviceName: serviceName,
+		account:     oscore.NormalizeWindowsServiceAccount(account),
+		password:    password,
+		executable:  shawlPath,
+		arguments:   arguments,
+		binaryPath:  expectedBinaryPathName(shawlPath, arguments),
+	}
+
+	plan.config = shawlServiceFingerprint{
+		ServiceName:        serviceName,
+		Account:            plan.account,
+		NetworkServiceUser: pm.cfg.UseNetworkServiceUser,
+		WorkDir:            server.WorkDir(pm.cfg),
+		BinaryPathName:     plan.binaryPath,
+		Command:            command,
+	}.String()
+
+	return plan, nil
+}
+
+func (pm *Shawl) userPassword(server *domain.Server) (string, error) {
+	rawPw, exists := pm.cfg.Users[server.User()]
+	if !exists {
+		return "", ErrUserNotFound
+	}
+
+	if rawPw == "" {
+		return "", ErrInvalidUserPassword
+	}
+
+	if after, found := strings.CutPrefix(rawPw, "base64:"); found {
+		pw, err := base64.StdEncoding.DecodeString(after)
+		if err != nil {
+			return "", errors.Wrap(err, "failed to decode base64 password")
+		}
+
+		return string(pw), nil
+	}
+
+	return rawPw, nil
+}
+
+// makeService registers the service if it is missing, and registers it again whenever the
+// service the system actually has drifted from the one the config describes.
+func (pm *Shawl) makeService(ctx context.Context, server *domain.Server, out io.Writer) (bool, error) {
+	if err := pm.ensureDirs(out); err != nil {
+		return false, err
+	}
+
+	plan, err := pm.buildServicePlan(server)
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to build service config")
 	}
 
-	// Check if config file exists and compare
-	configExists := false
-	if _, err := os.Stat(configFile); err == nil {
-		configExists = true
-		oldConfig, err := os.ReadFile(configFile)
-		if err != nil {
-			return false, errors.WithMessage(err, "failed to read existing config")
-		}
-
-		if string(oldConfig) == serviceConfig {
-			_, _ = out.Write([]byte("Service configuration unchanged\n"))
-			return false, nil
-		}
-
-		_, _ = out.Write([]byte("Service configuration changed, recreating service\n"))
-
-		// Delete existing service before recreating
-		_, _ = pm.executor.ExecWithWriter(
-			ctx,
-			fmt.Sprintf("sc stop %s", serviceName),
-			out,
-			contracts.ExecutorOptions{WorkDir: pm.cfg.WorkDir()},
-		)
-		_, _ = pm.executor.ExecWithWriter(
-			ctx,
-			fmt.Sprintf("sc delete %s", serviceName),
-			out,
-			contracts.ExecutorOptions{WorkDir: pm.cfg.WorkDir()},
-		)
+	if err := pm.grantLogDirAccess(ctx, plan.account); err != nil {
+		return false, err
 	}
 
-	// Find shawl executable
-	shawlPath, err := exec.LookPath("shawl")
+	installed, err := serviceInstalled(plan.serviceName)
 	if err != nil {
-		return false, errors.WithMessage(err, "failed to find shawl executable in PATH")
+		return false, errors.WithMessage(err, "failed to check whether the service is registered")
 	}
 
-	// Build shawl arguments
-	shawlArgs, err := pm.buildShawlArgs(server)
+	reason, err := pm.serviceDrift(plan, installed)
 	if err != nil {
-		return false, errors.WithMessage(err, "failed to build shawl arguments")
+		return false, err
 	}
 
-	binPath := shellquote.WindowsArgToString(shawlPath) + " " + shellquote.WindowsJoin(shawlArgs...)
-
-	// Build the `sc create` argument vector directly. Passing a vector keeps
-	// sc.exe's own arguments quoted by the OS exec layer (so obj= and the binPath
-	// value — which carries the whole shawl+game command line — stay intact), and
-	// avoids the string executor re-tokenizing and doubling backslashes.
-	var scArgs []string
-	if pm.cfg.UseNetworkServiceUser {
-		// Grant Modify permissions to NETWORK SERVICE for the server working directory
-		workDir := server.WorkDir(pm.cfg)
-		_, _ = out.Write([]byte("Granting permissions to NETWORK SERVICE for " + workDir + "\n"))
-		if err := oscore.Grant(ctx, workDir, `NT AUTHORITY\NETWORK SERVICE`, oscore.GrantFlagModify); err != nil {
-			return false, errors.WithMessage(err, "failed to grant permissions to NETWORK SERVICE")
+	if reason == "" {
+		// The registered service is already the one the config describes, so the marker file is
+		// brought up to date on its own. Registering the service again would stop a running
+		// game server for nothing.
+		if err := pm.syncConfigFile(server, plan); err != nil {
+			return false, err
 		}
 
-		accountName, err := networkServiceAccountName()
-		if err != nil {
-			return false, errors.WithMessage(err, "failed to resolve NETWORK SERVICE account name")
-		}
-		_, _ = out.Write([]byte("Using service account: " + accountName + "\n"))
+		_, _ = out.Write([]byte("Service configuration unchanged\n"))
 
-		// The NETWORK SERVICE account has no password
-		scArgs = []string{
-			"sc", "create", serviceName,
-			"start=auto",
-			"obj=" + accountName,
-			"binPath=" + binPath,
-		}
-	} else {
-		// Get user credentials from config
-		rawPw, exists := pm.cfg.Users[server.User()]
-		if !exists {
-			return false, ErrUserNotFound
-		}
-		if rawPw == "" {
-			return false, ErrInvalidUserPassword
-		}
+		return false, nil
+	}
 
-		var password string
-		switch {
-		case strings.HasPrefix(rawPw, "base64:"):
-			pw, err := base64.StdEncoding.DecodeString(rawPw[7:])
-			if err != nil {
-				return false, errors.WithMessage(err, "failed to decode base64 password")
+	_, _ = out.Write([]byte("Registering service " + plan.serviceName + ": " + reason + "\n"))
+
+	if err := pm.createServiceFromPlan(ctx, server, plan, installed, out); err != nil {
+		return false, err
+	}
+
+	return !installed, nil
+}
+
+// serviceDrift explains why the service has to be registered again, or returns an empty string
+// when the system already has the service the config describes.
+//
+// The registered service is the authority, never the marker file: the marker is what some
+// earlier daemon wrote, and it says nothing about a service that was removed or reconfigured
+// behind the daemon's back. The account and the command line together cover everything that
+// makes a service the wrong one, so a stale marker beside a correct service is not a reason to
+// stop a running game server.
+func (pm *Shawl) serviceDrift(plan shawlServicePlan, installed bool) (string, error) {
+	if !installed {
+		return "service is not registered", nil
+	}
+
+	config, err := readServiceConfig(plan.serviceName)
+	if errors.Is(err, ErrServiceNotFound) {
+		return "service is not registered", nil
+	}
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to read service configuration")
+	}
+
+	if !sameServiceAccount(config.ServiceStartName, plan.account) {
+		return "registered for account " + quoteName(config.ServiceStartName) +
+			" instead of " + quoteName(plan.account), nil
+	}
+
+	if config.BinaryPathName != plan.binaryPath {
+		return "registered with a different command line", nil
+	}
+
+	return "", nil
+}
+
+// syncConfigFile records the plan next to the service. The file is what an operator reads to
+// see how a service was set up; the daemon itself compares against the service control manager.
+func (pm *Shawl) syncConfigFile(server *domain.Server, plan shawlServicePlan) error {
+	configFile := pm.configFile(server)
+
+	stored, err := os.ReadFile(configFile)
+	if err == nil && string(stored) == plan.config {
+		return nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.Wrap(err, "failed to read existing service config")
+	}
+
+	if err := os.WriteFile(configFile, []byte(plan.config), 0600); err != nil {
+		return errors.Wrap(err, "failed to write config file")
+	}
+
+	return nil
+}
+
+func (pm *Shawl) createServiceFromPlan(
+	ctx context.Context, server *domain.Server, plan shawlServicePlan, installed bool, out io.Writer,
+) error {
+	if installed {
+		pm.removeService(ctx, plan.serviceName, out)
+	}
+
+	if err := pm.grantWorkDirAccess(ctx, server, plan.account, out); err != nil {
+		return err
+	}
+
+	_, _ = out.Write([]byte(
+		"Creating service " + plan.serviceName + " for account " + plan.account + "\n",
+	))
+	_, _ = out.Write([]byte("Service executable: " + plan.executable + "\n"))
+
+	// The command line embeds the whole game command, which may carry credentials passed as
+	// arguments, so it stays in the local daemon log. The account password never appears in it:
+	// it is handed straight to the service control manager.
+	logger.Debug(ctx, "Service command line: "+plan.binaryPath)
+
+	err := createService(serviceSpec{
+		Name:     plan.serviceName,
+		ExePath:  plan.executable,
+		Args:     plan.arguments,
+		Account:  plan.account,
+		Password: plan.password,
+	})
+	if err != nil {
+		writeServiceError(out, err, plan.account, pm.logDir())
+
+		return errors.WithMessage(err, "failed to create service")
+	}
+
+	return pm.syncConfigFile(server, plan)
+}
+
+// recreateService registers the service again from the current config, ignoring the marker file.
+func (pm *Shawl) recreateService(ctx context.Context, server *domain.Server, out io.Writer) error {
+	plan, err := pm.buildServicePlan(server)
+	if err != nil {
+		return errors.WithMessage(err, "failed to build service config")
+	}
+
+	installed, err := serviceInstalled(plan.serviceName)
+	if err != nil {
+		return errors.WithMessage(err, "failed to check whether the service is registered")
+	}
+
+	return pm.createServiceFromPlan(ctx, server, plan, installed, out)
+}
+
+// grantWorkDirAccess lets the service account reach the game server files. It walks the whole
+// server directory, so it runs only when the service is registered.
+func (pm *Shawl) grantWorkDirAccess(ctx context.Context, server *domain.Server, account string, out io.Writer) error {
+	workDir := server.WorkDir(pm.cfg)
+
+	_, _ = out.Write([]byte("Granting permissions to " + account + " for " + workDir + "\n"))
+
+	if err := oscore.Grant(ctx, workDir, account, oscore.GrantFlagModify); err != nil {
+		return errors.WithMessagef(err, "failed to grant permissions to %s for %s", account, workDir)
+	}
+
+	return nil
+}
+
+// grantLogDirAccess lets the service account write the shawl log. Without it the supervisor
+// cannot open its log file and the service dies during startup, which the service control
+// manager reports as an opaque start failure.
+//
+// This runs on every start rather than only when the service is registered: an installation
+// whose service is otherwise correct may still be missing the grant, and the log directory
+// holds few enough files for the walk to be cheap.
+func (pm *Shawl) grantLogDirAccess(ctx context.Context, account string) error {
+	logDir := pm.logDir()
+
+	if err := oscore.Grant(ctx, logDir, account, oscore.GrantFlagModify); err != nil {
+		return errors.WithMessagef(err, "failed to grant permissions to %s for %s", account, logDir)
+	}
+
+	return nil
+}
+
+func (pm *Shawl) removeService(ctx context.Context, serviceName string, out io.Writer) {
+	if err := stopService(serviceName); err != nil &&
+		!errors.Is(err, ErrServiceNotFound) &&
+		!isServiceErrno(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
+		logger.WithError(ctx, err).Warn("failed to stop service before registering it again")
+	}
+
+	if err := pm.waitForServiceState(ctx, serviceName, svc.Stopped, stopTimeout); err != nil {
+		logger.WithError(ctx, err).Warn("failed to wait for service to stop before registering it again")
+	}
+
+	if err := deleteService(serviceName); err != nil && !errors.Is(err, ErrServiceNotFound) {
+		logger.WithError(ctx, err).Warn("failed to delete service before registering it again")
+	}
+
+	// DeleteService only marks the service for deletion while a handle to it is still open, and
+	// creating it again before it is gone fails with ERROR_SERVICE_MARKED_FOR_DELETE.
+	if err := pm.waitForServiceRemoved(ctx, serviceName); err != nil {
+		logger.WithError(ctx, err).Warn("failed to wait for service removal")
+	}
+
+	_, _ = out.Write([]byte("Removed service " + serviceName + "\n"))
+}
+
+func (pm *Shawl) waitForServiceState(
+	ctx context.Context, serviceName string, want svc.State, timeout time.Duration,
+) error {
+	ticker := time.NewTicker(stateTickerInterval)
+	defer ticker.Stop()
+
+	deadline := time.After(timeout)
+
+	var last svc.State
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return errors.WithMessagef(
+				ErrServiceStateTimeout,
+				"service %q is %s, expected %s",
+				serviceName, serviceStateName(uint32(last)), serviceStateName(uint32(want)),
+			)
+		case <-ticker.C:
+			status, err := queryService(serviceName)
+			if errors.Is(err, ErrServiceNotFound) {
+				if want == svc.Stopped {
+					return nil
+				}
+
+				return err
 			}
-			password = string(pw)
-		default:
-			password = rawPw
+			if err != nil {
+				return err
+			}
+
+			last = status.State
+
+			if status.State == want {
+				return nil
+			}
+
+			if want == svc.Running && status.State == svc.Stopped {
+				return errors.WithMessagef(
+					ErrServiceStoppedOnStart,
+					"service %q, Win32 exit code %d, service exit code %d",
+					serviceName, status.Win32ExitCode, status.ServiceSpecificExitCode,
+				)
+			}
 		}
+	}
+}
 
-		scArgs = []string{
-			"sc", "create", serviceName,
-			"start=auto",
-			"obj=" + server.User(),
-			"password=" + password,
-			"binPath=" + binPath,
+func (pm *Shawl) waitForServiceRemoved(ctx context.Context, serviceName string) error {
+	ticker := time.NewTicker(stateTickerInterval)
+	defer ticker.Stop()
+
+	deadline := time.After(deleteTimeout)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return errors.WithMessagef(ErrServiceStateTimeout, "service %q was not removed", serviceName)
+		case <-ticker.C:
+			installed, err := serviceInstalled(serviceName)
+			if err != nil {
+				return err
+			}
+
+			if !installed {
+				return nil
+			}
 		}
 	}
-
-	_, _ = out.Write([]byte("Creating service " + serviceName + "\n"))
-	_, _ = out.Write([]byte("Service executable: " + shawlPath + "\n"))
-
-	// The service config and binPath embed the whole game command line, which may
-	// carry credentials passed as arguments. Task output is streamed to the panel,
-	// so both stay in the local daemon log only.
-	logger.Debug(ctx, "Service configuration: "+serviceConfig)
-	logger.Debug(ctx, "Service binPath: "+binPath)
-
-	result, err := pm.executor.ExecWithWriterArgs(
-		ctx,
-		scArgs,
-		out,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
-	)
-	if err != nil {
-		return false, errors.WithMessage(err, "failed to create service")
-	}
-
-	if result != 0 {
-		return false, errors.New("sc create returned non-zero exit code")
-	}
-
-	// Save the configuration file
-	if err := os.WriteFile(configFile, []byte(serviceConfig), 0644); err != nil {
-		return false, errors.WithMessage(err, "failed to write config file")
-	}
-
-	return !configExists, nil
 }
 
-// networkServiceAccountName resolves the well-known NETWORK SERVICE SID (S-1-5-20) to its
-// locale-specific account name. sc.exe's obj= parameter needs a resolvable account name and
-// rejects a raw SID, so the hard-coded English "NT AUTHORITY\NETWORK SERVICE" fails on
-// non-English Windows.
-func networkServiceAccountName() (string, error) {
-	sid, err := windows.CreateWellKnownSid(windows.WinNetworkServiceSid)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to create NETWORK SERVICE well-known SID")
-	}
-
-	account, domainName, _, err := sid.LookupAccount("")
-	if err != nil {
-		return "", errors.Wrap(err, "failed to look up NETWORK SERVICE account name")
-	}
-
-	if domainName == "" {
-		return account, nil
-	}
-
-	return domainName + `\` + account, nil
-}
-
-func (pm *Shawl) buildServiceConfig(server *domain.Server) (string, error) {
-	cmd := domain.MakeFullCommand(
-		pm.cfg,
-		server,
-		pm.cfg.Scripts.Start,
-		server.StartCommand(),
-	)
-
-	if cmd == "" {
-		return "", ErrEmptyCommand
-	}
-
-	// Build a simple config string for comparison purposes
-	// Format: command|workdir|user
-	serviceConfigContent := fmt.Sprintf(
-		"command=%s\nworkdir=%s\nuser=%s\n",
-		cmd,
-		server.WorkDir(pm.cfg),
-		server.User(),
-	)
-
-	return serviceConfigContent, nil
-}
-
-func (pm *Shawl) buildShawlArgs(server *domain.Server) ([]string, error) {
+// waitForServiceRunning turns "the service control manager accepted the start request" into
+// "the service is running". A service that dies on startup would otherwise be reported as
+// started. Note that shawl restarts the game process itself, so a running service proves the
+// supervisor came up, not that the game stayed up; the log tail covers the rest.
+func (pm *Shawl) waitForServiceRunning(ctx context.Context, server *domain.Server, out io.Writer) error {
 	serviceName := pm.serviceName(server)
 
-	cmdArr, err := domain.BuildCommandArgs(
-		pm.cfg,
-		server,
-		pm.cfg.Scripts.Start,
-		server.StartCommand(),
-	)
+	err := pm.waitForServiceState(ctx, serviceName, svc.Running, startTimeout)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to build command")
+		if errors.Is(err, ErrServiceStoppedOnStart) {
+			_, _ = out.Write([]byte("Service " + serviceName + " stopped immediately after start\n"))
+			pm.writeLogTail(out, server)
+		}
+
+		return err
 	}
 
-	if len(cmdArr) == 0 {
-		return nil, ErrEmptyCommand
+	_, _ = out.Write([]byte("Service " + serviceName + " is running\n"))
+
+	return nil
+}
+
+func (pm *Shawl) writeLogTail(out io.Writer, server *domain.Server) {
+	f, err := os.Open(pm.logPath(server))
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	lines := make([]string, 0, shawlLogTailLines)
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		msg := parseShawlLogLine(scanner.Text())
+		if msg == "" {
+			continue
+		}
+
+		if len(lines) == shawlLogTailLines {
+			lines = lines[1:]
+		}
+
+		lines = append(lines, msg)
 	}
 
-	executable := cmdArr[0]
-	var cmdArgs []string
-
-	if filepath.Ext(executable) == ".bat" {
-		executable = "cmd.exe"
-		cmdArgs = append(cmdArgs, "/c", cmdArr[0])
-		cmdArgs = append(cmdArgs, cmdArr[1:]...)
-	} else {
-		cmdArgs = cmdArr[1:]
+	if len(lines) == 0 {
+		return
 	}
 
-	args := []string{
-		"run",
-		"--name", serviceName,
-		"--restart",
-		"--stop-timeout", shawlStopTimeout,
-		"--cwd", server.WorkDir(pm.cfg),
-		"--log-dir", filepath.Join(shawlServicesConfigPath, "logs"),
-		"--log-as", serviceName + ".log",
-		"--log-rotate", shawlLogRotate,
-		"--log-retain", shawlLogRetain,
-		"--",
-		executable,
+	_, _ = out.Write([]byte("Last lines of the service log:\n"))
+
+	for _, line := range lines {
+		_, _ = out.Write([]byte(line + "\n"))
+	}
+}
+
+// writeServiceError reports a failed service operation. The numeric code and its symbol are
+// locale-invariant; the sentence the OS formats for the code is not, so it is printed as
+// supporting detail rather than as the diagnosis.
+func writeServiceError(out io.Writer, err error, account, logDir string) {
+	code, ok := serviceErrorCode(err)
+	if !ok {
+		_, _ = out.Write([]byte("[SCM] " + err.Error() + "\n"))
+
+		return
 	}
 
-	args = append(args, cmdArgs...)
+	line := "[SCM] " + strconv.FormatUint(uint64(code), 10)
+	if symbol := serviceErrorSymbol(code); symbol != "" {
+		line += " " + symbol
+	}
 
-	return args, nil
+	_, _ = out.Write([]byte(line + "\n"))
+	_, _ = out.Write([]byte("[SCM] " + err.Error() + "\n"))
+
+	if hint := serviceErrorHint(code, account, logDir); hint != "" {
+		_, _ = out.Write([]byte("Hint: " + hint + "\n"))
+	}
+}
+
+func (pm *Shawl) accountHintFor(server *domain.Server) string {
+	if pm.cfg.UseNetworkServiceUser {
+		return oscore.WindowsNetworkServiceAccount
+	}
+
+	return server.User()
+}
+
+func (pm *Shawl) ensureDirs(out io.Writer) error {
+	for _, dir := range []string{shawlServicesConfigPath, pm.logDir()} {
+		if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+			_, _ = out.Write([]byte("Creating directory " + dir + "\n"))
+
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return errors.Wrapf(err, "failed to create directory %s", dir)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (pm *Shawl) serviceName(server *domain.Server) string {
@@ -594,23 +733,12 @@ func (pm *Shawl) configFile(server *domain.Server) string {
 	return filepath.Join(shawlServicesConfigPath, pm.serviceName(server)+".yaml")
 }
 
-func (pm *Shawl) logPath(server *domain.Server) string {
-	return filepath.Join(shawlServicesConfigPath, "logs", pm.serviceName(server)+".log_rCURRENT.log")
+func (pm *Shawl) logDir() string {
+	return filepath.Join(shawlServicesConfigPath, "logs")
 }
 
-func (pm *Shawl) serviceExists(ctx context.Context, server *domain.Server) bool {
-	serviceName := pm.serviceName(server)
-
-	result, _ := pm.executor.ExecWithWriter(
-		ctx,
-		fmt.Sprintf("sc query %s", serviceName),
-		io.Discard,
-		contracts.ExecutorOptions{
-			WorkDir: pm.cfg.WorkDir(),
-		},
-	)
-
-	return result == 0
+func (pm *Shawl) logPath(server *domain.Server) string {
+	return filepath.Join(pm.logDir(), pm.serviceName(server)+".log_rCURRENT.log")
 }
 
 func (pm *Shawl) Attach(

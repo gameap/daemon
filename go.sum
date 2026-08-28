@@ -121,8 +121,8 @@ github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeO
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
 github.com/gameap/gameap v0.0.0-20260729224522-5d77d14698ba h1:k0YCLSokN2HoPl0oykGuCpr0NHfgZ1Z9fCha3cLbafA=
 github.com/gameap/gameap v0.0.0-20260729224522-5d77d14698ba/go.mod h1:rjxnoVnZz9li4bqIuZMYVgxOEAa7vBPOatslu1FMoW4=
-github.com/gameap/gameapctl v0.30.1 h1:l8Txr1u+RLBVJvceZSucdcriUvcd8IYUbURTlQLB/+8=
-github.com/gameap/gameapctl v0.30.1/go.mod h1:GEUPbmHDrnFYxVUqN3FpE7afnrEQkjtdrlK96ENeHkE=
+github.com/gameap/gameapctl v0.32.1 h1:yU3HRgfw1K6+GKbq357wuHHPUsv4vI9wira/I5lmdgk=
+github.com/gameap/gameapctl v0.32.1/go.mod h1:GEUPbmHDrnFYxVUqN3FpE7afnrEQkjtdrlK96ENeHkE=
 github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz3kA=
 github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
