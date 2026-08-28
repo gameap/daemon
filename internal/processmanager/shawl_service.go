@@ -36,8 +36,10 @@ func newShawlLogScanner(r io.Reader) *bufio.Scanner {
 // readShawlLogTail returns the last limit parsed messages from r, oldest first.
 //
 // The messages are kept in a fixed window whose oldest entry is overwritten where it sits, so
-// reading a long log does not reallocate once per line.
-func readShawlLogTail(r io.Reader, limit int) ([]string, error) {
+// reading a long log does not reallocate once per line. Set skipPartialLine when r starts at a
+// byte offset rather than at the beginning of the file: the bytes before the first newline are
+// then the tail of an entry whose beginning is gone, not an entry of their own.
+func readShawlLogTail(r io.Reader, limit int, skipPartialLine bool) ([]string, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -46,6 +48,11 @@ func readShawlLogTail(r io.Reader, limit int) ([]string, error) {
 	count := 0
 
 	scanner := newShawlLogScanner(r)
+
+	if skipPartialLine {
+		scanner.Scan()
+	}
+
 	for scanner.Scan() {
 		msg := parseShawlLogLine(scanner.Text())
 		if msg == "" {

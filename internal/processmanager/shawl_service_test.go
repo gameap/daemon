@@ -299,7 +299,7 @@ func TestReadShawlLogTail(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := readShawlLogTail(strings.NewReader(shawlLogLines(tt.messages...)), tt.limit)
+			got, err := readShawlLogTail(strings.NewReader(shawlLogLines(tt.messages...)), tt.limit, false)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, got)
@@ -310,14 +310,14 @@ func TestReadShawlLogTail(t *testing.T) {
 func TestReadShawlLogTail_SkipsEmptyMessages(t *testing.T) {
 	log := shawlLogLines("a") + "\n" + shawlLogLines("b")
 
-	got, err := readShawlLogTail(strings.NewReader(log), 5)
+	got, err := readShawlLogTail(strings.NewReader(log), 5, false)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a", "b"}, got)
 }
 
 func TestReadShawlLogTail_NonPositiveLimit(t *testing.T) {
-	got, err := readShawlLogTail(strings.NewReader(shawlLogLines("a")), 0)
+	got, err := readShawlLogTail(strings.NewReader(shawlLogLines("a")), 0, false)
 
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -328,7 +328,7 @@ func TestReadShawlLogTail_ReadsLineLongerThanScannerDefault(t *testing.T) {
 	// everything after the long line.
 	long := strings.Repeat("x", 200*1024)
 
-	got, err := readShawlLogTail(strings.NewReader(shawlLogLines(long, "after")), 2)
+	got, err := readShawlLogTail(strings.NewReader(shawlLogLines(long, "after")), 2, false)
 
 	require.NoError(t, err)
 	require.Len(t, got, 2)
@@ -337,8 +337,39 @@ func TestReadShawlLogTail_ReadsLineLongerThanScannerDefault(t *testing.T) {
 }
 
 func TestReadShawlLogTail_ReportsLineOverTheHardLimit(t *testing.T) {
-	got, err := readShawlLogTail(strings.NewReader(strings.Repeat("x", shawlLogMaxLineSize+1)), 2)
+	got, err := readShawlLogTail(strings.NewReader(strings.Repeat("x", shawlLogMaxLineSize+1)), 2, false)
 
 	assert.ErrorIs(t, err, bufio.ErrTooLong)
 	assert.Nil(t, got)
+}
+
+func TestReadShawlLogTail_DropsLineSplitByTheReadBoundary(t *testing.T) {
+	// A read bounded to the last N bytes starts inside an entry. Its tail is not a log line and
+	// parsing it yields a fragment of one, so it must not reach the output.
+	full := shawlLogLines("first message", "second message", "third message")
+	boundary := strings.Index(full, "first message") + len("first ")
+
+	got, err := readShawlLogTail(strings.NewReader(full[boundary:]), 5, true)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"second message", "third message"}, got)
+}
+
+func TestReadShawlLogTail_KeepsFirstLineWhenNotSeeking(t *testing.T) {
+	full := shawlLogLines("first message", "second message")
+
+	got, err := readShawlLogTail(strings.NewReader(full), 5, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"first message", "second message"}, got)
+}
+
+func TestReadShawlLogTail_BoundaryInsideTheOnlyLine(t *testing.T) {
+	full := shawlLogLines("only message")
+	boundary := strings.Index(full, "only message") + len("only ")
+
+	got, err := readShawlLogTail(strings.NewReader(full[boundary:]), 5, true)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }

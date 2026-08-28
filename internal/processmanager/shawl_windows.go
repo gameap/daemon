@@ -214,19 +214,17 @@ func (pm *Shawl) GetOutput(ctx context.Context, server *domain.Server, out io.Wr
 		}
 	}()
 
-	stat, err := f.Stat()
+	truncated, err := seekLogTail(f)
 	if err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to get file stat")
-	}
-
-	if stat.Size() > shawlOutputSizeLimit {
-		_, err = f.Seek(-shawlOutputSizeLimit, io.SeekEnd)
-		if err != nil {
-			return domain.ErrorResult, errors.Wrap(err, "failed to seek file")
-		}
+		return domain.ErrorResult, err
 	}
 
 	scanner := newShawlLogScanner(f)
+
+	if truncated {
+		scanner.Scan()
+	}
+
 	for scanner.Scan() {
 		msg := parseShawlLogLine(scanner.Text())
 		if msg != "" {
@@ -642,6 +640,26 @@ func (pm *Shawl) waitForServiceRunning(ctx context.Context, server *domain.Serve
 	return nil
 }
 
+// seekLogTail positions f at the last shawlOutputSizeLimit bytes of the log. It reports whether
+// the file was long enough to be cut, in which case the read starts inside an entry whose
+// beginning is gone and the caller has to discard the fragment before the first newline.
+func seekLogTail(f *os.File) (bool, error) {
+	stat, err := f.Stat()
+	if err != nil {
+		return false, errors.Wrap(err, "failed to get file stat")
+	}
+
+	if stat.Size() <= shawlOutputSizeLimit {
+		return false, nil
+	}
+
+	if _, err := f.Seek(-shawlOutputSizeLimit, io.SeekEnd); err != nil {
+		return false, errors.Wrap(err, "failed to seek file")
+	}
+
+	return true, nil
+}
+
 func (pm *Shawl) writeLogTail(out io.Writer, server *domain.Server) {
 	f, err := os.Open(pm.logPath(server))
 	if err != nil {
@@ -653,18 +671,12 @@ func (pm *Shawl) writeLogTail(out io.Writer, server *domain.Server) {
 
 	// Only the end of the log can hold the lines that explain the failure, and the file grows
 	// until the daily rotation, so it is read from the same bound GetOutput uses.
-	stat, err := f.Stat()
+	truncated, err := seekLogTail(f)
 	if err != nil {
 		return
 	}
 
-	if stat.Size() > shawlOutputSizeLimit {
-		if _, err := f.Seek(-shawlOutputSizeLimit, io.SeekEnd); err != nil {
-			return
-		}
-	}
-
-	lines, err := readShawlLogTail(f, shawlLogTailLines)
+	lines, err := readShawlLogTail(f, shawlLogTailLines, truncated)
 	if err != nil || len(lines) == 0 {
 		return
 	}

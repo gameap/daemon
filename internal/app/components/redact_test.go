@@ -53,6 +53,21 @@ func TestRedactCommand(t *testing.T) {
 			expected: "mysql -u root -p ***",
 		},
 		{
+			name:     "sc_style_value_after_the_equals_sign",
+			input:    "sc create svc password= s3cret",
+			expected: "sc create svc password= ***",
+		},
+		{
+			name:     "sc_style_quoted_value_after_the_equals_sign",
+			input:    `sc create svc obj= gameap password= "my secret"`,
+			expected: "sc create svc obj= gameap password= ***",
+		},
+		{
+			name:     "equals_sign_at_end_of_line_is_left_alone",
+			input:    "password=\nnext line",
+			expected: "password=\nnext line",
+		},
+		{
 			name:     "quoted_assignment_with_spaces",
 			input:    `sc create svc password="my secret" binPath=shawl.exe`,
 			expected: "sc create svc password=*** binPath=shawl.exe",
@@ -111,6 +126,11 @@ func TestRedactArgs(t *testing.T) {
 			name:     "hyphenated_api_key_assignment",
 			input:    []string{"tool", "--api-key=abc"},
 			expected: []string{"tool", "--api-key=***"},
+		},
+		{
+			name:     "sc_style_bare_key_takes_the_next_argument",
+			input:    []string{"sc", "create", "svc", "password=", "s3cret", "binPath=", "shawl.exe"},
+			expected: []string{"sc", "create", "svc", "password=", "***", "binPath=", "shawl.exe"},
 		},
 		{
 			name:     "flag_at_end_has_no_value",
