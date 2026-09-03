@@ -18,10 +18,10 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485
 	github.com/hashicorp/go-getter v1.8.6
-	github.com/klauspost/compress v1.19.1
+	github.com/klauspost/compress v1.19.2
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.1
-	github.com/nwaples/rardecode/v2 v2.3.0
+	github.com/nwaples/rardecode/v2 v2.4.1
 	github.com/pkg/errors v0.9.1
 	github.com/rs/xid v1.6.0
 	github.com/shirou/gopsutil/v4 v4.26.6
