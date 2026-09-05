@@ -10,7 +10,6 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.26.x]
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -22,9 +21,10 @@ jobs:
           persist-credentials: false
 
       - name: Install Go
+        id: setup-go
         uses: actions/setup-go@v6
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version-file: go.mod
 
       - name: Set up dependencies
         run: go mod download
@@ -32,7 +32,10 @@ jobs:
       - name: Run govulncheck
         uses: golang/govulncheck-action@v1
         with:
-          go-version-input: ${{ matrix.go-version }}
+          # The action defaults go-version-input to "stable", and setup-go
+          # ignores go-version-file whenever a version is given as well.
+          go-version-input: ''
+          go-version-file: go.mod
           # The code is already checked out above; the action's own checkout
           # would only redo it and re-persist the credentials.
           repo-checkout: false
@@ -58,7 +61,7 @@ jobs:
         uses: shogo82148/actions-goveralls@v1
         with:
           path-to-profile: coverage.out
-          flag-name: Go-${{ matrix.go }}
+          flag-name: Go-${{ steps.setup-go.outputs.go-version }}
           parallel: true
 
   test-cache:
@@ -72,7 +75,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
+          go-version-file: go.mod
 
       - uses: actions/cache@v4
         with:
