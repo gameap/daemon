@@ -680,7 +680,21 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 
 	builder.WriteString("After=network.target\n")
 
-	builder.WriteString("Wants=network-online.target systemd-networkd-wait-online.service\n\n")
+	builder.WriteString("Wants=network-online.target systemd-networkd-wait-online.service\n")
+
+	// The start rate limit belongs to the unit, not the service: systemd ignores
+	// these two keys in [Service] and only warns about them in the journal.
+	//
+	// It is widened well past the default of 5 starts per 10s. A game server
+	// that crashes on a bad map or a bad config trips that default within
+	// seconds, after which the unit sits in failed and refuses every further
+	// start until something runs reset-failed.
+	if server.AutoStartSetting() {
+		builder.WriteString("StartLimitIntervalSec=" + strconv.Itoa(unitStartLimitInterval) + "\n")
+		builder.WriteString("StartLimitBurst=" + strconv.Itoa(unitStartLimitBurst) + "\n")
+	}
+
+	builder.WriteString("\n")
 
 	// [Service]
 	builder.WriteString("[Service]\n")
@@ -721,15 +735,10 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	// autostart_current and is 0 for the whole duration of a deliberate stop —
 	// reading it here would strip supervision from the unit on every stop.
 	//
-	// The start limit is widened well past the systemd default of 5 starts per
-	// 10s. A game server that crashes on a bad map or a bad config trips that
-	// default within seconds, and the unit then sits in failed until something
-	// runs reset-failed.
+	// The matching start limit is written into [Unit] above.
 	if server.AutoStartSetting() {
 		builder.WriteString("Restart=always\n")
 		builder.WriteString("RestartSec=" + strconv.Itoa(unitRestartSec) + "\n")
-		builder.WriteString("StartLimitIntervalSec=" + strconv.Itoa(unitStartLimitInterval) + "\n")
-		builder.WriteString("StartLimitBurst=" + strconv.Itoa(unitStartLimitBurst) + "\n")
 	} else {
 		builder.WriteString("Restart=no\n")
 	}

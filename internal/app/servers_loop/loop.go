@@ -33,6 +33,15 @@ const (
 	maxProbeInterval = 30 * time.Second
 	stableUptime     = 5 * time.Minute
 
+	// A probe always finishes some time after the tick that started it, so the
+	// gap measured at the next tick is a little short of a whole interval.
+	// Compared strictly, every threshold would fall just after a tick and the
+	// probe would slip to the one after it, halving the real cadence. The
+	// tolerance is half a tick, which is far more than a liveness check costs
+	// and still well short of the next tick, so no interval is ever doubled and
+	// none is ever probed twice.
+	probeIntervalTolerance = loopDuration / 2
+
 	// Restart backoff. Delays grow 5s, 15s, 45s, ... up to the cap, and reset
 	// once the server has stayed up for settleUptime.
 	initialRestartDelay = 5 * time.Second
@@ -193,10 +202,10 @@ func (l *ServersLoop) dueForProbe(server *domain.Server) bool {
 	now := l.now()
 
 	elapsed := now.Sub(server.LastStatusCheck())
-	if elapsed >= maxProbeInterval {
+	if elapsed >= maxProbeInterval-probeIntervalTolerance {
 		return true
 	}
-	if elapsed < minProbeInterval {
+	if elapsed < minProbeInterval-probeIntervalTolerance {
 		return false
 	}
 

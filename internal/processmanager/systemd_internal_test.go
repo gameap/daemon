@@ -333,14 +333,40 @@ func Test_buildServiceConfig_restartPolicyFollowsAutostart(t *testing.T) {
 
 	pm := NewSystemD(makeConfigWithScope(""), nil, nil)
 
+	// The start limit keys belong to [Unit]; systemd ignores them in [Service]
+	// and only warns about it in the journal, which would silently leave the
+	// default of 5 starts per 10s in place.
+	unitSection := func(t *testing.T, config string) string {
+		t.Helper()
+
+		_, rest, found := strings.Cut(config, "[Unit]\n")
+		require.True(t, found)
+
+		unit, _, found := strings.Cut(rest, "[Service]")
+		require.True(t, found)
+
+		return unit
+	}
+
+	serviceSection := func(t *testing.T, config string) string {
+		t.Helper()
+
+		_, service, found := strings.Cut(config, "[Service]\n")
+		require.True(t, found)
+
+		return service
+	}
+
 	t.Run("autostart on is supervised with a widened start limit", func(t *testing.T) {
 		got, err := pm.buildServiceConfig(makeServer(map[string]string{"autostart": "1"}))
 		require.NoError(t, err)
 
-		assert.Contains(t, got, "Restart=always\n")
-		assert.Contains(t, got, "RestartSec=")
-		assert.Contains(t, got, "StartLimitIntervalSec=")
-		assert.Contains(t, got, "StartLimitBurst=")
+		assert.Contains(t, serviceSection(t, got), "Restart=always\n")
+		assert.Contains(t, serviceSection(t, got), "RestartSec=")
+
+		assert.Contains(t, unitSection(t, got), "StartLimitIntervalSec=")
+		assert.Contains(t, unitSection(t, got), "StartLimitBurst=")
+		assert.NotContains(t, serviceSection(t, got), "StartLimit")
 	})
 
 	t.Run("autostart off is not supervised", func(t *testing.T) {
@@ -349,6 +375,7 @@ func Test_buildServiceConfig_restartPolicyFollowsAutostart(t *testing.T) {
 
 		assert.Contains(t, got, "Restart=no\n")
 		assert.NotContains(t, got, "Restart=always")
+		assert.NotContains(t, got, "StartLimit")
 	})
 
 	t.Run("a server without settings is not supervised", func(t *testing.T) {

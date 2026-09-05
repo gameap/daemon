@@ -40,6 +40,10 @@ type fakeProcessManager struct {
 	// startBlocked holds the start command until the test releases it, which is
 	// how the tests observe a start that is still in flight.
 	startBlocked chan struct{}
+
+	// onStatus runs inside the status probe. The cadence tests use it to move
+	// the clock, so that a probe takes time the way a real one does.
+	onStatus func()
 }
 
 func newFakeProcessManager() *fakeProcessManager {
@@ -52,6 +56,10 @@ func newFakeProcessManager() *fakeProcessManager {
 func (pm *fakeProcessManager) Status(
 	_ context.Context, _ *domain.Server, _ io.Writer,
 ) (domain.Result, error) {
+	if pm.onStatus != nil {
+		pm.onStatus()
+	}
+
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -398,33 +406,35 @@ func TestTick_IndeterminateResultDoesNotStartServer(t *testing.T) {
 }
 
 // A server that dies straight after every start must not be restarted every
-// tick: the delay between attempts grows.
+// tick: the delay between attempts grows. The clock moves one loop interval per
+// tick, the way the real ticker drives it.
 func TestTick_RepeatedCrashesBackOff(t *testing.T) {
 	server := givenServer()
 	f := newLoopFixture(t, server)
 
-	f.tick(t)
-	require.Equal(t, 1, f.pm.StartCalls())
+	begin := f.now
+	seen := 0
 
-	// The first delay is one loop interval, so the very next tick is still too
-	// early for a second attempt.
-	f.advance(initialRestartDelay - time.Second)
-	f.tick(t)
-	assert.Equal(t, 1, f.pm.StartCalls(), "a second attempt must wait for the backoff")
+	var attemptedAt []time.Duration
 
-	f.advance(time.Second)
-	f.tick(t)
-	require.Equal(t, 2, f.pm.StartCalls())
+	for elapsed := time.Duration(0); elapsed <= 65*time.Second; elapsed += loopDuration {
+		f.tick(t)
 
-	// The second delay is three times the first, so waiting one delay again is
-	// not enough.
-	f.advance(initialRestartDelay)
-	f.tick(t)
-	assert.Equal(t, 2, f.pm.StartCalls())
+		if f.pm.StartCalls() > seen {
+			seen = f.pm.StartCalls()
+			attemptedAt = append(attemptedAt, f.now.Sub(begin))
+		}
 
-	f.advance(initialRestartDelay * (restartDelayFactor - 1))
-	f.tick(t)
-	assert.Equal(t, 3, f.pm.StartCalls())
+		f.advance(loopDuration)
+	}
+
+	// Delays of 5s, 15s and 45s put the attempts at 0s, 5s, 20s and 65s.
+	assert.Equal(t, []time.Duration{
+		0,
+		5 * time.Second,
+		20 * time.Second,
+		65 * time.Second,
+	}, attemptedAt)
 }
 
 func TestRestartDelay_GrowsAndIsCapped(t *testing.T) {
@@ -564,4 +574,78 @@ func TestTick_StopsWhenContextIsDone(t *testing.T) {
 
 	assert.Equal(t, 0, f.pm.StatusCalls())
 	assert.Equal(t, 0, f.pm.StartCalls())
+}
+
+// A probe finishes after the tick that started it, so the gap seen at the next
+// tick is always a little under one interval. Comparing it strictly would defer
+// every probe by a whole tick and halve the cadence, which matters most for a
+// stopped server the loop is supposed to bring back.
+func TestDueForProbe_ProbeDurationDoesNotHalveTheCadence(t *testing.T) {
+	const probeDuration = 200 * time.Millisecond
+
+	tests := []struct {
+		name    string
+		running bool
+	}{
+		{name: "running server", running: true},
+		{name: "stopped server awaiting autostart", running: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := givenServer()
+			f := newLoopFixture(t, server)
+
+			// The probe consumes time, so the status check lands after the tick.
+			f.advance(probeDuration)
+			server.SetStatusAt(f.now, tt.running)
+
+			f.advance(loopDuration - probeDuration)
+			assert.True(
+				t, f.loop.dueForProbe(server),
+				"the next tick must still probe, %v after the previous check", loopDuration-probeDuration,
+			)
+		})
+	}
+}
+
+// The tolerance must not turn into probing on every tick where a slow cadence
+// was intended.
+func TestDueForProbe_ToleranceDoesNotCollapseTheSlowInterval(t *testing.T) {
+	server := givenServer()
+	f := newLoopFixture(t, server)
+
+	// A server that has been up long enough to be polled at the slow rate.
+	server.SetStatusAt(f.now, true)
+	f.advance(stableUptime + minProbeInterval)
+	server.SetStatusAt(f.now, true)
+
+	for elapsed := loopDuration; elapsed < maxProbeInterval-probeIntervalTolerance; elapsed += loopDuration {
+		f.advance(loopDuration)
+		assert.False(
+			t, f.loop.dueForProbe(server),
+			"a stable server must not be probed %v after the previous check", elapsed,
+		)
+	}
+
+	f.advance(loopDuration)
+	assert.True(t, f.loop.dueForProbe(server))
+}
+
+// The tick-to-tick cadence for a crashed server has to stay at one loop
+// interval even when each probe takes time, otherwise a crash is noticed twice
+// as late as intended.
+func TestTick_CrashedServerIsProbedEveryTickDespiteProbeDuration(t *testing.T) {
+	server := givenServer()
+	f := newLoopFixture(t, server)
+	f.pm.onStatus = func() { f.advance(200 * time.Millisecond) }
+
+	const ticks = 4
+
+	for i := 0; i < ticks; i++ {
+		f.tick(t)
+		f.advance(loopDuration - 200*time.Millisecond)
+	}
+
+	assert.Equal(t, ticks, f.pm.StatusCalls())
 }

@@ -187,7 +187,14 @@ func ExecWithWriterArgs(
 	}
 
 	var exitError *exec.ExitError
+
 	err = cmd.Run()
+	if err == nil {
+		// The command ran to completion on its own, so its exit code is real
+		// even if the deadline passed in the moment between Wait returning and
+		// this check.
+		return cmd.ProcessState.ExitCode(), nil
+	}
 
 	// A command killed because the context ran out looks like a command that
 	// exited on a signal: exec.CommandContext kills the child, so Run reports an
@@ -198,12 +205,9 @@ func ExecWithWriterArgs(
 		return invalidResult, errors.Wrap(ctxErr, "command interrupted")
 	}
 
-	if err != nil && !errors.As(err, &exitError) {
+	if !errors.As(err, &exitError) {
 		return cmd.ProcessState.ExitCode(), errors.Wrap(err, "failed to execute command")
 	}
-	if exitError != nil {
-		return exitError.ExitCode(), nil
-	}
 
-	return cmd.ProcessState.ExitCode(), nil
+	return exitError.ExitCode(), nil
 }
