@@ -4,15 +4,46 @@ This package provides process manager implementations for managing game server l
 
 ## Available Process Managers
 
-| Name | Platforms | Description |
-|------|-----------|-------------|
-| `tmux` | Linux, macOS | Terminal multiplexer-based process management |
-| `systemd` | Linux | Systemd service-based process management |
-| `simple` | All | Basic script-based process management |
-| `winsw` | Windows | Windows Service Wrapper |
-| `shawl` | Windows | Windows service wrapper for arbitrary programs |
-| `docker` | All | Docker container-based process management |
-| `podman` | Linux, macOS | Podman container-based process management |
+| Name      | Platforms    | Description                                    |
+|-----------|--------------|------------------------------------------------|
+| `tmux`    | Linux, macOS | Terminal multiplexer-based process management  |
+| `systemd` | Linux        | Systemd service-based process management       |
+| `simple`  | All          | Basic script-based process management          |
+| `winsw`   | Windows      | Windows Service Wrapper                        |
+| `shawl`   | Windows      | Windows service wrapper for arbitrary programs |
+| `docker`  | All          | Docker container-based process management      |
+| `podman`  | Linux, macOS | Podman container-based process management      |
+
+## Who restarts a crashed server
+
+A game server that dies can be brought back either by the process manager or by
+the daemon's own servers loop, and exactly one of them must own that decision.
+Both honour the server's `autostart` setting from the panel: a server the
+operator asked to stay down is never resurrected.
+
+| Process manager                      | Restarted by        | Mechanism when `autostart` is on                   | When it is off |
+|--------------------------------------|---------------------|----------------------------------------------------|----------------|
+| `systemd`                            | the unit            | `Restart=always`, `RestartSec`, raised start limit | `Restart=no`   |
+| `shawl`                              | the supervisor      | `--restart`                                        | `--no-restart` |
+| `winsw`                              | the service manager | `onfailure` restart actions                        | no actions     |
+| `tmux`, `simple`, `docker`, `podman` | the daemon          | the servers loop, with a growing delay             | never started  |
+
+The restart policy is written from the persistent `autostart` setting, never from
+`autostart_current`. The latter also tracks whether the server is *currently*
+meant to be running and is 0 for the whole duration of a deliberate stop, so
+reading it would strip supervision from the unit on every stop/start cycle.
+
+Where the process manager supervises restarts, the daemon stays out of the way
+while the supervisor is working: `Status` reports a systemd unit in
+`activating`/`auto-restart` as running, so the loop does not race it. The loop
+takes over only once the supervisor has given up and left the unit inactive or
+failed — and because a unit that exhausted its start limit refuses every further
+start, the daemon runs `systemctl reset-failed` before starting one.
+
+A status check that cannot be evaluated — a probe killed by its own deadline, an
+unreachable container runtime — is reported as undetermined rather than as a
+stopped server. The loop leaves such a server alone: treating an unreadable probe
+as "down" would restart a healthy server.
 
 ## Metrics support
 
@@ -20,12 +51,12 @@ The `Metrics(ctx, server)` method returns Prometheus-style samples (see
 `internal/app/metrics`) that the daemon's metrics collector aggregates and
 forwards to the panel via gRPC.
 
-| PM | `gameap_server_up` | `gameap_server_cpu_usage_percent` | `gameap_server_memory_*` | `gameap_server_network_*_bytes_total` | `gameap_server_block_io_*_bytes_total` | `gameap_server_process_pids` |
-|----|:---:|:---:|:---:|:---:|:---:|:---:|
-| `docker` | yes | yes | yes | yes | yes (Linux) | yes |
-| `podman` | yes | yes | yes | yes | yes | yes |
-| `systemd` | yes | yes | yes | yes | yes | yes |
-| `tmux` / `simple` / `winsw` / `shawl` | yes | — | — | — | — | — |
+| PM                                    | `gameap_server_up` | `gameap_server_cpu_usage_percent` | `gameap_server_memory_*` | `gameap_server_network_*_bytes_total` | `gameap_server_block_io_*_bytes_total` | `gameap_server_process_pids` |
+|---------------------------------------|:------------------:|:---------------------------------:|:------------------------:|:-------------------------------------:|:--------------------------------------:|:----------------------------:|
+| `docker`                              |        yes         |                yes                |           yes            |                  yes                  |              yes (Linux)               |             yes              |
+| `podman`                              |        yes         |                yes                |           yes            |                  yes                  |                  yes                   |             yes              |
+| `systemd`                             |        yes         |                yes                |           yes            |                  yes                  |                  yes                   |             yes              |
+| `tmux` / `simple` / `winsw` / `shawl` |        yes         |                 —                 |            —             |                   —                   |                   —                    |              —               |
 
 Container-backed managers tag their metrics with `{server_id, server_uuid, container}`.
 The systemd manager tags its metrics with `{server_id, server_uuid, service}`.
@@ -137,6 +168,13 @@ supervisor came up, not that the game stayed up.
 
 Metrics are liveness-only; see the table above.
 
+### Changing the restart policy
+
+The `--restart` / `--no-restart` flag is part of the service command line, so
+toggling `autostart` in the panel makes the registered service differ from the
+one the config describes. The service is then registered again on the server's
+next start, which is when the change takes effect.
+
 ## Configuration
 
 Process manager is configured in the daemon configuration file:
@@ -179,27 +217,27 @@ Configuration values are resolved in the following priority order:
 
 #### Runtime Configuration
 
-| Key | Description | Example | Default |
-|-----|-------------|---------|---------|
-| `docker_image` | Docker image for running the server | `gameap/csgo:latest` | `debian:bookworm-slim` |
-| `docker_container_name` | Custom container name | `my-cs-server` | Server UUID |
-| `docker_memory_limit` | Memory limit | `2g`, `512m`, `1024k` | No limit |
-| `docker_cpu_limit` | CPU limit (cores) | `2.0`, `0.5` | No limit |
-| `docker_network_mode` | Network mode | `bridge`, `host` | `bridge` |
-| `docker_capabilities` | Linux capabilities (comma-separated) | `NET_RAW,SYS_NICE` | None |
-| `docker_privileged` | Run in privileged mode | `true`, `false` | `false` |
-| `docker_volumes` | Additional volumes (JSON array or comma-separated) | `["/data:/data:ro"]` | None |
-| `docker_dns` | Custom DNS servers (comma-separated) | `8.8.8.8,8.8.4.4` | System default |
-| `docker_workdir` | Container working directory | `/home/container` | `/server` |
+| Key                     | Description                                        | Example               | Default                |
+|-------------------------|----------------------------------------------------|-----------------------|------------------------|
+| `docker_image`          | Docker image for running the server                | `gameap/csgo:latest`  | `debian:bookworm-slim` |
+| `docker_container_name` | Custom container name                              | `my-cs-server`        | Server UUID            |
+| `docker_memory_limit`   | Memory limit                                       | `2g`, `512m`, `1024k` | No limit               |
+| `docker_cpu_limit`      | CPU limit (cores)                                  | `2.0`, `0.5`          | No limit               |
+| `docker_network_mode`   | Network mode                                       | `bridge`, `host`      | `bridge`               |
+| `docker_capabilities`   | Linux capabilities (comma-separated)               | `NET_RAW,SYS_NICE`    | None                   |
+| `docker_privileged`     | Run in privileged mode                             | `true`, `false`       | `false`                |
+| `docker_volumes`        | Additional volumes (JSON array or comma-separated) | `["/data:/data:ro"]`  | None                   |
+| `docker_dns`            | Custom DNS servers (comma-separated)               | `8.8.8.8,8.8.4.4`     | System default         |
+| `docker_workdir`        | Container working directory                        | `/home/container`     | `/server`              |
 
 #### Installation Configuration
 
-| Key | Description | Example | Default |
-|-----|-------------|---------|---------|
-| `docker_installation_image` | Image for installation phase | `node:18-bookworm-slim` | None |
-| `docker_installation_script` | Script to run during installation | See example below | None |
-| `docker_installation_entrypoint` | Shell interpreter for the script | `ash`, `/bin/sh` | Auto-detected |
-| `docker_installation_user` | User to run installation as | `1000:1000`, `root` | `root` |
+| Key                              | Description                       | Example                 | Default       |
+|----------------------------------|-----------------------------------|-------------------------|---------------|
+| `docker_installation_image`      | Image for installation phase      | `node:18-bookworm-slim` | None          |
+| `docker_installation_script`     | Script to run during installation | See example below       | None          |
+| `docker_installation_entrypoint` | Shell interpreter for the script  | `ash`, `/bin/sh`        | Auto-detected |
+| `docker_installation_user`       | User to run installation as       | `1000:1000`, `root`     | `root`        |
 
 > **Note:** If `docker_installation_entrypoint` is not set, the shell is auto-detected from the script's shebang line (e.g., `#!/bin/ash` → `/bin/ash`). Falls back to `/bin/sh` if no shebang is found.
 
@@ -275,11 +313,11 @@ Comma-separated format:
 
 Ports are automatically mapped based on server configuration:
 
-| Server Port | Container Mapping |
-|-------------|-------------------|
-| Connect Port | `{IP}:{ConnectPort}:{ConnectPort}/tcp` and `/udp` |
-| Query Port | `{IP}:{QueryPort}:{QueryPort}/udp` (if different from Connect) |
-| RCON Port | `{IP}:{RCONPort}:{RCONPort}/tcp` (if different from Connect) |
+| Server Port  | Container Mapping                                              |
+|--------------|----------------------------------------------------------------|
+| Connect Port | `{IP}:{ConnectPort}:{ConnectPort}/tcp` and `/udp`              |
+| Query Port   | `{IP}:{QueryPort}:{QueryPort}/udp` (if different from Connect) |
+| RCON Port    | `{IP}:{RCONPort}:{RCONPort}/tcp` (if different from Connect)   |
 
 ### Container Lifecycle
 
@@ -331,11 +369,11 @@ process_manager:
 
 #### Docker Connection Options
 
-| Config Key     | Env Var Equivalent    | Description |
-|----------------|-----------------------|-------------|
-| `host`         | `DOCKER_HOST`         | Docker daemon address (e.g., `tcp://remote:2376`, `unix:///var/run/docker.sock`) |
-| `cert_path`    | `DOCKER_CERT_PATH`    | Directory containing `ca.pem`, `cert.pem`, `key.pem` for TLS |
-| `api_version`  | `DOCKER_API_VERSION`  | Docker API version to use |
+| Config Key    | Env Var Equivalent   | Description                                                                      |
+|---------------|----------------------|----------------------------------------------------------------------------------|
+| `host`        | `DOCKER_HOST`        | Docker daemon address (e.g., `tcp://remote:2376`, `unix:///var/run/docker.sock`) |
+| `cert_path`   | `DOCKER_CERT_PATH`   | Directory containing `ca.pem`, `cert.pem`, `key.pem` for TLS                     |
+| `api_version` | `DOCKER_API_VERSION` | Docker API version to use                                                        |
 
 If none of these keys are set, the client falls back to `client.FromEnv` (reads from environment variables).
 
@@ -375,22 +413,22 @@ Same as Docker - see [Configuration Priority](#configuration-priority) above.
 
 Podman uses the same metadata keys as Docker for compatibility:
 
-| Key | Description | Example | Default |
-|-----|-------------|---------|---------|
-| `docker_image` | Container image | `gameap/csgo:latest` | `debian:bookworm-slim` |
-| `docker_container_name` | Custom container name | `my-server` | Server UUID |
-| `docker_memory_limit` | Memory limit | `2g`, `512m` | No limit |
-| `docker_cpu_limit` | CPU limit (cores) | `2.0`, `0.5` | No limit |
-| `docker_network_mode` | Network mode | `bridge`, `host` | `bridge` |
-| `docker_capabilities` | Linux capabilities | `NET_RAW,SYS_NICE` | None |
-| `docker_privileged` | Privileged mode | `true`, `false` | `false` |
-| `docker_volumes` | Additional volumes | `["/data:/data:ro"]` | None |
-| `docker_dns` | DNS servers | `8.8.8.8,8.8.4.4` | System default |
-| `docker_workdir` | Container working directory | `/home/container` | `/server` |
-| `docker_installation_image` | Installation image | `node:18` | None |
-| `docker_installation_script` | Installation script | `#!/bin/bash\n...` | None |
-| `docker_installation_entrypoint` | Shell for installation script | `ash`, `/bin/sh` | Auto-detected from shebang |
-| `docker_installation_user` | User to run installation as | `1000:1000`, `root` | `root` |
+| Key                              | Description                   | Example              | Default                    |
+|----------------------------------|-------------------------------|----------------------|----------------------------|
+| `docker_image`                   | Container image               | `gameap/csgo:latest` | `debian:bookworm-slim`     |
+| `docker_container_name`          | Custom container name         | `my-server`          | Server UUID                |
+| `docker_memory_limit`            | Memory limit                  | `2g`, `512m`         | No limit                   |
+| `docker_cpu_limit`               | CPU limit (cores)             | `2.0`, `0.5`         | No limit                   |
+| `docker_network_mode`            | Network mode                  | `bridge`, `host`     | `bridge`                   |
+| `docker_capabilities`            | Linux capabilities            | `NET_RAW,SYS_NICE`   | None                       |
+| `docker_privileged`              | Privileged mode               | `true`, `false`      | `false`                    |
+| `docker_volumes`                 | Additional volumes            | `["/data:/data:ro"]` | None                       |
+| `docker_dns`                     | DNS servers                   | `8.8.8.8,8.8.4.4`    | System default             |
+| `docker_workdir`                 | Container working directory   | `/home/container`    | `/server`                  |
+| `docker_installation_image`      | Installation image            | `node:18`            | None                       |
+| `docker_installation_script`     | Installation script           | `#!/bin/bash\n...`   | None                       |
+| `docker_installation_entrypoint` | Shell for installation script | `ash`, `/bin/sh`     | Auto-detected from shebang |
+| `docker_installation_user`       | User to run installation as   | `1000:1000`, `root`  | `root`                     |
 
 ### Socket Configuration
 
@@ -431,15 +469,15 @@ process_manager:
 
 ## Comparison: Docker vs Podman
 
-| Feature | Docker | Podman |
-|---------|--------|--------|
-| Windows Support | Yes | No |
-| macOS Support | Yes | Yes |
-| Linux Support | Yes | Yes |
-| Rootless | Requires setup | Native |
-| Daemon | Required | Daemonless |
-| SDK | Docker Go SDK | REST API |
-| Socket | `/var/run/docker.sock` | `/run/podman/podman.sock` |
+| Feature         | Docker                 | Podman                    |
+|-----------------|------------------------|---------------------------|
+| Windows Support | Yes                    | No                        |
+| macOS Support   | Yes                    | Yes                       |
+| Linux Support   | Yes                    | Yes                       |
+| Rootless        | Requires setup         | Native                    |
+| Daemon          | Required               | Daemonless                |
+| SDK             | Docker Go SDK          | REST API                  |
+| Socket          | `/var/run/docker.sock` | `/run/podman/podman.sock` |
 
 ---
 

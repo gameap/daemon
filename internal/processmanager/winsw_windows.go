@@ -54,6 +54,24 @@ func NewWinSW(cfg *config.Config, _, detailedExecutor contracts.Executor) *WinSW
 	}
 }
 
+// onFailureActions describes what the service control manager does when the game
+// server exits unexpectedly. It follows the server's autostart preference: a
+// server the operator does not want restarted must stay down after a crash
+// instead of being brought back by the service manager. An empty list leaves the
+// service stopped, which is what lets the servers loop own the decision.
+func onFailureActions(server *domain.Server) []onFailure {
+	if !server.AutoStartSetting() {
+		return nil
+	}
+
+	return []onFailure{
+		{Action: "restart", Delay: "1 sec"},
+		{Action: "restart", Delay: "2 sec"},
+		{Action: "restart", Delay: "5 sec"},
+		{Action: "restart", Delay: "5 sec"},
+	}
+}
+
 func (pm *WinSW) Install(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
 	createdNewService, err := pm.makeService(ctx, server, out)
 	if err != nil {
@@ -404,12 +422,7 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 		Log: log{
 			Mode: "reset",
 		},
-		OnFailure: []onFailure{
-			{Action: "restart", Delay: "1 sec"},
-			{Action: "restart", Delay: "2 sec"},
-			{Action: "restart", Delay: "5 sec"},
-			{Action: "restart", Delay: "5 sec"},
-		},
+		OnFailure:    onFailureActions(server),
 		ResetFailure: "1 hour",
 		AutoRefresh:  "false",
 	}

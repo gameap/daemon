@@ -117,7 +117,13 @@ func (f shawlServiceFingerprint) String() string {
 
 // buildShawlRunArgs builds the argument vector shawl is registered with. The service control
 // manager quotes the arguments itself, so they are passed through unquoted.
-func buildShawlRunArgs(serviceName, workDir, logDir string, cmdArr []string) ([]string, error) {
+//
+// restart controls whether shawl brings the game process back up on its own. It follows the
+// server's autostart preference, so a server the operator does not want restarted stays down
+// after a crash instead of being resurrected by the supervisor. The flag is part of the service
+// command line, so flipping it makes the registered service drift from the config and the
+// service is registered again on the next start.
+func buildShawlRunArgs(serviceName, workDir, logDir string, restart bool, cmdArr []string) ([]string, error) {
 	if len(cmdArr) == 0 {
 		return nil, ErrEmptyCommand
 	}
@@ -139,7 +145,15 @@ func buildShawlRunArgs(serviceName, workDir, logDir string, cmdArr []string) ([]
 	args = append(args,
 		"run",
 		"--name", serviceName,
-		"--restart",
+	)
+
+	if restart {
+		args = append(args, "--restart")
+	} else {
+		args = append(args, "--no-restart")
+	}
+
+	args = append(args,
 		"--stop-timeout", shawlStopTimeout,
 		"--cwd", workDir,
 		"--log-dir", logDir,

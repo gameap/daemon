@@ -17,6 +17,14 @@ type CommandLoader interface {
 	LoadServerCommand(cmd domain.ServerCommand, server *domain.Server) contracts.GameServerCommand
 }
 
+// serverLocker is implemented by the shared command factory. The scheduler keys
+// its own in-flight map by task, so two tasks for one server, or a scheduled
+// task and an automatic start from the servers loop, would otherwise run at the
+// same time.
+type serverLocker interface {
+	TryLockServer(serverID int) (func(), bool)
+}
+
 type executionRecord struct {
 	execID      string
 	taskID      uint64

@@ -60,6 +60,8 @@ type Server struct {
 	lastProcessCheck    time.Time
 	lastTaskCompletedAt time.Time
 	updatedAt           time.Time
+	runningSince        time.Time
+	nextStartAllowedAt  time.Time
 	mu                  *sync.RWMutex
 	changeset           *hashset.Set
 	settings            Settings
@@ -67,26 +69,33 @@ type Server struct {
 	restartCommand      string
 	uuid                string
 	forceStopCommand    string
-	uuidShort           string
-	stopCommand         string
-	ip                  string
-	rconPassword        string
-	dir                 string
-	user                string
-	startCommand        string
-	name                string
-	game                Game
-	gameMod             GameMod
-	ramLimit            int64 // bytes
-	id                  int
-	connectPort         int
-	queryPort           int
-	installStatus       InstallationStatus
-	rconPort            int
-	cpuLimit            int // millicores (1000 = 1 CPU core)
-	processActive       bool
-	enabled             bool
-	blocked             bool
+
+	// localAutostartCurrent is the autostart_current value this daemon set
+	// itself. See Set for why the pushed value does not overwrite it.
+	localAutostartCurrent string
+	uuidShort             string
+	stopCommand           string
+	ip                    string
+	rconPassword          string
+	dir                   string
+	user                  string
+	startCommand          string
+	name                  string
+	game                  Game
+	gameMod               GameMod
+	ramLimit              int64 // bytes
+	id                    int
+	connectPort           int
+	queryPort             int
+	installStatus         InstallationStatus
+	rconPort              int
+	cpuLimit              int // millicores (1000 = 1 CPU core)
+	startAttempts         int
+	processActive         bool
+	enabled               bool
+	blocked               bool
+
+	hasLocalAutostartCurrent bool
 }
 
 func NewServer(
@@ -212,10 +221,40 @@ func (s *Server) Set(
 	s.processActive = processActive
 	s.lastProcessCheck = lastProcessCheck
 	s.vars = vars
-	s.settings = settings
+	s.settings = s.settingsPreservingLocalAutostart(settings)
 	s.updatedAt = updatedAt
 	s.cpuLimit = cpuLimit
 	s.ramLimit = ramLimit
+}
+
+// settingsPreservingLocalAutostart keeps the daemon's own autostart_current
+// through a settings push from the panel.
+//
+// autostart_current records whether the server is meant to be running, and both
+// sides maintain it: the panel writes it to the database when an operator starts
+// or stops a server, and the daemon writes it whenever it runs a start or stop
+// command. A push replaces the settings map wholesale, so without this the
+// daemon's value is silently reverted to whatever the database holds — and the
+// database is not told about a stop that the daemon performed on its own, such
+// as one from a scheduled task. The servers loop would then start a server the
+// schedule had just stopped.
+//
+// Keeping the local value is safe because every panel-driven change to
+// autostart_current arrives with a task that makes the daemon set the same value
+// itself, so the two converge. A daemon restart drops the local value and the
+// panel becomes authoritative again, which is the correct fallback.
+func (s *Server) settingsPreservingLocalAutostart(incoming Settings) Settings {
+	if !s.hasLocalAutostartCurrent {
+		return incoming
+	}
+
+	if incoming == nil {
+		incoming = make(Settings, 1)
+	}
+
+	incoming[autostartCurrentSettingKey] = s.localAutostartCurrent
+
+	return incoming
 }
 
 func (s *Server) Enabled() bool {
@@ -457,6 +496,17 @@ func (s *Server) SetSetting(key string, value string) {
 }
 
 func (s *Server) setSetting(key string, value string) {
+	if s.settings == nil {
+		// The panel may deliver a server without any settings at all, which
+		// leaves the map nil; writing into it would panic.
+		s.settings = make(Settings, 1)
+	}
+
+	if key == autostartCurrentSettingKey {
+		s.localAutostartCurrent = value
+		s.hasLocalAutostartCurrent = true
+	}
+
 	s.settings[key] = value
 	s.setValueIsChanged("settings")
 
@@ -464,19 +514,109 @@ func (s *Server) setSetting(key string, value string) {
 }
 
 func (s *Server) SetStatus(processActive bool) {
+	s.SetStatusAt(time.Now(), processActive)
+}
+
+// SetStatusAt records the outcome of a liveness probe taken at the given moment.
+// It also maintains runningSince, the start of the current uninterrupted run as
+// the daemon observed it: the servers loop derives both the probe interval and
+// the restart backoff reset from that.
+func (s *Server) SetStatusAt(now time.Time, processActive bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	switch {
+	case !processActive:
+		s.runningSince = time.Time{}
+	case s.runningSince.IsZero():
+		s.runningSince = now
+	}
+
 	s.processActive = processActive
-	s.lastProcessCheck = time.Now()
+	s.lastProcessCheck = now
 	s.setValueIsChanged("status")
 
-	s.updatedAt = time.Now()
+	s.updatedAt = now
+}
+
+// RunningSince reports when the server was first observed running in the current
+// run, or the zero time when it is not running.
+func (s *Server) RunningSince() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.runningSince
+}
+
+// NoticeStartAttempt records an automatic start attempt and holds off the next
+// one until now.Add(delay).
+func (s *Server) NoticeStartAttempt(now time.Time, delay time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.startAttempts++
+	s.nextStartAllowedAt = now.Add(delay)
+}
+
+// ResetStartAttempts clears the restart backoff. It is called when the server is
+// seen running long enough to count as recovered, and whenever a start is
+// requested from outside the loop: a manual start from the panel or a scheduled
+// task means the operator expects the next crash to be handled from scratch.
+func (s *Server) ResetStartAttempts() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.startAttempts = 0
+	s.nextStartAllowedAt = time.Time{}
+}
+
+func (s *Server) StartAttempts() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.startAttempts
+}
+
+func (s *Server) NextStartAllowedAt() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.nextStartAllowedAt
 }
 
 func (s *Server) AutoStart() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	return s.autoStart()
+}
+
+// AutoStartSetting reports the persistent autostart preference, ignoring the
+// autostart_current runtime override.
+//
+// Process managers that supervise restarts themselves must configure that
+// supervision from this value, not from AutoStart: autostart_current is 0 for
+// the whole duration of a deliberate stop, and AffectStart only sets it back to
+// 1 after the process manager has already been asked to start. Reading
+// AutoStart there would rewrite the supervision policy on every stop/start
+// cycle.
+func (s *Server) AutoStartSetting() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.readBoolSetting(s.setting(autostartSettingKey))
+}
+
+// CanAutoStart reports whether the servers loop may bring this server up on its
+// own. It is AutoStart plus the conditions that make an automatic start wrong
+// regardless of the setting.
+func (s *Server) CanAutoStart() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.blocked {
+		return false
+	}
 
 	return s.autoStart()
 }

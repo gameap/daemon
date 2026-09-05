@@ -49,7 +49,19 @@ func (cmd *defaultRestartServer) Execute(ctx context.Context, server *domain.Ser
 	cmd.SetResult(int(result))
 	cmd.SetComplete()
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	// A restart leaves the server running, so it carries the same intent as a
+	// start. Without this the process manager branch would skip AffectStart
+	// entirely — the stop/start branch gets it from the start command it runs —
+	// and a server restarted after a deliberate stop would keep
+	// autostart_current at 0, so the servers loop would not bring it back after
+	// the next crash.
+	server.AffectStart()
+
+	return nil
 }
 
 func (cmd *defaultRestartServer) restartViaStopStart(ctx context.Context, server *domain.Server) error {

@@ -5,11 +5,14 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/pkg/logger"
+	"github.com/gameap/daemon/pkg/shellquote"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
@@ -21,11 +24,77 @@ type Simple struct {
 }
 
 func NewSimple(cfg *config.Config, executor, detailedExecutor contracts.Executor) *Simple {
-	return &Simple{
+	pm := &Simple{
 		cfg:              cfg,
 		executor:         executor,
 		detailedExecutor: detailedExecutor,
 	}
+
+	pm.warnAboutUnusableScripts()
+
+	return pm
+}
+
+// warnAboutUnusableScripts reports the scripts this process manager cannot run
+// with the current configuration.
+//
+// Unlike every other process manager, simple has no built-in idea of how to talk
+// to a game server: it only runs the scripts from the config. Two of them are
+// invoked with no server-side command at all, so the default template
+// "{command}" reduces to an empty argument vector and the call fails on every
+// attempt. A missing status script is the damaging one — the servers loop treats
+// a status it cannot evaluate as "leave the server alone", so the server is
+// never reported to the panel and is never restarted after a crash. Failing here
+// would be worse than warning, since start and stop may well be configured, but
+// the operator has to be told once at startup rather than through a line in the
+// log every five seconds.
+func (pm *Simple) warnAboutUnusableScripts() {
+	if pm.cfg == nil {
+		return
+	}
+
+	unusable := make([]string, 0, 2)
+
+	for _, script := range []struct {
+		configKey string
+		template  string
+	}{
+		{"scripts.status", pm.cfg.Scripts.Status},
+		{"scripts.get_console", pm.cfg.Scripts.GetConsole},
+	} {
+		if templateIsEmptyWithoutCommand(script.template) {
+			unusable = append(unusable, script.configKey)
+		}
+	}
+
+	if len(unusable) == 0 {
+		return
+	}
+
+	logger.Logger(context.Background()).Warnf(
+		"process manager \"simple\" has no usable command for %s: "+
+			"these scripts are called without a server command, so the default \"{command}\" "+
+			"template expands to nothing. Set them in the daemon configuration, "+
+			"otherwise server status cannot be determined and crashed servers will not be restarted",
+		strings.Join(unusable, ", "),
+	)
+}
+
+// templateIsEmptyWithoutCommand reports whether a command template produces no
+// arguments at all once the {command} placeholder is substituted with nothing.
+func templateIsEmptyWithoutCommand(template string) bool {
+	tokens, err := shellquote.Split(template)
+	if err != nil {
+		return true
+	}
+
+	for _, token := range tokens {
+		if token != "{command}" {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (pm *Simple) Install(_ context.Context, _ *domain.Server, _ io.Writer) (domain.Result, error) {
@@ -59,7 +128,12 @@ func (pm *Simple) Restart(
 func (pm *Simple) Status(
 	ctx context.Context, server *domain.Server, out io.Writer,
 ) (domain.Result, error) {
-	return pm.execCommand(ctx, server, pm.cfg.Scripts.Status, "", out)
+	result, err := pm.execCommand(ctx, server, pm.cfg.Scripts.Status, "", out)
+	if err != nil {
+		return domain.UnknownResult, err
+	}
+
+	return statusFromExitCode(int(result))
 }
 
 func (pm *Simple) GetOutput(

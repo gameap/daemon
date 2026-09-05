@@ -41,6 +41,21 @@ func (s *Scheduler) executeNow(parent context.Context, rec *executionRecord, ser
 		return
 	}
 
+	if locker, ok := s.commandLoader.(serverLocker); ok {
+		release, acquired := locker.TryLockServer(server.ID())
+		if !acquired {
+			s.sendFinished(rec,
+				pb.ServerTaskExecutionStatus_SERVER_TASK_EXECUTION_STATUS_SKIPPED,
+				"another command is already running for this server", nil, s.now())
+			return
+		}
+		defer release()
+	}
+
+	// A scheduled command is an operator decision about this server, so it
+	// clears any restart backoff the servers loop had built up.
+	server.ResetStartAttempts()
+
 	err := cmd.Execute(ctx, server)
 	output := cmd.ReadOutput()
 	finishedAt := s.now()

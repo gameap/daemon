@@ -512,6 +512,10 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 			},
 		},
 		"portmappings": pm.buildPortMappings(server),
+		// Restarts are the daemon's decision, not the container runtime's: the
+		// servers loop honours the server's autostart setting and paces retries.
+		// Stated explicitly so the behaviour does not depend on the podman default.
+		"restart_policy": "no",
 	}
 
 	// Resource limits from server API

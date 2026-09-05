@@ -27,6 +27,7 @@ type ServerCommandFactory struct {
 	serverRepo     domain.ServerRepository
 	executor       contracts.Executor
 	processManager contracts.ProcessManager
+	leases         *serverLeases
 }
 
 func NewFactory(
@@ -36,10 +37,11 @@ func NewFactory(
 	processManager contracts.ProcessManager,
 ) *ServerCommandFactory {
 	return &ServerCommandFactory{
-		cfg,
-		serverRepo,
-		executor,
-		processManager,
+		cfg:            cfg,
+		serverRepo:     serverRepo,
+		executor:       executor,
+		processManager: processManager,
+		leases:         newServerLeases(),
 	}
 }
 
