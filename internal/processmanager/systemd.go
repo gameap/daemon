@@ -3,6 +3,8 @@
 package processmanager
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -35,16 +37,16 @@ const (
 	systemTarget = "multi-user.target"
 	userTarget   = "default.target"
 
-	// https://www.freedesktop.org/software/systemd/man/latest/systemctl.html#Exit%20status
-	statusIsDeadPidExists  = 1
-	statusIsDeadLockExists = 2
-	statusNotRunning       = 3
-	statusServiceUnknown   = 4
-
 	outputSizeLimit = 30000
 
 	stopTickerInterval = 500 * time.Millisecond
 	stopTimeout        = 1 * time.Minute
+
+	// Restart pacing written into generated units. Seconds, because that is the
+	// unit systemd assumes for a bare number.
+	unitRestartSec         = 5
+	unitStartLimitInterval = 300
+	unitStartLimitBurst    = 20
 )
 
 type SystemD struct {
@@ -444,6 +446,16 @@ func (pm *SystemD) command(
 		}
 	}
 
+	// A unit that exhausted its start limit stays in failed, and systemd then
+	// refuses every further start with "start request repeated too quickly"
+	// until the failure is cleared. Clearing it here is what lets both the
+	// operator and the servers loop start a server that crash-looped earlier.
+	// reset-failed on a healthy unit is a no-op.
+	_, _, err = pm.executor.Exec(ctx, pm.systemctl("reset-failed", serviceName), pm.execOpts())
+	if err != nil {
+		logger.WithError(ctx, err).Debug("failed to reset unit failure state")
+	}
+
 	result, err := pm.executor.ExecWithWriter(
 		ctx,
 		pm.systemctl(command, serviceName),
@@ -470,28 +482,72 @@ func (pm *SystemD) Status(ctx context.Context, server *domain.Server, out io.Wri
 	return pm.status(ctx, pm.resolveServiceName(server), out)
 }
 
+// status reports whether the unit is up.
+//
+// The unit state is read with `systemctl show` rather than from the exit code of
+// `systemctl status`. Units generated for autostarting servers carry
+// Restart=always, and between a crash and the next start systemd holds them in
+// activating/auto-restart. That state is indistinguishable from a stopped unit
+// by exit code alone, so the daemon would report the server offline and race
+// systemd to start it. Reading ActiveState keeps the two supervisors from
+// fighting: while systemd is bringing the unit back the server counts as up,
+// and the daemon steps in only once systemd has given up and left the unit
+// inactive or failed.
 func (pm *SystemD) status(ctx context.Context, name string, out io.Writer) (domain.Result, error) {
-	result, err := pm.executor.ExecWithWriter(
-		ctx,
-		pm.systemctl("status", name),
-		out,
-		pm.execOpts(),
-	)
+	cmd := pm.systemctl("show", name) + " --property=LoadState,ActiveState,SubState,Result"
+
+	output, code, err := pm.executor.Exec(ctx, cmd, pm.execOpts())
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+		return domain.UnknownResult, errors.WithMessage(err, "failed to exec command")
+	}
+	if code != 0 {
+		return domain.UnknownResult, errors.WithMessagef(
+			ErrStatusUndetermined, "systemctl show exited with code %d", code,
+		)
 	}
 
-	switch result {
-	case statusIsDeadPidExists,
-		statusIsDeadLockExists,
-		statusNotRunning,
-		statusServiceUnknown:
+	props := parseSystemctlProperties(output)
+
+	_, _ = out.Write([]byte(fmt.Sprintf(
+		"Unit %s: load=%s active=%s sub=%s result=%s\n",
+		name, props["LoadState"], props["ActiveState"], props["SubState"], props["Result"],
+	)))
+
+	if props["LoadState"] == "not-found" {
 		return domain.ErrorResult, nil
-	case 0:
-		return domain.SuccessResult, nil
 	}
 
-	return domain.ErrorResult, errors.New("unknown exit code")
+	switch props["ActiveState"] {
+	case "active", "activating", "reloading", "deactivating":
+		return domain.SuccessResult, nil
+	case "inactive", "failed":
+		return domain.ErrorResult, nil
+	case "":
+		return domain.UnknownResult, errors.WithMessagef(
+			ErrStatusUndetermined, "systemctl show reported no ActiveState for %s", name,
+		)
+	}
+
+	return domain.UnknownResult, errors.WithMessagef(
+		ErrStatusUndetermined, "unknown ActiveState %q for %s", props["ActiveState"], name,
+	)
+}
+
+func parseSystemctlProperties(raw []byte) map[string]string {
+	props := make(map[string]string, 4)
+
+	sc := bufio.NewScanner(bytes.NewReader(raw))
+	for sc.Scan() {
+		line := strings.TrimRight(sc.Text(), "\r")
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+
+		props[line[:eq]] = line[eq+1:]
+	}
+
+	return props
 }
 
 func (pm *SystemD) GetOutput(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
@@ -550,31 +606,61 @@ func (pm *SystemD) SendInput(
 	return domain.SuccessResult, nil
 }
 
-func (pm *SystemD) makeService(ctx context.Context, server *domain.Server, out io.Writer) error {
-	f, err := os.OpenFile(pm.serviceFile(server), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return errors.WithMessage(err, "failed to open file")
-	}
-	defer func() {
-		err := f.Close()
-		if err != nil {
-			logger.Warn(ctx, errors.WithMessage(err, "failed to close file"))
-		}
-	}()
-
+// makeService writes the unit file for the server.
+//
+// The content is built before anything on disk is touched, and it lands through
+// a temporary file in the same directory followed by a rename. Truncating the
+// unit first would leave a zero-byte file behind whenever building the content
+// fails — on a missing game binary, say — and because daemon-reload is global,
+// the next start of any other server would load that empty unit.
+func (pm *SystemD) makeService(_ context.Context, server *domain.Server, out io.Writer) error {
 	c, err := pm.buildServiceConfig(server)
 	if err != nil {
 		return errors.WithMessage(err, "failed to build service config")
 	}
 
-	_, _ = out.Write([]byte("Creating service file at " + pm.serviceFile(server) + "\n"))
+	serviceFile := pm.serviceFile(server)
+
+	_, _ = out.Write([]byte("Creating service file at " + serviceFile + "\n"))
 	_, _ = out.Write([]byte("----- BEGIN SERVICE FILE -----\n"))
 	_, _ = out.Write([]byte(c + "\n"))
 	_, _ = out.Write([]byte("----- END SERVICE FILE -----\n\n\n"))
 
-	_, err = f.WriteString(c)
+	if err := writeFileAtomic(serviceFile, []byte(c), 0644); err != nil {
+		return errors.WithMessagef(err, "failed to write service file %s", serviceFile)
+	}
+
+	return nil
+}
+
+func writeFileAtomic(path string, content []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
 	if err != nil {
-		return errors.WithMessage(err, "failed to write to file")
+		return errors.Wrapf(err, "failed to create temporary file in %s", dir)
+	}
+	tmpName := f.Name()
+
+	defer func() {
+		_ = f.Close()
+		_ = os.Remove(tmpName)
+	}()
+
+	if _, err := f.Write(content); err != nil {
+		return errors.Wrapf(err, "failed to write temporary file %s", tmpName)
+	}
+	if err := f.Chmod(perm); err != nil {
+		return errors.Wrapf(err, "failed to set permissions on %s", tmpName)
+	}
+	if err := f.Sync(); err != nil {
+		return errors.Wrapf(err, "failed to flush %s", tmpName)
+	}
+	if err := f.Close(); err != nil {
+		return errors.Wrapf(err, "failed to close %s", tmpName)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return errors.Wrapf(err, "failed to move %s into place", tmpName)
 	}
 
 	return nil
@@ -629,7 +715,24 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	builder.WriteString(server.WorkDir(pm.cfg))
 	builder.WriteString("\n")
 
-	builder.WriteString("Restart=always\n")
+	// Supervision follows the server's own autostart preference: a server the
+	// operator does not want brought back must stay down after a crash. The
+	// persistent setting is read rather than AutoStart(), which also reflects
+	// autostart_current and is 0 for the whole duration of a deliberate stop —
+	// reading it here would strip supervision from the unit on every stop.
+	//
+	// The start limit is widened well past the systemd default of 5 starts per
+	// 10s. A game server that crashes on a bad map or a bad config trips that
+	// default within seconds, and the unit then sits in failed until something
+	// runs reset-failed.
+	if server.AutoStartSetting() {
+		builder.WriteString("Restart=always\n")
+		builder.WriteString("RestartSec=" + strconv.Itoa(unitRestartSec) + "\n")
+		builder.WriteString("StartLimitIntervalSec=" + strconv.Itoa(unitStartLimitInterval) + "\n")
+		builder.WriteString("StartLimitBurst=" + strconv.Itoa(unitStartLimitBurst) + "\n")
+	} else {
+		builder.WriteString("Restart=no\n")
+	}
 
 	// Enable cgroup accounting so the daemon can read CPU/memory/IO/IP/tasks
 	// counters via `systemctl show` for metrics. Without these directives

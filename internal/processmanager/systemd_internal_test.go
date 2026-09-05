@@ -298,6 +298,80 @@ func Test_requireUserMatch(t *testing.T) {
 	})
 }
 
+// Supervision in the generated unit follows the server's autostart preference:
+// systemd restarts the game server itself, so a hardcoded Restart=always would
+// bring back a server the operator asked to stay down.
+func Test_buildServiceConfig_restartPolicyFollowsAutostart(t *testing.T) {
+	tempDir := t.TempDir()
+
+	f, err := os.OpenFile(filepath.Join(tempDir, "start.sh"), os.O_CREATE, 0755)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	cur, err := user.Current()
+	require.NoError(t, err)
+
+	makeServer := func(settings map[string]string) *domain.Server {
+		return domain.NewServer(
+			1337, true, domain.ServerInstalled, false,
+			"name",
+			"759b875e-d910-11eb-aff7-d796d7fcf7ef",
+			"759b875e",
+			domain.Game{StartCode: "cstrike"},
+			domain.GameMod{Name: "public"},
+			"1.3.3.7", 1337, 1338, 1339, "paS$w0rD",
+			tempDir,
+			cur.Username,
+			"./start.sh",
+			"", "", "",
+			true, time.Now(),
+			map[string]string{}, settings,
+			time.Now(),
+			0, 0,
+		)
+	}
+
+	pm := NewSystemD(makeConfigWithScope(""), nil, nil)
+
+	t.Run("autostart on is supervised with a widened start limit", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{"autostart": "1"}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, "Restart=always\n")
+		assert.Contains(t, got, "RestartSec=")
+		assert.Contains(t, got, "StartLimitIntervalSec=")
+		assert.Contains(t, got, "StartLimitBurst=")
+	})
+
+	t.Run("autostart off is not supervised", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{"autostart": "0"}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, "Restart=no\n")
+		assert.NotContains(t, got, "Restart=always")
+	})
+
+	t.Run("a server without settings is not supervised", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, "Restart=no\n")
+	})
+
+	// autostart_current is 0 for the whole duration of a deliberate stop, and
+	// the unit is rewritten on the next start. Reading it here would strip
+	// supervision from every server that was ever stopped by hand.
+	t.Run("a stopped server keeps its supervision", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{
+			"autostart":         "1",
+			"autostart_current": "0",
+		}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, "Restart=always\n")
+	})
+}
+
 func Test_buildServiceConfig_scopeDifferences(t *testing.T) {
 	tempDir := t.TempDir()
 

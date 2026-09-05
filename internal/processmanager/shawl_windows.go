@@ -270,7 +270,9 @@ func (pm *Shawl) buildServicePlan(server *domain.Server) (shawlServicePlan, erro
 		return shawlServicePlan{}, errors.WithMessage(err, "failed to build command")
 	}
 
-	arguments, err := buildShawlRunArgs(serviceName, server.WorkDir(pm.cfg), pm.logDir(), cmdArr)
+	arguments, err := buildShawlRunArgs(
+		serviceName, server.WorkDir(pm.cfg), pm.logDir(), server.AutoStartSetting(), cmdArr,
+	)
 	if err != nil {
 		return shawlServicePlan{}, errors.WithMessage(err, "failed to build shawl arguments")
 	}

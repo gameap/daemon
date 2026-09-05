@@ -55,6 +55,17 @@ func (suite *GameServerSuite) GivenServerWithStartCommand(startCommand string) *
 func (suite *GameServerSuite) GivenServerWithStartAndStopCommand(startCommand string, stopCommand string) *domain.Server {
 	suite.T().Helper()
 
+	return suite.GivenServerWithSettings(startCommand, stopCommand, domain.Settings{})
+}
+
+// GivenServerWithSettings builds a server with explicit settings, which is what
+// the autostart tests need: the other builders leave the settings map empty, so
+// autostart is off and the servers loop would never touch the server.
+func (suite *GameServerSuite) GivenServerWithSettings(
+	startCommand string, stopCommand string, settings domain.Settings,
+) *domain.Server {
+	suite.T().Helper()
+
 	return domain.NewServer(
 		1337,
 		true,
@@ -86,7 +97,7 @@ func (suite *GameServerSuite) GivenServerWithStartAndStopCommand(startCommand st
 			"default_map": "de_dust2",
 			"tickrate":    "1000",
 		},
-		map[string]string{},
+		settings,
 		time.Now(),
 		0, // cpuLimit
 		0, // ramLimit

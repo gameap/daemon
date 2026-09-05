@@ -188,6 +188,16 @@ func ExecWithWriterArgs(
 
 	var exitError *exec.ExitError
 	err = cmd.Run()
+
+	// A command killed because the context ran out looks like a command that
+	// exited on a signal: exec.CommandContext kills the child, so Run reports an
+	// ExitError with code -1. Reporting that as a plain exit code makes callers
+	// read "the probe was cut short" as "the process is not running", so the
+	// context error is returned instead and the result is left undetermined.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return invalidResult, errors.Wrap(ctxErr, "command interrupted")
+	}
+
 	if err != nil && !errors.As(err, &exitError) {
 		return cmd.ProcessState.ExitCode(), errors.Wrap(err, "failed to execute command")
 	}

@@ -169,10 +169,10 @@ func (pm *Tmux) Status(
 		options,
 	)
 	if err != nil {
-		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
+		return domain.UnknownResult, errors.WithMessage(err, "failed to exec command")
 	}
 
-	return domain.Result(result), nil
+	return statusFromExitCode(result)
 }
 
 func (pm *Tmux) GetOutput(

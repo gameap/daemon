@@ -169,6 +169,13 @@ func (manager *TaskManager) runNext(ctx context.Context) {
 	var err error
 	if task.IsWaiting() {
 		err = manager.executeTask(ctx, task)
+		if errors.Is(err, ErrServerBusy) {
+			// Another component is mid-command on this server. The task stays
+			// waiting and is picked up again once the server is free.
+			logger.Debug(ctx, "Server is busy, postponing task")
+
+			return
+		}
 	} else if task.IsWorking() {
 		err = manager.proceedTask(ctx, task)
 	}
@@ -288,18 +295,48 @@ func (manager *TaskManager) evaluatePredecessorStatus(
 }
 
 func (manager *TaskManager) executeTask(ctx context.Context, task *domain.GDTask) error {
-	err := task.SetStatus(domain.GDTaskStatusWorking)
-	if err != nil {
+	if task.Task() == domain.GDTaskCommandExecute {
+		if err := task.SetStatus(domain.GDTaskStatusWorking); err != nil {
+			return err
+		}
+
+		manager.notifyTaskStatus(task, "Task started")
+
+		return manager.executeCommand(ctx, task)
+	}
+
+	if task.Server() == nil {
+		return ErrInvalidTaskError
+	}
+
+	// The servers loop drives the same game servers as this scheduler, so a
+	// panel command and an automatic start can land on one server at once. For
+	// the container process managers that overlap is destructive: a start
+	// force-removes the container before recreating it. The lease is taken
+	// before the task is marked working so a busy server leaves the task
+	// waiting for a later tick instead of failing it.
+	release, ok := manager.serverCommandFactory.TryLockServer(task.Server().ID())
+	if !ok {
+		return ErrServerBusy
+	}
+
+	if err := task.SetStatus(domain.GDTaskStatusWorking); err != nil {
+		release()
 		return err
 	}
 
 	manager.notifyTaskStatus(task, "Task started")
 
-	if task.Task() == domain.GDTaskCommandExecute {
-		return manager.executeCommand(ctx, task)
+	// The panel asked for this command, so whatever backoff the loop had built
+	// up for this server no longer applies.
+	task.Server().ResetStartAttempts()
+
+	if err := manager.executeGameCommand(ctx, task, release); err != nil {
+		release()
+		return err
 	}
 
-	return manager.executeGameCommand(ctx, task)
+	return nil
 }
 
 func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDTask) error {
@@ -342,7 +379,9 @@ func (manager *TaskManager) executeCommand(ctx context.Context, task *domain.GDT
 	return nil
 }
 
-func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain.GDTask) error {
+func (manager *TaskManager) executeGameCommand(
+	ctx context.Context, task *domain.GDTask, release func(),
+) error {
 	cmd, gameServerCmdExist := taskServerCommandMap[task.Task()]
 
 	if !gameServerCmdExist {
@@ -359,6 +398,7 @@ func (manager *TaskManager) executeGameCommand(ctx context.Context, task *domain
 
 	go func() {
 		defer manager.wg.Done()
+		defer release()
 		defer func() {
 			if r := recover(); r != nil {
 				logger.Logger(ctx).Errorf("panic in game command execution: %v", r)

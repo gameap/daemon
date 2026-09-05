@@ -2,6 +2,7 @@ package serversloop
 
 import (
 	"context"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -14,25 +15,47 @@ import (
 )
 
 const (
-	commandTimeout = 10 * time.Second
-	loopDuration   = 5 * time.Second
+	loopDuration = 5 * time.Second
 
-	// Ticker will not skip the server if the server performed the task less than this time.
-	noSkipTime = 5 * time.Minute
+	statusCommandTimeout = 10 * time.Second
 
-	// Maximum number of skips if the server performed the task less than 10 minutes ago.
-	skipMaxCount10m = 3
+	// A start is not a quick call: it can pull a container image, run the
+	// configured update-before-start, or block for as long as the game server
+	// lives when the process manager does not detach. It therefore runs off the
+	// tick, and the budget only exists to keep a wedged start from holding the
+	// server's lease forever.
+	startCommandTimeout = 1 * time.Hour
 
-	// Maximum number of skips if the server performed the task less than 60 minutes ago.
-	skipMaxCount60m = 10
+	// How often a server is probed, chosen by how long it has been up. A server
+	// that just came up is watched closely, one that has been up for a while is
+	// polled at the slow rate.
+	minProbeInterval = loopDuration
+	maxProbeInterval = 30 * time.Second
+	stableUptime     = 5 * time.Minute
 
-	// Maximum number of skips if the server performed the task more than 60 minutes ago.
-	skipMaxCount = 20
+	// Restart backoff. Delays grow 5s, 15s, 45s, ... up to the cap, and reset
+	// once the server has stayed up for settleUptime.
+	initialRestartDelay = 5 * time.Second
+	maxRestartDelay     = 10 * time.Minute
+	restartDelayFactor  = 3
+	settleUptime        = 1 * time.Minute
 )
 
 type ServerStatusReporter interface {
 	Report(server *domain.Server)
 }
+
+type probeResult int
+
+const (
+	// probeUndetermined means the liveness check could not be evaluated: the
+	// command errored, timed out or returned a result that is neither success
+	// nor failure. It must never be treated as a stopped server, because the
+	// loop restarts servers it believes to be down.
+	probeUndetermined probeResult = iota
+	probeRunning
+	probeStopped
+)
 
 type ServersLoop struct {
 	cfg                  *config.Config
@@ -40,7 +63,11 @@ type ServersLoop struct {
 	serverCommandFactory *commands.ServerCommandFactory
 	statusReporter       ServerStatusReporter
 
-	skipCounter skipCounter
+	nowFn func() time.Time
+
+	// starts is held by the asynchronous start goroutines so shutdown can wait
+	// for them instead of leaving them behind.
+	starts sync.WaitGroup
 }
 
 func NewServersLoop(
@@ -52,8 +79,7 @@ func NewServersLoop(
 		cfg:                  cfg,
 		serverRepo:           serverRepo,
 		serverCommandFactory: serverCommandFactory,
-
-		skipCounter: skipCounter{},
+		nowFn:                time.Now,
 	}
 }
 
@@ -65,8 +91,14 @@ func (l *ServersLoop) Run(ctx context.Context) error {
 	return l.loop(ctx)
 }
 
+func (l *ServersLoop) now() time.Time {
+	return l.nowFn()
+}
+
 func (l *ServersLoop) loop(ctx context.Context) error {
 	ticker := time.NewTicker(loopDuration)
+	defer ticker.Stop()
+	defer l.starts.Wait()
 
 	for {
 		select {
@@ -92,170 +124,255 @@ func (l *ServersLoop) tick(ctx context.Context) {
 	}
 
 	for i := range ids {
-		ctxWithServer := logger.WithLogger(ctx, logger.WithField(ctx, "gameServerID", ids[i]))
-
-		server, err := l.serverRepo.FindByID(ctxWithServer, ids[i])
-		if err != nil {
-			logger.Error(ctxWithServer, err)
-			continue
+		// Once the daemon is shutting down every probe is killed on the spot and
+		// reports nothing useful, so the remaining servers are left alone rather
+		// than marked down and restarted against a dead context.
+		if ctx.Err() != nil {
+			return
 		}
 
-		if l.canSkipped(ctxWithServer, server) {
-			continue
-		}
-
-		err = l.pipeline(ctxWithServer, server, []pipelineHandler{
-			l.checkStatus,
-			l.startIfNeeded,
-			l.save,
-		})
-		if err != nil {
-			logger.Error(ctxWithServer, err)
-			continue
-		}
+		l.processServer(ctx, ids[i])
 	}
 }
 
-type pipelineHandler func(ctx context.Context, server *domain.Server) error
+// processServer runs one server through the tick. A panic here would otherwise
+// take the whole daemon down with it, since the loop is one of the top-level
+// services: a process manager that trips over an unexpected response must cost
+// one server one tick, not every server its supervision.
+func (l *ServersLoop) processServer(ctx context.Context, id int) {
+	ctx = logger.WithLogger(ctx, logger.WithField(ctx, "gameServerID", id))
 
-func (l *ServersLoop) pipeline(ctx context.Context, server *domain.Server, handlers []pipelineHandler) error {
-	for _, h := range handlers {
-		err := h(ctx, server)
-		if err != nil {
-			return err
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Logger(ctx).
+				WithField("panic", r).
+				WithField("stack", string(debug.Stack())).
+				Error("Panic while checking game server")
 		}
+	}()
+
+	server, err := l.serverRepo.FindByID(ctx, id)
+	if err != nil {
+		logger.Error(ctx, err)
+		return
+	}
+	if server == nil {
+		logger.Debug(ctx, "Server disappeared from the cache before it could be checked")
+		return
 	}
 
-	return nil
-}
-
-func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) error {
 	if server.InstallationStatus() != domain.ServerInstalled {
-		return nil
+		return
 	}
 
-	statusCmd := l.serverCommandFactory.LoadServerCommand(domain.Status, server)
+	if !l.dueForProbe(server) {
+		return
+	}
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, commandTimeout)
+	result, err := l.checkStatus(ctx, server)
+	if err != nil {
+		logger.Error(ctx, err)
+		return
+	}
+
+	if result == probeRunning {
+		l.noticeRunning(server)
+		return
+	}
+
+	l.startIfNeeded(ctx, server)
+}
+
+// dueForProbe decides whether it is time to run the liveness check again.
+//
+// The cadence follows how long the server has been continuously up, not when it
+// last ran a task: a server nobody touches is exactly the one whose crash has to
+// be noticed. A task that finished recently still forces a probe, because the
+// server's state has just changed.
+func (l *ServersLoop) dueForProbe(server *domain.Server) bool {
+	now := l.now()
+
+	elapsed := now.Sub(server.LastStatusCheck())
+	if elapsed >= maxProbeInterval {
+		return true
+	}
+	if elapsed < minProbeInterval {
+		return false
+	}
+
+	if now.Sub(server.LastTaskCompletedAt()) <= settleUptime {
+		return true
+	}
+
+	if !server.IsActive() {
+		// A stopped server that the loop is allowed to bring back is watched at
+		// the fast rate; one it will not touch only needs its status reported.
+		return server.CanAutoStart()
+	}
+
+	runningSince := server.RunningSince()
+	if runningSince.IsZero() {
+		// The server is flagged running, but that flag came from the panel and
+		// not from a check of our own — right after a reconnect, say. There is no
+		// uptime to slow the cadence down with yet.
+		return true
+	}
+
+	return now.Sub(runningSince) < stableUptime
+}
+
+func (l *ServersLoop) checkStatus(ctx context.Context, server *domain.Server) (probeResult, error) {
+	statusCmd := l.serverCommandFactory.LoadServerCommand(domain.Status, server)
+	if statusCmd == nil {
+		return probeUndetermined, errors.New("status command is not implemented for this server")
+	}
+
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, statusCommandTimeout)
 	defer cancel()
 
 	err := statusCmd.Execute(ctxWithTimeout, server)
 	if err != nil {
-		return errors.WithMessage(err, "failed to execute status command")
+		return probeUndetermined, errors.WithMessage(err, "failed to execute status command")
 	}
 
-	server.SetStatus(statusCmd.Result() == commands.SuccessResult)
+	var running bool
+
+	switch statusCmd.Result() {
+	case commands.SuccessResult:
+		running = true
+	case commands.ErrorResult:
+		running = false
+	default:
+		return probeUndetermined, errors.Errorf(
+			"status command returned an indeterminate result %d", statusCmd.Result(),
+		)
+	}
+
+	server.SetStatusAt(l.now(), running)
+
+	if err := l.serverRepo.Save(ctx, server); err != nil {
+		logger.Error(ctx, errors.WithMessage(err, "failed to save game server"))
+	}
 
 	if l.statusReporter != nil {
 		l.statusReporter.Report(server)
 	}
 
-	return nil
+	if running {
+		return probeRunning, nil
+	}
+
+	return probeStopped, nil
 }
 
-func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) error {
-	if server.InstallationStatus() != domain.ServerInstalled {
-		return nil
+// noticeRunning clears the restart backoff once the server has held on long
+// enough to count as recovered. Resetting on the start itself would not work:
+// tmux reports a session created even when the command inside it dies a moment
+// later, and systemd reports a unit started while it is still activating.
+func (l *ServersLoop) noticeRunning(server *domain.Server) {
+	if server.StartAttempts() == 0 {
+		return
 	}
 
-	if server.IsActive() || !server.AutoStart() {
-		return nil
+	runningSince := server.RunningSince()
+	if runningSince.IsZero() || l.now().Sub(runningSince) < settleUptime {
+		return
 	}
+
+	server.ResetStartAttempts()
+}
+
+func (l *ServersLoop) startIfNeeded(ctx context.Context, server *domain.Server) {
+	if !server.CanAutoStart() {
+		return
+	}
+
+	now := l.now()
+	if now.Before(server.NextStartAllowedAt()) {
+		return
+	}
+
+	release, ok := l.serverCommandFactory.TryLockServer(server.ID())
+	if !ok {
+		logger.Debug(ctx, "Skipping automatic start, another command is running for this server")
+		return
+	}
+
+	attempt := server.StartAttempts() + 1
+	server.NoticeStartAttempt(now, restartDelay(attempt))
+
+	logger.Logger(ctx).WithField("attempt", attempt).Info("Starting game server automatically")
+
+	// The start runs off the tick so that a slow one — a container image pull, an
+	// update before start, or a process manager whose start call only returns
+	// when the game server exits — does not hold up the status checks of every
+	// other server on the node. Whether it worked is decided by the next probe,
+	// which is better evidence than the start command's exit code anyway.
+	l.starts.Add(1)
+
+	go func() {
+		defer l.starts.Done()
+		defer release()
+
+		l.startServer(ctx, server, attempt)
+	}()
+}
+
+func (l *ServersLoop) startServer(ctx context.Context, server *domain.Server, attempt int) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Logger(ctx).
+				WithField("panic", r).
+				WithField("stack", string(debug.Stack())).
+				Error("Panic while starting game server")
+		}
+	}()
 
 	startCMD := l.serverCommandFactory.LoadServerCommand(domain.Start, server)
+	if startCMD == nil {
+		logger.Error(ctx, errors.New("start command is not implemented for this server"))
+		return
+	}
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, commandTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, startCommandTimeout)
 	defer cancel()
 
 	err := startCMD.Execute(ctxWithTimeout, server)
 	if err != nil {
-		return errors.WithMessage(err, "failed to execute start command")
-	}
-
-	server.NoticeTaskCompleted()
-
-	return l.checkStatus(ctx, server)
-}
-
-func (l *ServersLoop) save(ctx context.Context, server *domain.Server) error {
-	if server.InstallationStatus() != domain.ServerInstalled {
-		return nil
-	}
-
-	return l.serverRepo.Save(ctx, server)
-}
-
-func (l *ServersLoop) canSkipped(_ context.Context, server *domain.Server) bool {
-	if time.Since(server.LastTaskCompletedAt()) <= noSkipTime {
-		return false
-	}
-
-	if !l.skipCounter.Exists(server.ID()) {
-		l.skipCounter.Init(server.ID())
-		return false
-	}
-
-	if time.Since(server.LastTaskCompletedAt()) <= 10*time.Minute {
-		if l.skipCounter.Get(server.ID()) >= skipMaxCount10m {
-			l.skipCounter.Reset(server.ID())
-			return false
-		}
-
-		l.skipCounter.Increment(server.ID())
-		return true
-	}
-
-	if time.Since(server.LastTaskCompletedAt()) <= 60*time.Minute {
-		if l.skipCounter.Get(server.ID()) >= skipMaxCount60m {
-			l.skipCounter.Reset(server.ID())
-			return false
-		}
-
-		l.skipCounter.Increment(server.ID())
-		return true
-	}
-
-	if l.skipCounter.Get(server.ID()) >= skipMaxCount {
-		l.skipCounter.Reset(server.ID())
-		return false
-	}
-
-	l.skipCounter.Increment(server.ID())
-	return true
-}
-
-type skipCounter struct {
-	counter sync.Map
-}
-
-func (sc *skipCounter) Increment(serverID int) {
-	val, ok := sc.counter.Load(serverID)
-	if !ok {
-		sc.counter.Store(serverID, 1)
+		logger.Logger(ctx).WithError(err).WithField("attempt", attempt).
+			Error("Automatic start failed")
 		return
 	}
 
-	sc.counter.Store(serverID, val.(int)+1)
+	if startCMD.Result() != commands.SuccessResult {
+		logger.Logger(ctx).
+			WithField("attempt", attempt).
+			WithField("result", startCMD.Result()).
+			WithField("output", string(startCMD.ReadOutput())).
+			Error("Automatic start was rejected by the process manager")
+	}
 }
 
-func (sc *skipCounter) Reset(serverID int) {
-	sc.counter.Store(serverID, 0)
-}
-
-func (sc *skipCounter) Init(serverID int) {
-	sc.counter.Store(serverID, 0)
-}
-
-func (sc *skipCounter) Exists(serverID int) bool {
-	_, ok := sc.counter.Load(serverID)
-	return ok
-}
-
-func (sc *skipCounter) Get(serverID int) int {
-	val, ok := sc.counter.Load(serverID)
-	if !ok {
-		return 0
+// restartDelay returns how long to wait before the given attempt may be
+// followed by another one. Without it a server that dies immediately after every
+// start is restarted every five seconds forever, which for the container process
+// managers means destroying and recreating the container that often.
+//
+// The delay is capped rather than the number of attempts: giving up entirely
+// would leave the server down with nothing but a daemon log to say why, and the
+// panel is never told.
+func restartDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
 	}
 
-	return val.(int)
+	delay := initialRestartDelay
+	for i := 1; i < attempt; i++ {
+		delay *= restartDelayFactor
+		if delay >= maxRestartDelay {
+			return maxRestartDelay
+		}
+	}
+
+	return delay
 }

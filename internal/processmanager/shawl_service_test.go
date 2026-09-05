@@ -147,7 +147,7 @@ func TestBuildShawlRunArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildShawlRunArgs(serviceName, workDir, logDir, tt.cmdArr)
+			got, err := buildShawlRunArgs(serviceName, workDir, logDir, true, tt.cmdArr)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, got)
@@ -155,8 +155,25 @@ func TestBuildShawlRunArgs(t *testing.T) {
 	}
 }
 
+// The restart flag follows the server's autostart setting: shawl supervises the
+// game process itself, so leaving it on would restart a server the operator
+// asked not to be restarted.
+func TestBuildShawlRunArgs_RestartFollowsAutostart(t *testing.T) {
+	cmdArr := []string{`C:\gameap\servers\srv1\srcds.exe`}
+
+	withRestart, err := buildShawlRunArgs("gameapServer42", `C:\srv`, `C:\logs`, true, cmdArr)
+	require.NoError(t, err)
+	assert.Contains(t, withRestart, "--restart")
+	assert.NotContains(t, withRestart, "--no-restart")
+
+	withoutRestart, err := buildShawlRunArgs("gameapServer7", `C:\srv`, `C:\logs`, false, cmdArr)
+	require.NoError(t, err)
+	assert.Contains(t, withoutRestart, "--no-restart")
+	assert.NotContains(t, withoutRestart, "--restart")
+}
+
 func TestBuildShawlRunArgs_EmptyCommand(t *testing.T) {
-	_, err := buildShawlRunArgs("gameapServer1", `C:\srv`, `C:\logs`, nil)
+	_, err := buildShawlRunArgs("gameapServer1", `C:\srv`, `C:\logs`, true, nil)
 
 	assert.ErrorIs(t, err, ErrEmptyCommand)
 }
