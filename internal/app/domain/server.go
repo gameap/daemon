@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"uuid"
 
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gameap/gameap/pkg/idgen"
-	"github.com/google/uuid"
 )
 
 type InstallationStatus int
@@ -290,10 +290,10 @@ func (s *Server) XID() string {
 		u[2] = byte(s.id >> 8)
 		u[3] = byte(s.id)
 
-		return idgen.UUIDToXID(u).String()
+		return idgen.UUIDToXID([16]byte(u)).String()
 	}
 
-	return idgen.UUIDToXID(parsed).String()
+	return idgen.UUIDToXID([16]byte(parsed)).String()
 }
 
 func (s *Server) UUIDShort() string {
