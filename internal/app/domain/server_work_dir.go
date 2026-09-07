@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode"
 
 	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/pkg/errors"
@@ -23,6 +24,11 @@ const (
 // a filesystem root. The process work directory must always be inside the
 // server directory.
 var ErrProcessWorkDirNotRelative = errors.New("work_dir must be a path relative to the server directory")
+
+// ErrProcessWorkDirInvalidCharacters is returned for values that cannot be
+// written safely into a process manager configuration: line breaks would
+// inject directives into a systemd unit and '%' is a systemd specifier.
+var ErrProcessWorkDirInvalidCharacters = errors.New("work_dir must not contain control characters or '%'")
 
 // ProcessWorkDirRel returns the directory the game server process runs in as a
 // clean, slash-separated path relative to the server directory, or "." when
@@ -120,6 +126,10 @@ func metadataStringLookup(metadata map[string]any) func(key string) string {
 // RootRel strips leading separators and drive letters and would quietly turn
 // C:\servers\gb into servers/gb.
 func normalizeProcessWorkDir(value string) (string, error) {
+	if strings.ContainsFunc(value, unicode.IsControl) || strings.Contains(value, "%") {
+		return "", ErrProcessWorkDirInvalidCharacters
+	}
+
 	if isAnchoredPath(value) {
 		return "", ErrProcessWorkDirNotRelative
 	}

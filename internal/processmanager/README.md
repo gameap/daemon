@@ -229,12 +229,15 @@ Configuration values are resolved in the following priority order:
 | `docker_privileged`     | Run in privileged mode                             | `true`, `false`       | `false`                |
 | `docker_volumes`        | Additional volumes (JSON array or comma-separated) | `["/data:/data:ro"]`  | None                   |
 | `docker_dns`            | Custom DNS servers (comma-separated)               | `8.8.8.8,8.8.4.4`     | System default         |
-| `docker_workdir`        | Container working directory                        | `/home/container`     | `/server`              |
+| `docker_workdir`        | Mount path of the server directory (see below)     | `/home/container`     | `/server`              |
 
-The server directory is always mounted at `docker_workdir`. When the server has a
-process work directory (`work_dir`, `work_dir_linux`, `work_dir_windows`,
-`work_dir_macos`; see the root README), the container working directory becomes
-`docker_workdir` joined with that relative path, e.g. `/server/GroundBranch/Binaries/Linux`.
+The server directory is always mounted at `docker_workdir`, which is also the
+container working directory. When the server has a process work directory
+(`work_dir`, `work_dir_linux`, `work_dir_windows`, `work_dir_macos`; see the root
+README), the container working directory becomes `docker_workdir` joined with that
+relative path, e.g. `/server/GroundBranch/Binaries/Linux`. The `{dir}` and
+`{work_dir}` placeholders expand to host paths, so a start command that runs inside
+the container should not rely on them.
 
 #### Installation Configuration
 
@@ -430,15 +433,15 @@ Podman uses the same metadata keys as Docker for compatibility:
 | `docker_privileged`              | Privileged mode               | `true`, `false`      | `false`                    |
 | `docker_volumes`                 | Additional volumes            | `["/data:/data:ro"]` | None                       |
 | `docker_dns`                     | DNS servers                   | `8.8.8.8,8.8.4.4`    | System default             |
-| `docker_workdir`                 | Container working directory   | `/home/container`    | `/server`                  |
+| `docker_workdir`                 | Server directory mount path   | `/home/container`    | `/server`                  |
 | `docker_installation_image`      | Installation image            | `node:18`            | None                       |
 | `docker_installation_script`     | Installation script           | `#!/bin/bash\n...`   | None                       |
 | `docker_installation_entrypoint` | Shell for installation script | `ash`, `/bin/sh`     | Auto-detected from shebang |
 | `docker_installation_user`       | User to run installation as   | `1000:1000`, `root`  | `root`                     |
 
-As with Docker, the server directory is mounted at `docker_workdir` and a configured
-process work directory (`work_dir*` keys, see the root README) is joined onto it to
-form the container working directory.
+As with Docker, the server directory is mounted at `docker_workdir`, which is the
+container working directory unless a process work directory (`work_dir*` keys, see the
+root README) is configured; that relative path is then joined onto `docker_workdir`.
 
 ### Socket Configuration
 

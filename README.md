@@ -185,6 +185,8 @@ Rules for the value:
   (`GroundBranch/Binaries/Win64`);
 - an absolute path (`/srv/x`, `C:\x`, `\\host\share`) or a path that leaves the
   server directory (`../x`) is rejected and the server does not start;
+- control characters and `%` are rejected as well, because they cannot be
+  written safely into a systemd unit;
 - an empty value, `.` or `./` means the server directory, which is the historical
   behaviour;
 - when the configured directory does not exist at start time, the start fails with

@@ -295,6 +295,29 @@ func TestResolveProcessWorkDir_AnchoredPathsAreRejected(t *testing.T) {
 	}
 }
 
+func TestResolveProcessWorkDir_InvalidCharactersAreRejected(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"newline", "bin\nExecStart=/bin/true"},
+		{"carriage_return", "bin\rx"},
+		{"tab", "bin\tx"},
+		{"nul", "bin\x00x"},
+		{"percent_specifier", "bin/100%"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := resolveProcessWorkDir("linux", nil, map[string]any{"work_dir": tt.value}, nil)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrProcessWorkDirInvalidCharacters)
+			assert.Contains(t, err.Error(), "from game mod metadata")
+		})
+	}
+}
+
 func TestServer_ProcessWorkDirRel_UsesRunningOSKey(t *testing.T) {
 	var osKey string
 
