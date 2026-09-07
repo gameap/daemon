@@ -227,7 +227,14 @@ func (cmd *installServer) startServerIfNeeded(ctx context.Context, server *domai
 }
 
 func (cmd *installServer) installByScript(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Install, "")
+	command, err := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Install, "")
+	if err != nil {
+		cmd.SetComplete()
+		cmd.SetResult(ErrorResult)
+		_, _ = cmd.installOutput.Write([]byte(err.Error()))
+
+		return errors.WithMessage(err, "[game_server_commands.installServer] failed to build install script command")
+	}
 
 	_, _ = cmd.installOutput.Write([]byte("Executing install script ...\n"))
 

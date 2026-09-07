@@ -615,11 +615,16 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 		containerWorkDir = "/server"
 	}
 
+	processWorkDirRel, err := server.ProcessWorkDirRel()
+	if err != nil {
+		return nil, nil, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	// Container config
 	containerConfig := &container.Config{
 		Image:      imageName,
 		Hostname:   containerName,
-		WorkingDir: containerWorkDir,
+		WorkingDir: containerProcessWorkDir(containerWorkDir, processWorkDirRel),
 		Env:        env,
 		Cmd:        cmdSlice,
 		User:       fmt.Sprintf("%s:%s", uid, gid),

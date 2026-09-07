@@ -412,13 +412,18 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 		arguments = shellquote.WindowsJoin(argArr...)
 	}
 
+	processWorkDir, err := server.ProcessWorkDir(pm.cfg)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	serviceName := pm.serviceName(server)
 	serviceConfig := WinSWServiceConfig{
 		ID:               serviceName,
 		Name:             serviceName,
 		Executable:       executable,
 		Arguments:        arguments,
-		WorkingDirectory: server.WorkDir(pm.cfg),
+		WorkingDirectory: processWorkDir,
 		Log: log{
 			Mode: "reset",
 		},

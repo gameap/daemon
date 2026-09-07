@@ -52,7 +52,14 @@ func (cmd *defaultDeleteServer) Execute(ctx context.Context, server *domain.Serv
 }
 
 func (cmd *defaultDeleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
+	command, err := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
+	if err != nil {
+		cmd.SetComplete()
+		cmd.SetResult(ErrorResult)
+		_, _ = cmd.output.Write([]byte(err.Error()))
+
+		return errors.WithMessage(err, "failed to build delete script command")
+	}
 
 	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkDir(),

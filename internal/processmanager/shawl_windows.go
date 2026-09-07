@@ -270,14 +270,23 @@ func (pm *Shawl) buildServicePlan(server *domain.Server) (shawlServicePlan, erro
 		return shawlServicePlan{}, errors.WithMessage(err, "failed to build command")
 	}
 
+	processWorkDir, err := server.ProcessWorkDir(pm.cfg)
+	if err != nil {
+		return shawlServicePlan{}, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	arguments, err := buildShawlRunArgs(
-		serviceName, server.WorkDir(pm.cfg), pm.logDir(), server.AutoStartSetting(), cmdArr,
+		serviceName, processWorkDir, pm.logDir(), server.AutoStartSetting(), cmdArr,
 	)
 	if err != nil {
 		return shawlServicePlan{}, errors.WithMessage(err, "failed to build shawl arguments")
 	}
 
-	command := domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	command, err := domain.MakeFullCommand(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	if err != nil {
+		return shawlServicePlan{}, errors.WithMessage(err, "failed to build command")
+	}
+
 	if command == "" {
 		return shawlServicePlan{}, ErrEmptyCommand
 	}
@@ -307,7 +316,7 @@ func (pm *Shawl) buildServicePlan(server *domain.Server) (shawlServicePlan, erro
 		ServiceName:        serviceName,
 		Account:            plan.account,
 		NetworkServiceUser: pm.cfg.UseNetworkServiceUser,
-		WorkDir:            server.WorkDir(pm.cfg),
+		WorkDir:            processWorkDir,
 		BinaryPathName:     plan.binaryPath,
 		Command:            command,
 	}.String()

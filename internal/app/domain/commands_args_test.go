@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -106,4 +107,27 @@ func TestBuildCommandArgs_ReportsUnbalancedQuoteInTemplate(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to split server command")
+}
+
+func TestBuildCommandArgs_WorkDirPlaceholderStaysSingleArgument(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work path"}
+	server := newTestServerForVars(nil, map[string]string{"work_dir": "bin/sub dir"}, nil)
+
+	args, err := BuildCommandArgs(cfg, server, "{command}", "./run --cwd {work_dir} --root {dir}")
+
+	require.NoError(t, err)
+	require.Len(t, args, 5)
+	assert.Equal(t, filepath.Join("/work path", "server-dir", "bin", "sub dir"), args[2])
+	assert.Equal(t, filepath.Join("/work path", "server-dir"), args[4])
+}
+
+func TestBuildCommandArgs_ReportsInvalidWorkDir(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForVars(nil, map[string]string{"work_dir": "../escape"}, nil)
+
+	_, err := BuildCommandArgs(cfg, server, "{command}", "./run")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `invalid work_dir "../escape" from server vars`)
+	assert.Contains(t, err.Error(), "path is outside work directory")
 }

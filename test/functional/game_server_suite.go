@@ -66,6 +66,31 @@ func (suite *GameServerSuite) GivenServerWithSettings(
 ) *domain.Server {
 	suite.T().Helper()
 
+	return suite.givenServer(startCommand, stopCommand, defaultServerVars(), settings)
+}
+
+// GivenServerWithVars builds a server with explicit vars, which is how a test
+// configures the process work directory through the work_dir variable.
+func (suite *GameServerSuite) GivenServerWithVars(
+	startCommand string, stopCommand string, vars map[string]string,
+) *domain.Server {
+	suite.T().Helper()
+
+	return suite.givenServer(startCommand, stopCommand, vars, domain.Settings{})
+}
+
+func defaultServerVars() map[string]string {
+	return map[string]string{
+		"default_map": "de_dust2",
+		"tickrate":    "1000",
+	}
+}
+
+func (suite *GameServerSuite) givenServer(
+	startCommand string, stopCommand string, vars map[string]string, settings domain.Settings,
+) *domain.Server {
+	suite.T().Helper()
+
 	return domain.NewServer(
 		1337,
 		true,
@@ -93,10 +118,7 @@ func (suite *GameServerSuite) GivenServerWithSettings(
 		"",
 		true,
 		time.Now(),
-		map[string]string{
-			"default_map": "de_dust2",
-			"tickrate":    "1000",
-		},
+		vars,
 		settings,
 		time.Now(),
 		0, // cpuLimit

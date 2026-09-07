@@ -2,11 +2,13 @@ package restart
 
 import (
 	"context"
+	"path/filepath"
 	"runtime"
 
 	"github.com/gameap/daemon/test/functional/serverscommand"
 
 	"github.com/gameap/daemon/internal/app/domain"
+	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
 )
 
 func (suite *Suite) TestRestartViaStartStop_ServerIsActive_ExecutedStatusStopAndStartCommands() {
@@ -68,4 +70,24 @@ func (suite *Suite) TestRestartViaStartStop_StopFailed_ExecutedStatusAndStopComm
 	} else {
 		suite.Assert().Equal("status\nstop failed\n", string(cmd.ReadOutput()))
 	}
+}
+
+func (suite *Suite) TestRestartViaScript_MissingWorkDir_ScriptIsNotExecuted() {
+	suite.Cfg.Scripts.Restart = serverscommand.CommandScript + " restart"
+	defer func() { suite.Cfg.Scripts.Restart = "" }()
+	server := suite.GivenServerWithVars(
+		serverscommand.CommandScript+" start",
+		serverscommand.CommandScript+" stop",
+		map[string]string{"work_dir": "missing"},
+	)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart, server)
+
+	err := cmd.Execute(context.Background(), server)
+
+	suite.Require().Error(err)
+	suite.Assert().Contains(err.Error(), "server process work directory does not exist")
+	suite.Assert().Contains(err.Error(), `(work_dir "missing")`)
+	suite.Assert().True(cmd.IsComplete())
+	suite.Assert().Equal(gameservercommands.ErrorResult, cmd.Result())
+	suite.Assert().NoFileExists(filepath.Join(suite.WorkPath, "server", serverscommand.CommandResultFile))
 }

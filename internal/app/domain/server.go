@@ -349,6 +349,12 @@ func (s *Server) Vars() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.mergedVars()
+}
+
+// mergedVars is Vars without locking, for callers that already hold s.mu.
+// sync.RWMutex read locks are not reentrant once a writer is waiting.
+func (s *Server) mergedVars() map[string]string {
 	vars := make(map[string]string, len(s.gameMod.Vars)+len(s.vars)+len(s.settings))
 	for _, v := range s.gameMod.Vars {
 		vars[v.Key] = v.DefaultValue
@@ -434,6 +440,9 @@ func (s *Server) Dir() string {
 	return s.dir
 }
 
+// WorkDir returns the absolute server directory: the installation root that
+// install, update, delete and the {dir} placeholder operate on. The directory
+// the game process runs in is ProcessWorkDir, which may be a subdirectory of it.
 func (s *Server) WorkDir(cfg workDirReader) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

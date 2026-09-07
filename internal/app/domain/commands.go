@@ -40,7 +40,10 @@ func BuildCommandArgs(
 		}
 	}
 
-	replacer := newServerReplacer(cfg, server)
+	replacer, err := newServerReplacer(cfg, server)
+	if err != nil {
+		return nil, err
+	}
 
 	args := make([]string, 0, len(wrapTokens)+len(cmdTokens))
 	for _, token := range wrapTokens {
@@ -63,29 +66,45 @@ func MakeFullCommand(
 	server *Server,
 	commandTemplate string,
 	serverCommand string,
-) string {
+) (string, error) {
 	commandTemplate = strings.Replace(commandTemplate, "{command}", serverCommand, 1)
 
 	return ReplaceShortCodes(commandTemplate, cfg, server)
 }
 
-func ReplaceShortCodes(commandTemplate string, cfg workDirReader, server *Server) string {
-	return newServerReplacer(cfg, server).Replace(commandTemplate)
+func ReplaceShortCodes(commandTemplate string, cfg workDirReader, server *Server) (string, error) {
+	replacer, err := newServerReplacer(cfg, server)
+	if err != nil {
+		return "", err
+	}
+
+	return replacer.Replace(commandTemplate), nil
 }
 
 // newServerReplacer builds a single-pass replacer for all supported
 // placeholders. A single pass means a substituted value is never re-scanned, so
 // one variable value cannot expand another variable's placeholder, and the
 // result no longer depends on Go map iteration order. Built-in placeholders are
-// registered before server variables, so a variable cannot shadow a built-in.
-func newServerReplacer(cfg workDirReader, server *Server) *strings.Replacer {
+// registered before server variables, so a variable cannot shadow a built-in:
+// {dir} is the server directory and {work_dir} the directory the process runs
+// in, even when a server variable is called work_dir.
+//
+// It fails when the configured work_dir is not a relative path inside the
+// server directory; the same value is rejected again before the server starts.
+func newServerReplacer(cfg workDirReader, server *Server) (*strings.Replacer, error) {
+	processWorkDir, err := server.ProcessWorkDir(cfg)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	vars := server.Vars()
 
-	const builtinPairs = 32
+	const builtinPairs = 34
 
 	pairs := make([]string, 0, builtinPairs+6*len(vars))
 	pairs = append(pairs,
 		"{dir}", server.WorkDir(cfg),
+		"{work_dir}", processWorkDir,
 		"{uuid}", server.UUID(),
 		"{uuid_short}", server.UUIDShort(),
 		"{id}", strconv.Itoa(server.ID()),
@@ -111,5 +130,5 @@ func newServerReplacer(cfg workDirReader, server *Server) *strings.Replacer {
 		)
 	}
 
-	return strings.NewReplacer(pairs...)
+	return strings.NewReplacer(pairs...), nil
 }

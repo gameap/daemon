@@ -494,11 +494,18 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 		containerWorkDir = "/server"
 	}
 
+	processWorkDirRel, err := server.ProcessWorkDirRel()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	spec := map[string]interface{}{
 		"name":     containerName,
 		"image":    imageName,
 		"hostname": containerName,
-		"work_dir": containerWorkDir,
+		// "work_dir" is the Podman spec field for the container working directory;
+		// it only happens to share its name with the server-level work_dir key.
+		"work_dir": containerProcessWorkDir(containerWorkDir, processWorkDirRel),
 		"env":      env,
 		"command":  cmdSlice,
 		"user":     fmt.Sprintf("%s:%s", uid, gid),

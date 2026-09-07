@@ -286,8 +286,13 @@ func (pm *Tmux) executeOptions(server *domain.Server) (contracts.ExecutorOptions
 		}
 	}
 
+	workDir, err := server.ProcessWorkDir(pm.cfg)
+	if err != nil {
+		return contracts.ExecutorOptions{}, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	return contracts.ExecutorOptions{
-		WorkDir:         server.WorkDir(pm.cfg),
+		WorkDir:         workDir,
 		FallbackWorkDir: systemUser.HomeDir,
 		UID:             systemUser.Uid,
 		GID:             systemUser.Gid,
