@@ -33,7 +33,15 @@ func (cmd *defaultDeleteServer) Execute(ctx context.Context, server *domain.Serv
 		cmd.SetComplete()
 	}()
 
-	_, err := cmd.processManager.Uninstall(ctx, server, cmd.output)
+	deleteCommand, err := cmd.buildDeleteCommand(server)
+	if err != nil {
+		cmd.SetResult(ErrorResult)
+		_, _ = cmd.output.Write([]byte(err.Error()))
+
+		return errors.WithMessage(err, "failed to build delete script command")
+	}
+
+	_, err = cmd.processManager.Uninstall(ctx, server, cmd.output)
 	if err != nil {
 		cmd.SetResult(ErrorResult)
 		_, _ = cmd.output.Write([]byte(err.Error()))
@@ -43,7 +51,7 @@ func (cmd *defaultDeleteServer) Execute(ctx context.Context, server *domain.Serv
 	if cmd.cfg.Scripts.Delete != "" {
 		_, _ = cmd.output.Write([]byte("Removing server by script...\n"))
 
-		return cmd.removeByScript(ctx, server)
+		return cmd.removeByScript(ctx, deleteCommand)
 	}
 
 	_, _ = cmd.output.Write([]byte("Removing server by filesystem...\n"))
@@ -51,9 +59,18 @@ func (cmd *defaultDeleteServer) Execute(ctx context.Context, server *domain.Serv
 	return cmd.removeByFilesystem(ctx, server)
 }
 
-func (cmd *defaultDeleteServer) removeByScript(ctx context.Context, server *domain.Server) error {
-	command := makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
+// buildDeleteCommand runs before the process manager uninstall, so a server
+// whose configuration cannot be expanded is reported while its service is
+// still registered instead of being left half removed.
+func (cmd *defaultDeleteServer) buildDeleteCommand(server *domain.Server) (string, error) {
+	if cmd.cfg.Scripts.Delete == "" {
+		return "", nil
+	}
 
+	return makeFullCommand(cmd.cfg, server, cmd.cfg.Scripts.Delete, "")
+}
+
+func (cmd *defaultDeleteServer) removeByScript(ctx context.Context, command string) error {
 	result, err := cmd.executor.ExecWithWriter(ctx, command, cmd.output, contracts.ExecutorOptions{
 		WorkDir: cmd.cfg.WorkDir(),
 	})

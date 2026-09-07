@@ -9,6 +9,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewDocker(t *testing.T) {
@@ -261,5 +262,117 @@ func createTestServer(vars map[string]string, gameModMeta, gameMeta map[string]a
 		time.Time{},                           // updatedAt
 		0,                                     // cpuLimit
 		0,                                     // ramLimit
+	)
+}
+
+func TestContainerProcessWorkDir(t *testing.T) {
+	tests := []struct {
+		name             string
+		containerWorkDir string
+		rel              string
+		expected         string
+	}{
+		{"unset_keeps_container_workdir", "/server", ".", "/server"},
+		{"unset_keeps_trailing_slash", "/home/container/", ".", "/home/container/"},
+		{"joins_subdirectory", "/server", "GroundBranch/Binaries/Linux", "/server/GroundBranch/Binaries/Linux"},
+		{"joins_onto_custom_workdir", "/home/container/", "bin", "/home/container/bin"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, containerProcessWorkDir(tt.containerWorkDir, tt.rel))
+		})
+	}
+}
+
+func TestDocker_buildContainerConfig_processWorkDir(t *testing.T) {
+	tests := []struct {
+		name                string
+		serverVars          map[string]string
+		gameModMeta         map[string]any
+		expectedWorkDir     string
+		expectedMountTarget string
+		expectedError       string
+	}{
+		{
+			name:                "defaults_to_container_workdir",
+			expectedWorkDir:     "/server",
+			expectedMountTarget: "/server",
+		},
+		{
+			name:                "joins_work_dir_from_server_vars",
+			serverVars:          map[string]string{"work_dir": "sub"},
+			expectedWorkDir:     "/server/sub",
+			expectedMountTarget: "/server",
+		},
+		{
+			name:                "joins_work_dir_onto_custom_docker_workdir",
+			serverVars:          map[string]string{"work_dir": "bin/x"},
+			gameModMeta:         map[string]any{"docker_workdir": "/home/container"},
+			expectedWorkDir:     "/home/container/bin/x",
+			expectedMountTarget: "/home/container",
+		},
+		{
+			name:                "takes_work_dir_from_game_mod_metadata",
+			gameModMeta:         map[string]any{"work_dir": "mod/bin"},
+			expectedWorkDir:     "/server/mod/bin",
+			expectedMountTarget: "/server",
+		},
+		{
+			name:          "rejects_work_dir_outside_server_dir",
+			serverVars:    map[string]string{"work_dir": "../escape"},
+			expectedError: "failed to resolve server process work directory",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				WorkPath: "/tmp/test",
+				Scripts: config.Scripts{
+					Start: "{command}",
+				},
+			}
+			pm := NewDocker(cfg, nil, nil)
+			server := createTestServer(tt.serverVars, tt.gameModMeta, nil)
+
+			containerConfig, hostConfig, err := pm.buildContainerConfig(server)
+
+			if tt.expectedError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedWorkDir, containerConfig.WorkingDir)
+			require.Len(t, hostConfig.Mounts, 1)
+			assert.Equal(t, server.WorkDir(cfg), hostConfig.Mounts[0].Source)
+			assert.Equal(t, tt.expectedMountTarget, hostConfig.Mounts[0].Target)
+		})
+	}
+}
+
+func TestDocker_buildContainerConfig_placeholdersUseContainerPaths(t *testing.T) {
+	cfg := &config.Config{
+		WorkPath: "/tmp/test",
+		Scripts: config.Scripts{
+			Start: "{command} --root {dir} --cwd {work_dir}",
+		},
+	}
+	pm := NewDocker(cfg, nil, nil)
+	server := createTestServer(
+		map[string]string{"work_dir": "sub"},
+		map[string]any{"docker_workdir": "/home/container"},
+		nil,
+	)
+
+	containerConfig, _, err := pm.buildContainerConfig(server)
+
+	require.NoError(t, err)
+	assert.Equal(t,
+		[]string{"./game_server", "-port", "27015", "--root", "/home/container", "--cwd", "/home/container/sub"},
+		containerConfig.Cmd,
 	)
 }

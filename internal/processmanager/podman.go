@@ -473,8 +473,21 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 	imageName := normalizeImageName(pm.getConfig(server, keyPodmanImage))
 	containerName := pm.containerName(server)
 
+	// Container working directory
+	containerWorkDir := pm.getConfig(server, keyPodmanWorkDir)
+	if containerWorkDir == "" {
+		containerWorkDir = "/server"
+	}
+
+	processWorkDirRel, err := server.ProcessWorkDirRel()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
+	containerProcessDir := containerProcessWorkDir(containerWorkDir, processWorkDirRel)
+
 	// Parse command
-	cmdSlice, err := pm.parseCommand(server)
+	cmdSlice, err := pm.parseCommand(server, containerWorkDir, containerProcessDir)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse start command")
 	}
@@ -488,17 +501,13 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 	// Build environment variables
 	env := server.EnvironmentVars()
 
-	// Container working directory
-	containerWorkDir := pm.getConfig(server, keyPodmanWorkDir)
-	if containerWorkDir == "" {
-		containerWorkDir = "/server"
-	}
-
 	spec := map[string]interface{}{
 		"name":     containerName,
 		"image":    imageName,
 		"hostname": containerName,
-		"work_dir": containerWorkDir,
+		// "work_dir" is the Podman spec field for the container working directory;
+		// it only happens to share its name with the server-level work_dir key.
+		"work_dir": containerProcessDir,
 		"env":      env,
 		"command":  cmdSlice,
 		"user":     fmt.Sprintf("%s:%s", uid, gid),
@@ -767,8 +776,15 @@ func (pm *Podman) imageExists(ctx context.Context, imageName string) bool {
 	return resp.StatusCode == http.StatusNoContent
 }
 
-func (pm *Podman) parseCommand(server *domain.Server) ([]string, error) {
-	args, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+// parseCommand builds the command that runs inside the container, where the
+// host paths behind {dir} and {work_dir} do not exist: {dir} becomes the
+// container path the server directory is mounted at and {work_dir} the
+// container working directory.
+func (pm *Podman) parseCommand(server *domain.Server, mountDir, processDir string) ([]string, error) {
+	args, err := domain.BuildCommandArgsWithPaths(
+		pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand(),
+		domain.CommandPaths{Dir: mountDir, WorkDir: processDir},
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -152,3 +152,64 @@ are ignored if present in a config file (unknown keys do not cause errors):
 `listen_ip`, `listen_port`, `daemon_login`, `daemon_password`,
 `password_authentication`, `dh_file`, `stats_update_period`,
 `stats_db_update_period`, `grpc.enabled`, `task_manager.update_period`
+
+## Game server working directory
+
+By default a game server process starts in the server directory
+(`work_path` + the server `dir` from the panel). Some games keep their server
+binary in a subdirectory and must be started from there, for example Ground
+Branch ships `GroundBranch/Binaries/Win64/GroundBranchServer-Win64-Shipping.exe`.
+The working directory of the process can be moved into such a subdirectory
+without changing the server directory itself.
+
+The directory is read from these keys, in this order, and the first non-empty
+value wins:
+
+1. server variables (per-server override, edited on the server page in the panel);
+2. game mod metadata;
+3. game metadata.
+
+| Key                | Applies to                                            |
+|--------------------|-------------------------------------------------------|
+| `work_dir_linux`   | Linux nodes (and any OS other than Windows and macOS) |
+| `work_dir_windows` | Windows nodes                                         |
+| `work_dir_macos`   | macOS nodes                                           |
+| `work_dir`         | Any OS, used when the OS-specific key is not set      |
+
+On each level the key for the node OS is checked before the generic `work_dir`.
+macOS does not fall back to `work_dir_linux`.
+
+Rules for the value:
+
+- it is a path relative to the server directory, forward slashes work on every OS
+  (`GroundBranch/Binaries/Win64`);
+- an absolute path (`/srv/x`, `C:\x`, `\\host\share`) or a path that leaves the
+  server directory (`../x`) is rejected and the server does not start;
+- control characters and `%` are rejected as well, because they cannot be
+  written safely into a systemd unit;
+- an empty value, `.` or `./` means the server directory, which is the historical
+  behaviour;
+- when the configured directory does not exist at start time, the start fails with
+  `server process work directory does not exist` instead of quietly running the
+  command somewhere else. Installation and updates run before that check, so a
+  directory created by the installer is fine.
+
+Only the process working directory moves. Installation, updates, deletion, the
+after-install script, the panel file manager, the `{dir}` placeholder and the
+Docker/Podman bind mount keep working with the server directory. The new
+`{work_dir}` placeholder expands to the absolute process working directory
+(inside a Docker/Podman container: the container path, like `{dir}`).
+
+Example for Ground Branch (game mod metadata):
+
+```
+work_dir_windows: GroundBranch/Binaries/Win64
+work_dir_linux:   GroundBranch/Binaries/Linux
+work_dir_macos:   GroundBranch/Binaries/Mac
+```
+
+with the start command `GroundBranchServer-Win64-Shipping.exe ?MaxPlayers={max_players} ...`.
+
+A `work_dir` set as a server variable is also exported to the process
+environment as `WORK_DIR`, like every other server variable. Values from
+metadata are not exported.

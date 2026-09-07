@@ -2,6 +2,8 @@ package gameservercommands_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -103,6 +105,14 @@ func givenCommandFactory(t *testing.T, cfg *config.Config) *gameservercommands.S
 func givenServerWithStartCommand(t *testing.T, startCommand string) *domain.Server {
 	t.Helper()
 
+	return givenServerWithStartCommandAndVars(t, startCommand, map[string]string{})
+}
+
+func givenServerWithStartCommandAndVars(
+	t *testing.T, startCommand string, vars map[string]string,
+) *domain.Server {
+	t.Helper()
+
 	return domain.NewServer(
 		1337,
 		true,
@@ -130,13 +140,79 @@ func givenServerWithStartCommand(t *testing.T, startCommand string) *domain.Serv
 		"",
 		true,
 		time.Now(),
-		map[string]string{
-			"default_map": "de_dust2",
-			"tickrate":    "1000",
-		},
+		vars,
 		map[string]string{},
 		time.Now(),
 		0, // cpuLimit
 		0, // ramLimit
 	)
+}
+
+func TestStartServer_MissingWorkDir(t *testing.T) {
+	cfg := &config.Config{
+		WorkPath: "../../../test/servers",
+		Scripts: config.Scripts{
+			Start: "{command}",
+		},
+	}
+	server := givenServerWithStartCommandAndVars(t, "./run.sh", map[string]string{"work_dir": "missing"})
+	startServerCommand := givenCommandFactory(t, cfg).LoadServerCommand(domain.Start, server)
+
+	err := startServerCommand.Execute(context.Background(), server)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "server process work directory does not exist")
+	assert.Contains(t, err.Error(), `(work_dir "missing")`)
+	assert.Contains(t, err.Error(), filepath.Join("simple", "missing"))
+	assert.Equal(t, gameservercommands.ErrorResult, startServerCommand.Result())
+	assert.True(t, startServerCommand.IsComplete())
+}
+
+func TestStartServer_WorkDirEscapesServerDir(t *testing.T) {
+	cfg := &config.Config{
+		WorkPath: "../../../test/servers",
+		Scripts: config.Scripts{
+			Start: "{command}",
+		},
+	}
+	server := givenServerWithStartCommandAndVars(t, "./run.sh", map[string]string{"work_dir": "../scripts"})
+	startServerCommand := givenCommandFactory(t, cfg).LoadServerCommand(domain.Start, server)
+
+	err := startServerCommand.Execute(context.Background(), server)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `invalid work_dir "../scripts" from server vars`)
+	assert.Contains(t, err.Error(), "path is outside work directory")
+	assert.Equal(t, gameservercommands.ErrorResult, startServerCommand.Result())
+	assert.True(t, startServerCommand.IsComplete())
+}
+
+func TestStartServer_RunsInWorkDir(t *testing.T) {
+	workPath := t.TempDir()
+	subDir := filepath.Join(workPath, "simple", "sub")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	var startCommand string
+	if runtime.GOOS == "windows" {
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "run.bat"), []byte("@echo %cd%\r\n"), 0o644))
+		startCommand = "cmd /c run.bat"
+	} else {
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "run.sh"), []byte("#!/bin/sh\npwd\n"), 0o755))
+		startCommand = "./run.sh"
+	}
+
+	cfg := &config.Config{
+		WorkPath: workPath,
+		Scripts: config.Scripts{
+			Start: "{command}",
+		},
+	}
+	server := givenServerWithStartCommandAndVars(t, startCommand, map[string]string{"work_dir": "sub"})
+	startServerCommand := givenCommandFactory(t, cfg).LoadServerCommand(domain.Start, server)
+
+	err := startServerCommand.Execute(context.Background(), server)
+
+	require.NoError(t, err)
+	assert.Equal(t, gameservercommands.SuccessResult, startServerCommand.Result())
+	assert.Contains(t, string(startServerCommand.ReadOutput()), filepath.Join("simple", "sub"))
 }

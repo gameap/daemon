@@ -1,6 +1,7 @@
 package processmanager
 
 import (
+	"path"
 	"strings"
 
 	"github.com/gameap/daemon/internal/app/config"
@@ -46,4 +47,15 @@ func getContainerConfig(cfg *config.Config, server *domain.Server, key string) s
 	}
 
 	return ""
+}
+
+// containerProcessWorkDir joins the server's relative process work directory
+// onto the container path the server directory is mounted at. The mount itself
+// stays on the server directory; only the container working directory moves.
+func containerProcessWorkDir(containerWorkDir, rel string) string {
+	if rel == "." {
+		return containerWorkDir
+	}
+
+	return path.Join(containerWorkDir, rel)
 }

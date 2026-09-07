@@ -525,3 +525,66 @@ func makeServerWithStartCommandAndDir(startCommand, dir string) *domain.Server {
 		0, // ramLimit
 	)
 }
+
+func Test_buildServiceConfig_processWorkDir(t *testing.T) {
+	tempDir := t.TempDir()
+	binDir := filepath.Join(tempDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	f, err := os.OpenFile(filepath.Join(binDir, "start.sh"), os.O_CREATE, 0o755)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	cur, err := user.Current()
+	require.NoError(t, err)
+
+	makeServer := func(vars map[string]string) *domain.Server {
+		return domain.NewServer(
+			1337, true, domain.ServerInstalled, false,
+			"name",
+			"759b875e-d910-11eb-aff7-d796d7fcf7ef",
+			"759b875e",
+			domain.Game{StartCode: "cstrike"},
+			domain.GameMod{Name: "public"},
+			"1.3.3.7", 1337, 1338, 1339, "paS$w0rD",
+			tempDir,
+			cur.Username,
+			"./start.sh",
+			"", "", "",
+			true, time.Now(),
+			vars, map[string]string{},
+			time.Now(),
+			0, 0,
+		)
+	}
+
+	pm := NewSystemD(makeConfigWithScope(""), nil, nil)
+
+	t.Run("work_dir moves the unit working directory and command lookup into the subdirectory", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{"work_dir": "bin"}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, "WorkingDirectory="+binDir+"\n")
+		assert.Contains(t, got, "ExecStart="+filepath.Join(binDir, "start.sh"))
+	})
+
+	t.Run("a server without work_dir keeps the server directory", func(t *testing.T) {
+		f, err := os.OpenFile(filepath.Join(tempDir, "start.sh"), os.O_CREATE, 0o755)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, "WorkingDirectory="+tempDir+"\n")
+		assert.Contains(t, got, "ExecStart="+filepath.Join(tempDir, "start.sh"))
+	})
+
+	t.Run("a work_dir outside the server directory is rejected", func(t *testing.T) {
+		_, err := pm.buildServiceConfig(makeServer(map[string]string{"work_dir": "../escape"}))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `invalid work_dir "../escape" from server vars`)
+		assert.Contains(t, err.Error(), "path is outside work directory")
+	})
+}

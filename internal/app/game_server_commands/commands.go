@@ -148,7 +148,7 @@ func makeFullCommand(
 	server *domain.Server,
 	commandTemplate string,
 	serverCommand string,
-) string {
+) (string, error) {
 	return domain.MakeFullCommand(cfg, server, commandTemplate, serverCommand)
 }
 

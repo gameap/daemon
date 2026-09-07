@@ -45,6 +45,13 @@ func (cmd *defaultRestartServer) Execute(ctx context.Context, server *domain.Ser
 		return cmd.restartViaStopStart(ctx, server)
 	}
 
+	if err := checkProcessWorkDir(cmd.cfg, server); err != nil {
+		cmd.SetResult(ErrorResult)
+		cmd.SetComplete()
+
+		return errors.WithMessage(err, "[game_server_commands.defaultRestartServer] failed to restart server")
+	}
+
 	result, err := cmd.processManager.Restart(ctx, server, cmd.output)
 	cmd.SetResult(int(result))
 	cmd.SetComplete()

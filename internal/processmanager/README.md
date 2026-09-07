@@ -136,8 +136,9 @@ service control manager, and converted to the well-known SID (`*S-1-5-20`) by
 
 ### Permissions
 
-The service account is granted Modify on the server working directory when the service is
-registered, and on `C:\gameap\services\logs` on every start. shawl writes its log as the
+The service account is granted Modify on the server directory when the service is
+registered, and on `C:\gameap\services\logs` on every start. The grant is recursive, so it
+also covers a `work_dir` subdirectory the service starts in (passed to shawl as `--cwd`). shawl writes its log as the
 service account, so without the second grant the supervisor cannot open its log file and the
 service dies during startup — which the service control manager reports only as an opaque
 start failure.
@@ -228,7 +229,15 @@ Configuration values are resolved in the following priority order:
 | `docker_privileged`     | Run in privileged mode                             | `true`, `false`       | `false`                |
 | `docker_volumes`        | Additional volumes (JSON array or comma-separated) | `["/data:/data:ro"]`  | None                   |
 | `docker_dns`            | Custom DNS servers (comma-separated)               | `8.8.8.8,8.8.4.4`     | System default         |
-| `docker_workdir`        | Container working directory                        | `/home/container`     | `/server`              |
+| `docker_workdir`        | Mount path of the server directory (see below)     | `/home/container`     | `/server`              |
+
+The server directory is always mounted at `docker_workdir`, which is also the
+container working directory by default. When the server has a process work
+directory (`work_dir`, `work_dir_linux`, `work_dir_windows`, `work_dir_macos`; see
+the root README), the container working directory becomes `docker_workdir` joined
+with that relative path, e.g. `/server/GroundBranch/Binaries/Linux`. In the start
+command `{dir}` expands to `docker_workdir` and `{work_dir}` to that container
+working directory, not to the host paths.
 
 #### Installation Configuration
 
@@ -424,11 +433,16 @@ Podman uses the same metadata keys as Docker for compatibility:
 | `docker_privileged`              | Privileged mode               | `true`, `false`      | `false`                    |
 | `docker_volumes`                 | Additional volumes            | `["/data:/data:ro"]` | None                       |
 | `docker_dns`                     | DNS servers                   | `8.8.8.8,8.8.4.4`    | System default             |
-| `docker_workdir`                 | Container working directory   | `/home/container`    | `/server`                  |
+| `docker_workdir`                 | Server directory mount path   | `/home/container`    | `/server`                  |
 | `docker_installation_image`      | Installation image            | `node:18`            | None                       |
 | `docker_installation_script`     | Installation script           | `#!/bin/bash\n...`   | None                       |
 | `docker_installation_entrypoint` | Shell for installation script | `ash`, `/bin/sh`     | Auto-detected from shebang |
 | `docker_installation_user`       | User to run installation as   | `1000:1000`, `root`  | `root`                     |
+
+As with Docker, the server directory is mounted at `docker_workdir`, which is the
+container working directory by default; a configured process work directory
+(`work_dir*` keys, see the root README) is joined onto it. `{dir}` and `{work_dir}`
+in the start command expand to those container paths.
 
 ### Socket Configuration
 

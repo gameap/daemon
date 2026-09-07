@@ -725,8 +725,13 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 	builder.WriteString(logFile)
 	builder.WriteString("\n")
 
+	processWorkDir, err := server.ProcessWorkDir(pm.cfg)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	builder.WriteString("WorkingDirectory=")
-	builder.WriteString(server.WorkDir(pm.cfg))
+	builder.WriteString(processWorkDir)
 	builder.WriteString("\n")
 
 	// Supervision follows the server's own autostart preference: a server the
@@ -822,6 +827,11 @@ func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
 
 	cmd := args[0]
 
+	processWorkDir, err := server.ProcessWorkDir(pm.cfg)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	var foundPath string
 
 	if filepath.IsAbs(cmd) {
@@ -830,7 +840,7 @@ func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
 			return "", errors.WithMessagef(err, "failed to find command '%s'", cmd)
 		}
 	} else {
-		foundPath, err = exec.LookPath(filepath.Join(server.WorkDir(pm.cfg), cmd))
+		foundPath, err = exec.LookPath(filepath.Join(processWorkDir, cmd))
 		if err != nil {
 			foundPath, err = exec.LookPath(cmd)
 			if err != nil {

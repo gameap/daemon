@@ -49,6 +49,13 @@ func (cmd *defaultStartServer) Execute(ctx context.Context, server *domain.Serve
 		}
 	}
 
+	if err := checkProcessWorkDir(cmd.cfg, server); err != nil {
+		cmd.SetResult(ErrorResult)
+		cmd.SetComplete()
+
+		return errors.WithMessage(err, "[game_server_commands.defaultStartServer] failed to start server")
+	}
+
 	result, err := cmd.processManager.Start(ctx, server, cmd.startOutput)
 	cmd.SetResult(int(result))
 	cmd.SetComplete()

@@ -102,6 +102,43 @@ func (suite *deleteSuite) TestDeleteServerByScriptSuccess() {
 	suite.Assert().NoFileExists(filepath.Join(server.WorkDir(cfg), "run2.sh"))
 }
 
+func (suite *deleteSuite) TestDeleteServerByScript_InvalidWorkDir_KeepsServerFiles() {
+	workPath := suite.givenWorkPath()
+	var deleteCommand string
+	if runtime.GOOS == "windows" {
+		deleteCommand = "cmd /c rmdir /S /Q simple"
+	} else {
+		deleteCommand = "rm -rf ./simple"
+	}
+	cfg := &config.Config{
+		WorkPath: workPath,
+		Scripts: config.Scripts{
+			Delete: deleteCommand,
+		},
+	}
+	server := givenServerWithStartCommandAndVars(
+		suite.T(), "./run.sh", map[string]string{"work_dir": "../escape"},
+	)
+	installSimpleServerFiles(suite.T(), cfg, server)
+	deleteServerCommand := newDefaultDeleteServer(
+		cfg,
+		components.NewExecutor(),
+		processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
+	)
+	ctx := context.Background()
+
+	err := deleteServerCommand.Execute(ctx, server)
+
+	suite.Require().Error(err)
+	suite.Assert().Contains(err.Error(), "failed to build delete script command")
+	suite.Assert().Contains(err.Error(), `invalid work_dir "../escape" from server vars`)
+	suite.Assert().Equal(ErrorResult, deleteServerCommand.Result())
+	suite.Assert().True(deleteServerCommand.IsComplete())
+	suite.Assert().Contains(string(deleteServerCommand.ReadOutput()), "path is outside work directory")
+	// The command is validated before anything is removed, so the files stay in place.
+	suite.Assert().FileExists(filepath.Join(server.WorkDir(cfg), "run.sh"))
+}
+
 func (suite *deleteSuite) TestDeleteServerByScript_CommandFail() {
 	workPath := suite.givenWorkPath()
 	var deleteCommand string
@@ -155,6 +192,17 @@ func installScripts(t *testing.T, cfg *config.Config) {
 func givenServerWithStartCommand(t *testing.T, startCommand string) *domain.Server {
 	t.Helper()
 
+	return givenServerWithStartCommandAndVars(t, startCommand, map[string]string{
+		"default_map": "de_dust2",
+		"tickrate":    "1000",
+	})
+}
+
+func givenServerWithStartCommandAndVars(
+	t *testing.T, startCommand string, vars map[string]string,
+) *domain.Server {
+	t.Helper()
+
 	return domain.NewServer(
 		1337,
 		true,
@@ -182,10 +230,7 @@ func givenServerWithStartCommand(t *testing.T, startCommand string) *domain.Serv
 		"",
 		true,
 		time.Now(),
-		map[string]string{
-			"default_map": "de_dust2",
-			"tickrate":    "1000",
-		},
+		vars,
 		map[string]string{},
 		time.Now(),
 		0, // cpuLimit

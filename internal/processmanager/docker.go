@@ -594,8 +594,21 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 	imageName := normalizeImageName(pm.getConfig(server, keyDockerImage))
 	containerName := pm.containerName(server)
 
+	// Container working directory
+	containerWorkDir := pm.getConfig(server, keyDockerWorkDir)
+	if containerWorkDir == "" {
+		containerWorkDir = "/server"
+	}
+
+	processWorkDirRel, err := server.ProcessWorkDirRel()
+	if err != nil {
+		return nil, nil, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
+	containerProcessDir := containerProcessWorkDir(containerWorkDir, processWorkDirRel)
+
 	// Parse command
-	cmdSlice, err := pm.parseCommand(server)
+	cmdSlice, err := pm.parseCommand(server, containerWorkDir, containerProcessDir)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "failed to parse start command")
 	}
@@ -609,17 +622,11 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 	// Build environment variables
 	env := buildEnvSlice(server.EnvironmentVars())
 
-	// Container working directory
-	containerWorkDir := pm.getConfig(server, keyDockerWorkDir)
-	if containerWorkDir == "" {
-		containerWorkDir = "/server"
-	}
-
 	// Container config
 	containerConfig := &container.Config{
 		Image:      imageName,
 		Hostname:   containerName,
-		WorkingDir: containerWorkDir,
+		WorkingDir: containerProcessDir,
 		Env:        env,
 		Cmd:        cmdSlice,
 		User:       fmt.Sprintf("%s:%s", uid, gid),
@@ -729,8 +736,15 @@ func addPortBinding(portBindings network.PortMap, exposedPorts network.PortSet, 
 	}}
 }
 
-func (pm *Docker) parseCommand(server *domain.Server) ([]string, error) {
-	args, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+// parseCommand builds the command that runs inside the container, where the
+// host paths behind {dir} and {work_dir} do not exist: {dir} becomes the
+// container path the server directory is mounted at and {work_dir} the
+// container working directory.
+func (pm *Docker) parseCommand(server *domain.Server, mountDir, processDir string) ([]string, error) {
+	args, err := domain.BuildCommandArgsWithPaths(
+		pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand(),
+		domain.CommandPaths{Dir: mountDir, WorkDir: processDir},
+	)
 	if err != nil {
 		return nil, err
 	}

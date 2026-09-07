@@ -163,6 +163,11 @@ func (pm *Simple) execCommandWith(
 	wrapper, serverCommand string,
 	out io.Writer,
 ) (domain.Result, error) {
+	options, err := pm.executeOptions(server)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "invalid server configuration")
+	}
+
 	args, err := domain.BuildCommandArgs(pm.cfg, server, wrapper, serverCommand)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to build command")
@@ -172,7 +177,7 @@ func (pm *Simple) execCommandWith(
 		ctx,
 		args,
 		out,
-		pm.executeOptions(server),
+		options,
 	)
 	if err != nil {
 		return domain.ErrorResult, errors.WithMessage(err, "failed to exec command")
@@ -181,12 +186,17 @@ func (pm *Simple) execCommandWith(
 	return domain.Result(result), nil
 }
 
-func (pm *Simple) executeOptions(server *domain.Server) contracts.ExecutorOptions {
+func (pm *Simple) executeOptions(server *domain.Server) (contracts.ExecutorOptions, error) {
+	workDir, err := server.ProcessWorkDir(pm.cfg)
+	if err != nil {
+		return contracts.ExecutorOptions{}, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
 	return contracts.ExecutorOptions{
-		WorkDir:         server.WorkDir(pm.cfg),
+		WorkDir:         workDir,
 		FallbackWorkDir: pm.cfg.WorkDir(),
 		Env:             server.EnvironmentVars(),
-	}
+	}, nil
 }
 
 func (pm *Simple) Attach(

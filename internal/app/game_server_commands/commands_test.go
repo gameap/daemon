@@ -7,6 +7,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMakeFullCommand(t *testing.T) {
@@ -72,8 +73,9 @@ func TestMakeFullCommand(t *testing.T) {
 		0, // ramLimit
 	)
 
-	command := makeFullCommand(cfg, server, cfg.Scripts.Start, server.StartCommand())
+	command, err := makeFullCommand(cfg, server, cfg.Scripts.Start, server.StartCommand())
 
+	require.NoError(t, err)
 	assert.Equal(t, "./some-script "+
 		"--dir /work-path/server-dir "+
 		"--id 1337 "+
