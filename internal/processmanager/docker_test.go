@@ -353,3 +353,26 @@ func TestDocker_buildContainerConfig_processWorkDir(t *testing.T) {
 		})
 	}
 }
+
+func TestDocker_buildContainerConfig_placeholdersUseContainerPaths(t *testing.T) {
+	cfg := &config.Config{
+		WorkPath: "/tmp/test",
+		Scripts: config.Scripts{
+			Start: "{command} --root {dir} --cwd {work_dir}",
+		},
+	}
+	pm := NewDocker(cfg, nil, nil)
+	server := createTestServer(
+		map[string]string{"work_dir": "sub"},
+		map[string]any{"docker_workdir": "/home/container"},
+		nil,
+	)
+
+	containerConfig, _, err := pm.buildContainerConfig(server)
+
+	require.NoError(t, err)
+	assert.Equal(t,
+		[]string{"./game_server", "-port", "27015", "--root", "/home/container", "--cwd", "/home/container/sub"},
+		containerConfig.Cmd,
+	)
+}

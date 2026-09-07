@@ -131,3 +131,42 @@ func TestBuildCommandArgs_ReportsInvalidWorkDir(t *testing.T) {
 	assert.Contains(t, err.Error(), `invalid work_dir "../escape" from server vars`)
 	assert.Contains(t, err.Error(), "path is outside work directory")
 }
+
+func TestBuildCommandArgsWithPaths_OverridesDirectoryPlaceholders(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForVars(nil, map[string]string{"work_dir": "bin"}, nil)
+
+	args, err := BuildCommandArgsWithPaths(
+		cfg, server, "{command}", "./run --root {dir} --cwd {work_dir}",
+		CommandPaths{Dir: "/server", WorkDir: "/server/bin"},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"./run", "--root", "/server", "--cwd", "/server/bin"}, args)
+}
+
+func TestBuildCommandArgsWithPaths_EmptyPathsKeepHostDirectories(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForVars(nil, map[string]string{"work_dir": "bin"}, nil)
+
+	args, err := BuildCommandArgsWithPaths(
+		cfg, server, "{command}", "./run --root {dir} --cwd {work_dir}", CommandPaths{},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, args, 5)
+	assert.Equal(t, filepath.Join("/work-path", "server-dir"), args[2])
+	assert.Equal(t, filepath.Join("/work-path", "server-dir", "bin"), args[4])
+}
+
+func TestBuildCommandArgsWithPaths_StillRejectsInvalidWorkDir(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForVars(nil, map[string]string{"work_dir": "../escape"}, nil)
+
+	_, err := BuildCommandArgsWithPaths(
+		cfg, server, "{command}", "./run", CommandPaths{Dir: "/server", WorkDir: "/server/x"},
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "path is outside work directory")
+}

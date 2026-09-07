@@ -408,3 +408,22 @@ func TestPodman_buildContainerSpec_processWorkDir(t *testing.T) {
 		})
 	}
 }
+
+func TestPodman_buildContainerSpec_placeholdersUseContainerPaths(t *testing.T) {
+	cfg := &config.Config{
+		WorkPath: "/tmp/test",
+		Scripts: config.Scripts{
+			Start: "{command} --root {dir} --cwd {work_dir}",
+		},
+	}
+	pm := NewPodman(cfg, nil, nil)
+	server := createPodmanTestServer(map[string]string{"work_dir": "sub"}, nil, nil)
+
+	spec, err := pm.buildContainerSpec(server)
+
+	require.NoError(t, err)
+	assert.Equal(t,
+		[]string{"./game_server", "-port", "27015", "--root", "/server", "--cwd", "/server/sub"},
+		spec["command"],
+	)
+}

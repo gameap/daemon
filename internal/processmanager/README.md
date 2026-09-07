@@ -232,12 +232,12 @@ Configuration values are resolved in the following priority order:
 | `docker_workdir`        | Mount path of the server directory (see below)     | `/home/container`     | `/server`              |
 
 The server directory is always mounted at `docker_workdir`, which is also the
-container working directory. When the server has a process work directory
-(`work_dir`, `work_dir_linux`, `work_dir_windows`, `work_dir_macos`; see the root
-README), the container working directory becomes `docker_workdir` joined with that
-relative path, e.g. `/server/GroundBranch/Binaries/Linux`. The `{dir}` and
-`{work_dir}` placeholders expand to host paths, so a start command that runs inside
-the container should not rely on them.
+container working directory by default. When the server has a process work
+directory (`work_dir`, `work_dir_linux`, `work_dir_windows`, `work_dir_macos`; see
+the root README), the container working directory becomes `docker_workdir` joined
+with that relative path, e.g. `/server/GroundBranch/Binaries/Linux`. In the start
+command `{dir}` expands to `docker_workdir` and `{work_dir}` to that container
+working directory, not to the host paths.
 
 #### Installation Configuration
 
@@ -440,8 +440,9 @@ Podman uses the same metadata keys as Docker for compatibility:
 | `docker_installation_user`       | User to run installation as   | `1000:1000`, `root`  | `root`                     |
 
 As with Docker, the server directory is mounted at `docker_workdir`, which is the
-container working directory unless a process work directory (`work_dir*` keys, see the
-root README) is configured; that relative path is then joined onto `docker_workdir`.
+container working directory by default; a configured process work directory
+(`work_dir*` keys, see the root README) is joined onto it. `{dir}` and `{work_dir}`
+in the start command expand to those container paths.
 
 ### Socket Configuration
 

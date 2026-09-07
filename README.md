@@ -197,7 +197,8 @@ Rules for the value:
 Only the process working directory moves. Installation, updates, deletion, the
 after-install script, the panel file manager, the `{dir}` placeholder and the
 Docker/Podman bind mount keep working with the server directory. The new
-`{work_dir}` placeholder expands to the absolute process working directory.
+`{work_dir}` placeholder expands to the absolute process working directory
+(inside a Docker/Podman container: the container path, like `{dir}`).
 
 Example for Ground Branch (game mod metadata):
 

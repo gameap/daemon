@@ -8,6 +8,14 @@ import (
 	"github.com/pkg/errors"
 )
 
+// CommandPaths overrides the directory placeholders for a command that runs
+// where the host paths are not visible, such as inside a container. An empty
+// field keeps the host value.
+type CommandPaths struct {
+	Dir     string
+	WorkDir string
+}
+
 // BuildCommandArgs turns a wrapper template and a server command template into a
 // concrete argument vector. Both templates are tokenized first and placeholders
 // are substituted into the individual tokens afterwards, so every substituted
@@ -22,6 +30,18 @@ func BuildCommandArgs(
 	server *Server,
 	wrapperTemplate string,
 	serverCommand string,
+) ([]string, error) {
+	return BuildCommandArgsWithPaths(cfg, server, wrapperTemplate, serverCommand, CommandPaths{})
+}
+
+// BuildCommandArgsWithPaths is BuildCommandArgs with {dir} and {work_dir}
+// pointed at the given paths.
+func BuildCommandArgsWithPaths(
+	cfg workDirReader,
+	server *Server,
+	wrapperTemplate string,
+	serverCommand string,
+	paths CommandPaths,
 ) ([]string, error) {
 	if wrapperTemplate == "" {
 		return nil, nil
@@ -40,7 +60,7 @@ func BuildCommandArgs(
 		}
 	}
 
-	replacer, err := newServerReplacer(cfg, server)
+	replacer, err := newServerReplacer(cfg, server, paths)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +93,7 @@ func MakeFullCommand(
 }
 
 func ReplaceShortCodes(commandTemplate string, cfg workDirReader, server *Server) (string, error) {
-	replacer, err := newServerReplacer(cfg, server)
+	replacer, err := newServerReplacer(cfg, server, CommandPaths{})
 	if err != nil {
 		return "", err
 	}
@@ -91,10 +111,22 @@ func ReplaceShortCodes(commandTemplate string, cfg workDirReader, server *Server
 //
 // It fails when the configured work_dir is not a relative path inside the
 // server directory; the same value is rejected again before the server starts.
-func newServerReplacer(cfg workDirReader, server *Server) (*strings.Replacer, error) {
+func newServerReplacer(cfg workDirReader, server *Server, paths CommandPaths) (*strings.Replacer, error) {
+	// The configured work_dir is validated even when the placeholder is
+	// overridden, so a container command fails on the same values as a host one.
 	processWorkDir, err := server.ProcessWorkDir(cfg)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
+	dir := server.WorkDir(cfg)
+
+	if paths.Dir != "" {
+		dir = paths.Dir
+	}
+
+	if paths.WorkDir != "" {
+		processWorkDir = paths.WorkDir
 	}
 
 	vars := server.Vars()
@@ -103,7 +135,7 @@ func newServerReplacer(cfg workDirReader, server *Server) (*strings.Replacer, er
 
 	pairs := make([]string, 0, builtinPairs+6*len(vars))
 	pairs = append(pairs,
-		"{dir}", server.WorkDir(cfg),
+		"{dir}", dir,
 		"{work_dir}", processWorkDir,
 		"{uuid}", server.UUID(),
 		"{uuid_short}", server.UUIDShort(),
