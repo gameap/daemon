@@ -213,3 +213,46 @@ with the start command `GroundBranchServer-Win64-Shipping.exe ?MaxPlayers={max_p
 A `work_dir` set as a server variable is also exported to the process
 environment as `WORK_DIR`, like every other server variable. Values from
 metadata are not exported.
+
+## Game server home directory
+
+Every game server on a node normally runs as the same system user, so every
+game that stores its configuration under `$HOME` shares one directory. SCP:
+Secret Laboratory is the clearest case: it keeps per-server configs in
+`$HOME/.config/SCP Secret Laboratory/config/<port>/`, and everything outside
+that per-port subdirectory — accepted EULA, global plugins, permissions, key
+caches — is shared between all servers on the node.
+
+`home_dir` gives one server its own `HOME` inside its server directory. It is
+read from the same three sources as `work_dir`, in the same order, and the first
+non-empty value wins:
+
+| Key                | Applies to                                            |
+|--------------------|-------------------------------------------------------|
+| `home_dir_linux`   | Linux nodes (and any OS other than Windows and macOS) |
+| `home_dir_windows` | Windows nodes                                         |
+| `home_dir_macos`   | macOS nodes                                           |
+| `home_dir`         | Any OS, used when the OS-specific key is not set      |
+
+The value follows the same rules as `work_dir`: a path relative to the server
+directory, with absolute paths, paths leaving the server directory, control
+characters and `%` rejected. `.` means the server directory itself.
+
+When nothing is configured, `HOME` is left exactly as it is today: systemd
+derives it from `User=`, and the other process managers inherit it from the
+daemon or from the server user. This is deliberate — `hlds_run` and `srcds_run`
+look for `$HOME/.steam/sdk32/steamclient.so`, so a private `HOME` must be opted
+into per game.
+
+`home_dir` is applied after the server variables, so it wins over a variable
+that happens to be named `home`. Inside a Docker or Podman container `HOME`
+points at the container path, like `{dir}`.
+
+Example for SCP: Secret Laboratory (game mod metadata):
+
+```
+home_dir: .
+```
+
+with the start command `./LocalAdmin {port} --useDefault`. The configuration
+then lands in `<server directory>/.config/SCP Secret Laboratory/config/<port>/`.

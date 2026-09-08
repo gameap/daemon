@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"sort"
 	"strconv"
 	"time"
 
@@ -58,10 +59,21 @@ func (pm *Tmux) Start(
 		return domain.ErrorResult, errors.WithMessage(err, "failed to build command")
 	}
 
+	env, err := server.EnvironmentVars(pm.cfg)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to build server environment")
+	}
+
+	// The environment cannot be handed over through ExecutorOptions: the session
+	// is created inside the shared "gameap" tmux server started once by su, so a
+	// new window inherits that server's environment and not the environment of
+	// the tmux new-session client. Prefixing the session command with env is the
+	// only way that works on every tmux version.
+	//
 	// tmux runs the session command through a shell, so serialize the argument
 	// vector with POSIX quoting: the shell parses it back into exactly these
 	// arguments, keeping every value a single argument.
-	startCmd := shellquote.Join(args...)
+	startCmd := shellquote.Join(withEnvPrefix(env, args)...)
 
 	options, err := pm.executeOptions(server)
 	if err != nil {
@@ -297,6 +309,28 @@ func (pm *Tmux) executeOptions(server *domain.Server) (contracts.ExecutorOptions
 		UID:             systemUser.Uid,
 		GID:             systemUser.Gid,
 	}, nil
+}
+
+// withEnvPrefix prepends an env invocation that sets the given variables for the
+// command. Keys are sorted so the resulting command line is deterministic.
+func withEnvPrefix(env map[string]string, args []string) []string {
+	if len(env) == 0 {
+		return args
+	}
+
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	prefixed := make([]string, 0, len(keys)+len(args)+2)
+	prefixed = append(prefixed, "env", "--")
+	for _, k := range keys {
+		prefixed = append(prefixed, k+"="+env[k])
+	}
+
+	return append(prefixed, args...)
 }
 
 func (pm *Tmux) sessionName(server *domain.Server) string {

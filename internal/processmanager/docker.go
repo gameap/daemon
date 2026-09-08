@@ -173,8 +173,13 @@ func (pm *Docker) runInstallation(
 	// 3. Create temp container name
 	tempName := fmt.Sprintf("gameap-install-%s", server.XID())
 
-	// 4. Build environment from server.EnvironmentVars()
-	env := buildEnvSlice(server.EnvironmentVars())
+	// 4. Build environment
+	envVars, err := server.EnvironmentVarsWithPaths(pm.cfg, domain.CommandPaths{Dir: installationContainerWorkDir})
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to build server environment")
+	}
+
+	env := buildEnvSlice(envVars)
 
 	// 5. Determine user for installation container
 	// Default to root for installation (most scripts need root for apt/yum/etc)
@@ -185,11 +190,11 @@ func (pm *Docker) runInstallation(
 	// 6. Container config for installation
 	containerConfig := &container.Config{
 		Image:      installImage,
-		WorkingDir: "/mnt/server",
+		WorkingDir: installationContainerWorkDir,
 		Cmd: []string{
 			getInstallationEntrypoint(pm.getConfig(server, keyDockerInstallationEntrypoint), installScript),
 			"-e",
-			"/mnt/server/.gameap_install.sh",
+			installationContainerWorkDir + "/.gameap_install.sh",
 		},
 		Env:  env,
 		User: installUser,
@@ -199,7 +204,7 @@ func (pm *Docker) runInstallation(
 		Mounts: []mount.Mount{{
 			Type:   mount.TypeBind,
 			Source: workDir,
-			Target: "/mnt/server",
+			Target: installationContainerWorkDir,
 		}},
 	}
 
@@ -619,8 +624,12 @@ func (pm *Docker) buildContainerConfig(server *domain.Server) (
 		return nil, nil, errors.Wrap(err, "failed to get user IDs")
 	}
 
-	// Build environment variables
-	env := buildEnvSlice(server.EnvironmentVars())
+	envVars, err := server.EnvironmentVarsWithPaths(pm.cfg, domain.CommandPaths{Dir: containerWorkDir})
+	if err != nil {
+		return nil, nil, errors.WithMessage(err, "failed to build server environment")
+	}
+
+	env := buildEnvSlice(envVars)
 
 	// Container config
 	containerConfig := &container.Config{

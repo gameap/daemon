@@ -8,6 +8,10 @@ import (
 	"github.com/gameap/daemon/internal/app/domain"
 )
 
+// installationContainerWorkDir is where the server directory is mounted inside
+// the short-lived installation container, for both docker and podman.
+const installationContainerWorkDir = "/mnt/server"
+
 // getContainerConfig retrieves configuration value with priority:
 // 1. Server vars
 // 2. GameMod metadata

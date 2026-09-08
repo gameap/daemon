@@ -176,8 +176,11 @@ func (pm *Podman) runInstallation(
 	// 3. Create temp container name
 	tempName := fmt.Sprintf("gameap-install-%s", server.XID())
 
-	// 4. Build environment from server.EnvironmentVars()
-	env := server.EnvironmentVars()
+	// 4. Build environment
+	env, err := server.EnvironmentVarsWithPaths(pm.cfg, domain.CommandPaths{Dir: installationContainerWorkDir})
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to build server environment")
+	}
 
 	// 5. Determine user for installation container
 	// Default to root for installation (most scripts need root for apt/yum/etc)
@@ -248,14 +251,14 @@ func (pm *Podman) buildInstallSpec(
 	return map[string]interface{}{
 		"name":     name,
 		"image":    image,
-		"work_dir": "/mnt/server",
-		"command":  []string{entrypoint, "-e", "/mnt/server/.gameap_install.sh"},
+		"work_dir": installationContainerWorkDir,
+		"command":  []string{entrypoint, "-e", installationContainerWorkDir + "/.gameap_install.sh"},
 		"env":      env,
 		"user":     user,
 		"mounts": []map[string]interface{}{
 			{
 				"source":      workDir,
-				"destination": "/mnt/server",
+				"destination": installationContainerWorkDir,
 				"type":        "bind",
 			},
 		},
@@ -498,8 +501,10 @@ func (pm *Podman) buildContainerSpec(server *domain.Server) (map[string]interfac
 		return nil, errors.Wrap(err, "failed to get user IDs")
 	}
 
-	// Build environment variables
-	env := server.EnvironmentVars()
+	env, err := server.EnvironmentVarsWithPaths(pm.cfg, domain.CommandPaths{Dir: containerWorkDir})
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to build server environment")
+	}
 
 	spec := map[string]interface{}{
 		"name":     containerName,

@@ -407,3 +407,160 @@ func TestServer_ProcessWorkDirRel_SettingsOverrideVars(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "from-settings", rel)
 }
+
+func TestResolveHomeDir_Precedence(t *testing.T) {
+	tests := []struct {
+		name     string
+		goos     string
+		vars     map[string]string
+		modMeta  map[string]any
+		gameMeta map[string]any
+		expected string
+	}{
+		{
+			name:     "nothing_configured_leaves_home_alone",
+			goos:     "linux",
+			expected: "",
+		},
+		{
+			name:     "server_vars_win_over_metadata",
+			goos:     "linux",
+			vars:     map[string]string{"home_dir": "from-vars"},
+			modMeta:  map[string]any{"home_dir": "from-mod"},
+			gameMeta: map[string]any{"home_dir": "from-game"},
+			expected: "from-vars",
+		},
+		{
+			name:     "game_mod_metadata_wins_over_game_metadata",
+			goos:     "linux",
+			modMeta:  map[string]any{"home_dir": "from-mod"},
+			gameMeta: map[string]any{"home_dir": "from-game"},
+			expected: "from-mod",
+		},
+		{
+			name:     "os_specific_key_wins_over_generic",
+			goos:     "linux",
+			modMeta:  map[string]any{"home_dir": "generic", "home_dir_linux": "linux-only"},
+			expected: "linux-only",
+		},
+		{
+			name:     "windows_key_is_used_on_windows",
+			goos:     "windows",
+			modMeta:  map[string]any{"home_dir_linux": "linux-only", "home_dir_windows": "windows-only"},
+			expected: "windows-only",
+		},
+		{
+			name:     "macos_does_not_fall_back_to_linux_key",
+			goos:     "darwin",
+			modMeta:  map[string]any{"home_dir_linux": "linux-only", "home_dir": "generic"},
+			expected: "generic",
+		},
+		{
+			name:     "dot_means_the_server_directory",
+			goos:     "linux",
+			modMeta:  map[string]any{"home_dir": "."},
+			expected: ".",
+		},
+		{
+			name:     "blank_value_does_not_hide_a_lower_level",
+			goos:     "linux",
+			vars:     map[string]string{"home_dir": "   "},
+			modMeta:  map[string]any{"home_dir": "from-mod"},
+			expected: "from-mod",
+		},
+		{
+			name:     "work_dir_is_not_reused_as_home_dir",
+			goos:     "linux",
+			modMeta:  map[string]any{"work_dir": "bin"},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rel, err := resolveHomeDir(tt.goos, tt.vars, tt.modMeta, tt.gameMeta)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, rel)
+		})
+	}
+}
+
+func TestResolveHomeDir_RejectsUnsafeValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		err   error
+	}{
+		{name: "absolute_unix_path", value: "/var/lib/gameap", err: ErrProcessWorkDirNotRelative},
+		{name: "windows_drive", value: `C:\gameap`, err: ErrProcessWorkDirNotRelative},
+		{name: "percent_specifier", value: "app%data", err: ErrProcessWorkDirInvalidCharacters},
+		{name: "newline", value: "app\ndata", err: ErrProcessWorkDirInvalidCharacters},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := resolveHomeDir("linux", map[string]string{"home_dir": tt.value}, nil, nil)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tt.err)
+			assert.Contains(t, err.Error(), "invalid home_dir")
+		})
+	}
+}
+
+func TestResolveHomeDir_RejectsEscapingServerDirectory(t *testing.T) {
+	_, err := resolveHomeDir("linux", map[string]string{"home_dir": "../../etc"}, nil, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `invalid home_dir "../../etc" from server vars`)
+}
+
+func TestServer_HomeDir(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+
+	t.Run("not_configured", func(t *testing.T) {
+		server := newTestServerForWorkDir(nil, nil, nil)
+
+		homeDir, err := server.HomeDir(cfg)
+
+		require.NoError(t, err)
+		assert.Empty(t, homeDir)
+	})
+
+	t.Run("server_root", func(t *testing.T) {
+		server := newTestServerForWorkDir(nil, map[string]any{"home_dir": "."}, nil)
+
+		homeDir, err := server.HomeDir(cfg)
+
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join("/work-path", "server-dir"), homeDir)
+	})
+
+	t.Run("subdirectory", func(t *testing.T) {
+		server := newTestServerForWorkDir(nil, map[string]any{"home_dir": "AppData"}, nil)
+
+		homeDir, err := server.HomeDir(cfg)
+
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join("/work-path", "server-dir", "AppData"), homeDir)
+	})
+
+	t.Run("game_metadata_is_used_when_the_mod_does_not_set_it", func(t *testing.T) {
+		server := newTestServerForWorkDir(nil, nil, map[string]any{"home_dir": "AppData"})
+
+		homeDir, err := server.HomeDir(cfg)
+
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join("/work-path", "server-dir", "AppData"), homeDir)
+	})
+
+	t.Run("container_path_stays_slash_separated", func(t *testing.T) {
+		server := newTestServerForWorkDir(nil, map[string]any{"home_dir": "AppData"}, nil)
+
+		homeDir, err := server.HomeDirWithPaths(cfg, CommandPaths{Dir: "/server"})
+
+		require.NoError(t, err)
+		assert.Equal(t, "/server/AppData", homeDir)
+	})
+}

@@ -457,7 +457,11 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 	serviceConfig.ServiceAccount.Username = server.User()
 	serviceConfig.ServiceAccount.Password = password
 
-	envVars := server.EnvironmentVars()
+	envVars, err := server.EnvironmentVars(pm.cfg)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to build server environment")
+	}
+
 	envKeys := make([]string, 0, len(envVars))
 	for k := range envVars {
 		envKeys = append(envKeys, k)
