@@ -275,8 +275,13 @@ func (pm *Shawl) buildServicePlan(server *domain.Server) (shawlServicePlan, erro
 		return shawlServicePlan{}, errors.WithMessage(err, "failed to resolve server process work directory")
 	}
 
+	envVars, err := server.EnvironmentVars(pm.cfg)
+	if err != nil {
+		return shawlServicePlan{}, errors.WithMessage(err, "failed to build server environment")
+	}
+
 	arguments, err := buildShawlRunArgs(
-		serviceName, processWorkDir, pm.logDir(), server.AutoStartSetting(), cmdArr,
+		serviceName, processWorkDir, pm.logDir(), server.AutoStartSetting(), envVars, cmdArr,
 	)
 	if err != nil {
 		return shawlServicePlan{}, errors.WithMessage(err, "failed to build shawl arguments")

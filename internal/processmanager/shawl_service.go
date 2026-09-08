@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -123,7 +124,15 @@ func (f shawlServiceFingerprint) String() string {
 // after a crash instead of being resurrected by the supervisor. The flag is part of the service
 // command line, so flipping it makes the registered service drift from the config and the
 // service is registered again on the next start.
-func buildShawlRunArgs(serviceName, workDir, logDir string, restart bool, cmdArr []string) ([]string, error) {
+//
+// env is passed to the game process as shawl --env arguments. Without them a service started by
+// shawl would see only the environment of the service control manager, so the server variables
+// and the HOME derived from home_dir would never reach the game. The keys are sorted because the
+// argument vector is the service command line the drift check compares against: an unstable order
+// would make every start look like a reconfigured service and register it again.
+func buildShawlRunArgs(
+	serviceName, workDir, logDir string, restart bool, env map[string]string, cmdArr []string,
+) ([]string, error) {
 	if len(cmdArr) == 0 {
 		return nil, ErrEmptyCommand
 	}
@@ -141,7 +150,7 @@ func buildShawlRunArgs(serviceName, workDir, logDir string, restart bool, cmdArr
 		cmdArgs = cmdArr[1:]
 	}
 
-	args := make([]string, 0, 18+len(cmdArgs))
+	args := make([]string, 0, 18+2*len(env)+len(cmdArgs))
 	args = append(args,
 		"run",
 		"--name", serviceName,
@@ -160,6 +169,19 @@ func buildShawlRunArgs(serviceName, workDir, logDir string, restart bool, cmdArr
 		"--log-as", serviceName+".log",
 		"--log-rotate", shawlLogRotate,
 		"--log-retain", shawlLogRetain,
+	)
+
+	envKeys := make([]string, 0, len(env))
+	for key := range env {
+		envKeys = append(envKeys, key)
+	}
+	sort.Strings(envKeys)
+
+	for _, key := range envKeys {
+		args = append(args, "--env", key+"="+env[key])
+	}
+
+	args = append(args,
 		"--",
 		executable,
 	)
