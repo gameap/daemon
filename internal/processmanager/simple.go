@@ -192,10 +192,15 @@ func (pm *Simple) executeOptions(server *domain.Server) (contracts.ExecutorOptio
 		return contracts.ExecutorOptions{}, errors.WithMessage(err, "failed to resolve server process work directory")
 	}
 
+	env, err := server.EnvironmentVars(pm.cfg)
+	if err != nil {
+		return contracts.ExecutorOptions{}, errors.WithMessage(err, "failed to build server environment")
+	}
+
 	return contracts.ExecutorOptions{
 		WorkDir:         workDir,
 		FallbackWorkDir: pm.cfg.WorkDir(),
-		Env:             server.EnvironmentVars(),
+		Env:             env,
 	}, nil
 }
 

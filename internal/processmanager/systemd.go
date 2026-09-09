@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -789,10 +790,22 @@ func (pm *SystemD) buildServiceConfig(server *domain.Server) (string, error) {
 		builder.WriteString("%\n")
 	}
 
-	// Environment variables
-	for key, value := range server.EnvironmentVars() {
+	envVars, err := server.EnvironmentVars(pm.cfg)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to build server environment")
+	}
+
+	// Sorted so that rewriting the unit for an unchanged server produces an
+	// identical file instead of reshuffling the Environment lines every start.
+	envKeys := make([]string, 0, len(envVars))
+	for key := range envVars {
+		envKeys = append(envKeys, key)
+	}
+	sort.Strings(envKeys)
+
+	for _, key := range envKeys {
 		builder.WriteString("Environment=")
-		builder.WriteString(escapeSystemdEnv(key, value))
+		builder.WriteString(escapeSystemdEnv(key, envVars[key]))
 		builder.WriteString("\n")
 	}
 

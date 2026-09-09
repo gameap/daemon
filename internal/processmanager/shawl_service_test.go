@@ -2,6 +2,7 @@ package processmanager
 
 import (
 	"bufio"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,7 +148,7 @@ func TestBuildShawlRunArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildShawlRunArgs(serviceName, workDir, logDir, true, tt.cmdArr)
+			got, err := buildShawlRunArgs(serviceName, workDir, logDir, true, nil, tt.cmdArr)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, got)
@@ -161,19 +162,53 @@ func TestBuildShawlRunArgs(t *testing.T) {
 func TestBuildShawlRunArgs_RestartFollowsAutostart(t *testing.T) {
 	cmdArr := []string{`C:\gameap\servers\srv1\srcds.exe`}
 
-	withRestart, err := buildShawlRunArgs("gameapServer42", `C:\srv`, `C:\logs`, true, cmdArr)
+	withRestart, err := buildShawlRunArgs("gameapServer42", `C:\srv`, `C:\logs`, true, nil, cmdArr)
 	require.NoError(t, err)
 	assert.Contains(t, withRestart, "--restart")
 	assert.NotContains(t, withRestart, "--no-restart")
 
-	withoutRestart, err := buildShawlRunArgs("gameapServer7", `C:\srv`, `C:\logs`, false, cmdArr)
+	withoutRestart, err := buildShawlRunArgs("gameapServer7", `C:\srv`, `C:\logs`, false, nil, cmdArr)
 	require.NoError(t, err)
 	assert.Contains(t, withoutRestart, "--no-restart")
 	assert.NotContains(t, withoutRestart, "--restart")
 }
 
+// The environment reaches the game process only through shawl --env, and the arguments are the
+// service command line the drift check compares against, so the order has to be stable.
+func TestBuildShawlRunArgs_Env(t *testing.T) {
+	cmdArr := []string{`C:\gameap\servers\srv1\srcds.exe`, "-game", "cstrike"}
+	env := map[string]string{
+		"HOME":        `C:\gameap\servers\srv1`,
+		"SERVER_PORT": "27015",
+		"MAX_PLAYERS": "32",
+	}
+
+	got, err := buildShawlRunArgs("gameapServer1", `C:\srv`, `C:\logs`, true, env, cmdArr)
+	require.NoError(t, err)
+
+	delimiter := slices.Index(got, "--")
+	require.NotEqual(t, -1, delimiter)
+
+	assert.Equal(t,
+		[]string{
+			"--env", "HOME=" + `C:\gameap\servers\srv1`,
+			"--env", "MAX_PLAYERS=32",
+			"--env", "SERVER_PORT=27015",
+		},
+		got[delimiter-6:delimiter],
+	)
+	assert.Equal(t,
+		[]string{`C:\gameap\servers\srv1\srcds.exe`, "-game", "cstrike"},
+		got[delimiter+1:],
+	)
+
+	again, err := buildShawlRunArgs("gameapServer1", `C:\srv`, `C:\logs`, true, env, cmdArr)
+	require.NoError(t, err)
+	assert.Equal(t, got, again)
+}
+
 func TestBuildShawlRunArgs_EmptyCommand(t *testing.T) {
-	_, err := buildShawlRunArgs("gameapServer1", `C:\srv`, `C:\logs`, true, nil)
+	_, err := buildShawlRunArgs("gameapServer1", `C:\srv`, `C:\logs`, true, nil, nil)
 
 	assert.ErrorIs(t, err, ErrEmptyCommand)
 }

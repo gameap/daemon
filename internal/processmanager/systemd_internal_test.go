@@ -588,3 +588,75 @@ func Test_buildServiceConfig_processWorkDir(t *testing.T) {
 		assert.Contains(t, err.Error(), "path is outside work directory")
 	})
 }
+
+func Test_buildServiceConfig_homeDir(t *testing.T) {
+	tempDir := t.TempDir()
+
+	f, err := os.OpenFile(filepath.Join(tempDir, "start.sh"), os.O_CREATE, 0o755)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	cur, err := user.Current()
+	require.NoError(t, err)
+
+	makeServer := func(vars map[string]string) *domain.Server {
+		return domain.NewServer(
+			1337, true, domain.ServerInstalled, false,
+			"name",
+			"759b875e-d910-11eb-aff7-d796d7fcf7ef",
+			"759b875e",
+			domain.Game{StartCode: "cstrike"},
+			domain.GameMod{Name: "public"},
+			"1.3.3.7", 1337, 1338, 1339, "paS$w0rD",
+			tempDir,
+			cur.Username,
+			"./start.sh",
+			"", "", "",
+			true, time.Now(),
+			vars, map[string]string{},
+			time.Now(),
+			0, 0,
+		)
+	}
+
+	pm := NewSystemD(makeConfigWithScope(""), nil, nil)
+
+	t.Run("home_dir becomes an explicit HOME inside the server directory", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{"home_dir": "."}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, `Environment="HOME=`+tempDir+`"`)
+	})
+
+	t.Run("a subdirectory is joined onto the server directory", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{"home_dir": "AppData"}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, `Environment="HOME=`+filepath.Join(tempDir, "AppData")+`"`)
+	})
+
+	t.Run("without home_dir the unit sets no HOME and systemd derives it from User", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{}))
+		require.NoError(t, err)
+
+		assert.NotContains(t, got, "HOME=")
+	})
+
+	t.Run("home_dir wins over a variable named home", func(t *testing.T) {
+		got, err := pm.buildServiceConfig(makeServer(map[string]string{
+			"home":     "/var/lib/gameap",
+			"home_dir": ".",
+		}))
+		require.NoError(t, err)
+
+		assert.Contains(t, got, `Environment="HOME=`+tempDir+`"`)
+		assert.NotContains(t, got, `Environment="HOME=/var/lib/gameap"`)
+	})
+
+	t.Run("a home_dir outside the server directory is rejected", func(t *testing.T) {
+		_, err := pm.buildServiceConfig(makeServer(map[string]string{"home_dir": "../escape"}))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `invalid home_dir "../escape" from server vars`)
+	})
+}

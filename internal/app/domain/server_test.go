@@ -1,10 +1,12 @@
 package domain
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestServerForVars(
@@ -206,8 +208,9 @@ func TestServer_EnvironmentVars_NormalizesKeys(t *testing.T) {
 		Settings{},
 	)
 
-	envVars := server.EnvironmentVars()
+	envVars, err := server.EnvironmentVars(fakeWorkDirReader{workDir: "/work-path"})
 
+	require.NoError(t, err)
 	assert.Equal(t, "16", envVars["MAX_PLAYERS"])
 }
 
@@ -226,8 +229,9 @@ func TestServer_EnvironmentVars_SettingsOverrideVarsAndGameModDefaults(t *testin
 		},
 	)
 
-	envVars := server.EnvironmentVars()
+	envVars, err := server.EnvironmentVars(fakeWorkDirReader{workDir: "/work-path"})
 
+	require.NoError(t, err)
 	assert.Equal(t, "Settings Hostname", envVars["HOSTNAME"])
 	assert.Equal(t, "32", envVars["MAXPLAYERS"])
 }
@@ -235,10 +239,77 @@ func TestServer_EnvironmentVars_SettingsOverrideVarsAndGameModDefaults(t *testin
 func TestServer_EnvironmentVars_AlwaysIncludesPortVars(t *testing.T) {
 	server := newTestServerForVars(nil, map[string]string{}, Settings{})
 
-	envVars := server.EnvironmentVars()
+	envVars, err := server.EnvironmentVars(fakeWorkDirReader{workDir: "/work-path"})
 
+	require.NoError(t, err)
 	assert.Equal(t, "27015", envVars["SERVER_PORT"])
 	assert.Equal(t, "27015", envVars["PORT"])
 	assert.Equal(t, "27016", envVars["QUERY_PORT"])
 	assert.Equal(t, "27017", envVars["RCON_PORT"])
+}
+
+func TestServer_EnvironmentVars_SetsHomeFromHomeDir(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForWorkDir(nil, map[string]any{"home_dir": "."}, nil)
+
+	envVars, err := server.EnvironmentVars(cfg)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join("/work-path", "server-dir"), envVars["HOME"])
+}
+
+func TestServer_EnvironmentVars_LeavesHomeAloneWhenNotConfigured(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForWorkDir(nil, nil, nil)
+
+	envVars, err := server.EnvironmentVars(cfg)
+
+	require.NoError(t, err)
+	assert.NotContains(t, envVars, "HOME")
+}
+
+func TestServer_EnvironmentVars_HomeDirWinsOverHomeVariable(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForWorkDir(
+		map[string]string{"home": "/var/lib/gameap", "home_dir": "AppData"}, nil, nil,
+	)
+
+	envVars, err := server.EnvironmentVars(cfg)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join("/work-path", "server-dir", "AppData"), envVars["HOME"])
+}
+
+func TestServer_EnvironmentVars_PointsHomeInsideContainer(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForWorkDir(nil, map[string]any{"home_dir": "AppData"}, nil)
+
+	envVars, err := server.EnvironmentVarsWithPaths(cfg, CommandPaths{Dir: "/server"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "/server/AppData", envVars["HOME"])
+}
+
+func TestServer_EnvironmentVars_ReturnsErrorForInvalidHomeDir(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForWorkDir(map[string]string{"home_dir": "/etc"}, nil, nil)
+
+	_, err := server.EnvironmentVars(cfg)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrProcessWorkDirNotRelative)
+}
+
+func TestServer_EnvironmentVars_DropsNamesThatNormalizeToNothing(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForVars(
+		[]GameModVarTemplate{{Key: "---", DefaultValue: "from-mod"}},
+		map[string]string{"!!!": "from-vars"},
+		Settings{"???": "from-settings"},
+	)
+
+	envVars, err := server.EnvironmentVars(cfg)
+
+	require.NoError(t, err)
+	assert.NotContains(t, envVars, "")
 }

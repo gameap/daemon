@@ -41,15 +41,18 @@ func newDefaultRestartServer(
 func (cmd *defaultRestartServer) Execute(ctx context.Context, server *domain.Server) error {
 	cmd.output = components.NewSafeBuffer()
 
-	if cmd.cfg.Scripts.Restart == "" {
-		return cmd.restartViaStopStart(ctx, server)
-	}
-
+	// Checked before either restart path runs. The stop/start path would otherwise stop a healthy
+	// server first and only then fail in the start command, leaving a server that was running
+	// before the restart down because of a work_dir typo.
 	if err := checkProcessWorkDir(cmd.cfg, server); err != nil {
 		cmd.SetResult(ErrorResult)
 		cmd.SetComplete()
 
 		return errors.WithMessage(err, "[game_server_commands.defaultRestartServer] failed to restart server")
+	}
+
+	if cmd.cfg.Scripts.Restart == "" {
+		return cmd.restartViaStopStart(ctx, server)
 	}
 
 	result, err := cmd.processManager.Restart(ctx, server, cmd.output)

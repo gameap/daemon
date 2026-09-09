@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -20,15 +21,25 @@ const (
 	WorkDirMacOSKey   = "work_dir_macos"
 )
 
-// ErrProcessWorkDirNotRelative is returned when a work_dir value is anchored to
-// a filesystem root. The process work directory must always be inside the
+// Keys that configure the HOME of the game server process, relative to the
+// server directory. They are read from the same sources in the same order as
+// the work_dir keys. Nothing configured means HOME is left alone.
+const (
+	HomeDirKey        = "home_dir"
+	HomeDirLinuxKey   = "home_dir_linux"
+	HomeDirWindowsKey = "home_dir_windows"
+	HomeDirMacOSKey   = "home_dir_macos"
+)
+
+// ErrProcessWorkDirNotRelative is returned when a work_dir or home_dir value is
+// anchored to a filesystem root. Both directories must always be inside the
 // server directory.
-var ErrProcessWorkDirNotRelative = errors.New("work_dir must be a path relative to the server directory")
+var ErrProcessWorkDirNotRelative = errors.New("must be a path relative to the server directory")
 
 // ErrProcessWorkDirInvalidCharacters is returned for values that cannot be
 // written safely into a process manager configuration: line breaks would
 // inject directives into a systemd unit and '%' is a systemd specifier.
-var ErrProcessWorkDirInvalidCharacters = errors.New("work_dir must not contain control characters or '%'")
+var ErrProcessWorkDirInvalidCharacters = errors.New("must not contain control characters or '%'")
 
 // ProcessWorkDirRel returns the directory the game server process runs in as a
 // clean, slash-separated path relative to the server directory, or "." when
@@ -58,6 +69,48 @@ func (s *Server) ProcessWorkDir(cfg workDirReader) (string, error) {
 	return filepath.Join(s.WorkDir(cfg), filepath.FromSlash(rel)), nil
 }
 
+// HomeDirRel returns the HOME of the game server process as a clean,
+// slash-separated path relative to the server directory, or "" when no
+// home_dir is configured and HOME must be left untouched.
+//
+// The value is looked up exactly like work_dir: server vars, then game mod
+// metadata, then game metadata, with the OS-specific key winning over the
+// generic one at each level.
+func (s *Server) HomeDirRel() (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return resolveHomeDir(runtime.GOOS, s.mergedVars(), s.gameMod.Metadata, s.game.Metadata)
+}
+
+// HomeDir returns the absolute HOME for the game server process, or "" when no
+// home_dir is configured.
+func (s *Server) HomeDir(cfg workDirReader) (string, error) {
+	return s.HomeDirWithPaths(cfg, CommandPaths{})
+}
+
+// HomeDirWithPaths is HomeDir with the home directory resolved against
+// paths.Dir instead of the host server directory, so a process running in a
+// container gets a path it can actually see.
+func (s *Server) HomeDirWithPaths(cfg workDirReader, paths CommandPaths) (string, error) {
+	rel, err := s.HomeDirRel()
+	if err != nil {
+		return "", err
+	}
+
+	if rel == "" {
+		return "", nil
+	}
+
+	if paths.Dir != "" {
+		// Container paths stay slash-separated even when the daemon itself runs
+		// on Windows, so they must not go through filepath.
+		return path.Join(paths.Dir, rel), nil
+	}
+
+	return filepath.Join(s.WorkDir(cfg), filepath.FromSlash(rel)), nil
+}
+
 type processWorkDirSource struct {
 	name   string
 	lookup func(key string) string
@@ -69,8 +122,41 @@ func resolveProcessWorkDir(
 	gameModMetadata map[string]any,
 	gameMetadata map[string]any,
 ) (string, error) {
-	keys := processWorkDirKeys(goos)
+	rel, found, err := resolveRelativeDir(processWorkDirKeys(goos), vars, gameModMetadata, gameMetadata)
+	if err != nil {
+		return "", err
+	}
 
+	if !found {
+		return ".", nil
+	}
+
+	return rel, nil
+}
+
+func resolveHomeDir(
+	goos string,
+	vars map[string]string,
+	gameModMetadata map[string]any,
+	gameMetadata map[string]any,
+) (string, error) {
+	rel, _, err := resolveRelativeDir(homeDirKeys(goos), vars, gameModMetadata, gameMetadata)
+
+	return rel, err
+}
+
+// resolveRelativeDir returns the first value configured for one of the keys as
+// a clean, slash-separated path relative to the server directory. Sources are
+// tried in order and, within a source, the OS-specific key wins over the
+// generic one. The boolean reports whether anything was configured, which is
+// what lets a caller tell "not set" apart from a value that normalizes to the
+// server root.
+func resolveRelativeDir(
+	keys [2]string,
+	vars map[string]string,
+	gameModMetadata map[string]any,
+	gameMetadata map[string]any,
+) (string, bool, error) {
 	sources := []processWorkDirSource{
 		{name: "server vars", lookup: func(key string) string { return vars[key] }},
 		{name: "game mod metadata", lookup: metadataStringLookup(gameModMetadata)},
@@ -86,14 +172,14 @@ func resolveProcessWorkDir(
 
 			rel, err := normalizeProcessWorkDir(value)
 			if err != nil {
-				return "", errors.WithMessagef(err, "invalid %s %q from %s", key, value, source.name)
+				return "", false, errors.WithMessagef(err, "invalid %s %q from %s", key, value, source.name)
 			}
 
-			return rel, nil
+			return rel, true, nil
 		}
 	}
 
-	return ".", nil
+	return "", false, nil
 }
 
 // processWorkDirKeys returns the lookup order for one OS: the OS-specific key
@@ -107,6 +193,18 @@ func processWorkDirKeys(goos string) [2]string {
 		return [2]string{WorkDirMacOSKey, WorkDirKey}
 	default:
 		return [2]string{WorkDirLinuxKey, WorkDirKey}
+	}
+}
+
+// homeDirKeys mirrors processWorkDirKeys for the home_dir setting.
+func homeDirKeys(goos string) [2]string {
+	switch goos {
+	case "windows":
+		return [2]string{HomeDirWindowsKey, HomeDirKey}
+	case "darwin":
+		return [2]string{HomeDirMacOSKey, HomeDirKey}
+	default:
+		return [2]string{HomeDirLinuxKey, HomeDirKey}
 	}
 }
 

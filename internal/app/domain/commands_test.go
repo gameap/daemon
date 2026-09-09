@@ -166,5 +166,6 @@ func TestMakeFullCommand_InvalidWorkDirReturnsError(t *testing.T) {
 	_, err := MakeFullCommand(cfg, server, "{command}", "./run.sh")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "work_dir must be a path relative to the server directory")
+	assert.Contains(t, err.Error(), `invalid work_dir "/abs" from server vars`)
+	assert.Contains(t, err.Error(), "must be a path relative to the server directory")
 }

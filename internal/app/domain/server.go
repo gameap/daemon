@@ -12,6 +12,7 @@ import (
 
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gameap/gameap/pkg/idgen"
+	"github.com/pkg/errors"
 )
 
 type InstallationStatus int
@@ -371,34 +372,70 @@ func (s *Server) mergedVars() map[string]string {
 	return vars
 }
 
-func (s *Server) EnvironmentVars() map[string]string {
+// EnvironmentVars returns the environment of the game server process: the game
+// mod variable defaults, overridden by the server variables, overridden by the
+// server settings, then HOME when a home_dir is configured, then the ports.
+//
+// HOME is applied after the variables on purpose, so that an explicit home_dir
+// wins over a variable that happens to be named home. The ports are applied
+// last and cannot be overridden at all.
+func (s *Server) EnvironmentVars(cfg workDirReader) (map[string]string, error) {
+	return s.EnvironmentVarsWithPaths(cfg, CommandPaths{})
+}
+
+// EnvironmentVarsWithPaths is EnvironmentVars with HOME pointed at the given
+// server directory, which is how a containerized process gets a HOME it can
+// actually see.
+func (s *Server) EnvironmentVarsWithPaths(
+	cfg workDirReader, paths CommandPaths,
+) (map[string]string, error) {
+	// Resolved before the read lock is taken: HomeDirWithPaths locks as well and
+	// sync.RWMutex gives no guarantee for recursive read locking.
+	homeDir, err := s.HomeDirWithPaths(cfg, paths)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to resolve server home directory")
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	envVars := make(map[string]string)
 
-	// 1. Start with gameMod.Vars defaults
+	// A name that keeps no valid character at all, such as "---", normalizes to
+	// an empty string. Such an entry is dropped instead of being handed to a
+	// process manager: an empty name is not a usable environment variable and
+	// makes env(1) fail outright.
+	put := func(key, value string) {
+		key = normalizeEnvKey(key)
+		if key == "" {
+			return
+		}
+
+		envVars[key] = value
+	}
+
 	for _, v := range s.gameMod.Vars {
-		envVars[normalizeEnvKey(v.Key)] = v.DefaultValue
+		put(v.Key, v.DefaultValue)
 	}
 
-	// 2. Apply server vars (overwrites defaults)
 	for k, v := range s.vars {
-		envVars[normalizeEnvKey(k)] = v
+		put(k, v)
 	}
 
-	// 3. Apply server settings (overwrites vars)
 	for k, v := range s.settings {
-		envVars[normalizeEnvKey(k)] = v
+		put(k, v)
 	}
 
-	// 4. Add port values (always set)
+	if homeDir != "" {
+		envVars["HOME"] = homeDir
+	}
+
 	envVars["SERVER_PORT"] = strconv.Itoa(s.connectPort)
 	envVars["PORT"] = strconv.Itoa(s.connectPort)
 	envVars["QUERY_PORT"] = strconv.Itoa(s.queryPort)
 	envVars["RCON_PORT"] = strconv.Itoa(s.rconPort)
 
-	return envVars
+	return envVars, nil
 }
 
 func normalizeEnvKey(key string) string {
