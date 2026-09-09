@@ -42,8 +42,17 @@ func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ co
 		ProgressListener: progressTracker,
 	}
 
+	// go-getter does not replace a destination that already exists: it resumes
+	// the download from the file's size, so a tool that changed upstream came
+	// back as a splice of both versions, and one no larger than the old copy
+	// was not fetched at all.
+	err := os.Remove(destination)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return int(domain.ErrorResult), errors.WithMessage(err, "[components.GetTool] failed to remove the previous tool")
+	}
+
 	_, _ = out.Write([]byte("Getting tool from " + source + " to " + destination + " ...\n"))
-	err := c.Get()
+	err = c.Get()
 	if err != nil {
 		return int(domain.ErrorResult), errors.WithMessage(err, "[components.GetTool] failed to get tool")
 	}
