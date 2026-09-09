@@ -47,9 +47,11 @@ as "down" would restart a healthy server.
 
 ## How the start command's program is found
 
-A start command names its program relative to the server directory —
-`./srcds_run` on Linux, `srcds.exe` on Windows — but the supervisor that
-launches it does not run from there. systemd expands `ExecStart=` before it
+A start command names its program relative to the directory the game server
+process runs in — `./srcds_run` on Linux, `srcds.exe` on Windows. That is the
+server directory joined with the configured `work_dir` (see the root README),
+and the server directory itself when no `work_dir` is set. The supervisor that
+launches the command does not run from there. systemd expands `ExecStart=` before it
 applies `WorkingDirectory=`, and Windows resolves a program that contains a path
 separator against the directory of the process that asked for the start, never
 against the one the service is given. A command written as `.\server.exe` or
@@ -57,11 +59,16 @@ against the one the service is given. A command written as `.\server.exe` or
 with nothing but the supervisor's own "file not found" to explain it.
 
 `systemd`, `shawl` and `winsw` all resolve the program before the command is
-written into a unit or registered as a service. The directory the process runs in
-is searched first, PATH second, so `powershell` or `java` stays reachable while a
+written into a unit or registered as a service. That process working directory is
+searched first, PATH second, so `powershell` or `java` stays reachable while a
 binary shipped with the server always wins over a same-named one elsewhere on the
 host. What is registered is the absolute path, which means the same file for every
 supervisor.
+
+The daemon's own working directory is not searched at all, and only absolute PATH
+entries are. Windows looks in the calling process's directory before PATH, which
+would let a file dropped next to the daemon binary stand in for the interpreter a
+game server asked for.
 
 The two Windows managers keep an unresolved command as it stands instead of
 refusing to register the service: shawl searches its own `--cwd` for a name that

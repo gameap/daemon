@@ -1,6 +1,7 @@
 package processmanager
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 
@@ -36,7 +37,7 @@ func resolveCommandExecutable(cmd, processWorkDir string) (string, error) {
 		return path, nil
 	}
 
-	path, pathErr := lookPathAbs(cmd)
+	path, pathErr := lookPathInPATH(cmd)
 	if pathErr == nil {
 		return path, nil
 	}
@@ -48,14 +49,14 @@ func resolveCommandExecutable(cmd, processWorkDir string) (string, error) {
 
 // lookPathAbs is exec.LookPath with a result that is always absolute.
 //
-// Windows searches the calling process's own working directory before PATH, and LookPath
-// reports such a hit as exec.ErrDot together with the path it found rather than as a plain
-// failure. That path is relative to the daemon's working directory, which has nothing to do
-// with the game server, so it is anchored here instead of being handed to a supervisor that
-// would resolve it somewhere else entirely.
+// A hit reported as exec.ErrDot is refused rather than used. LookPath returns that sentinel
+// when the name resolved inside the calling process's own working directory, which on Windows
+// is searched implicitly and before PATH. That directory holds the daemon binary and has
+// nothing to do with the game server, so a file dropped next to the daemon must never become
+// the program a service is registered with.
 func lookPathAbs(name string) (string, error) {
 	path, err := exec.LookPath(name)
-	if err != nil && !errors.Is(err, exec.ErrDot) {
+	if err != nil {
 		return "", errors.Wrapf(err, "failed to look up %q", name)
 	}
 
@@ -65,4 +66,32 @@ func lookPathAbs(name string) (string, error) {
 	}
 
 	return abs, nil
+}
+
+// lookPathInPATH searches PATH alone for a command name.
+//
+// exec.LookPath cannot do this on Windows: it looks in the calling process's working directory
+// first and returns that hit instead of going on to PATH, so refusing the hit afterwards would
+// also lose the interpreter that PATH really does provide. Each PATH entry is therefore joined
+// with the name and checked on its own, which keeps LookPath's PATHEXT handling while leaving
+// the implicit search of the daemon's own directory out of it.
+//
+// Entries that are not absolute are skipped. The resolved path is written into a unit or a
+// service that a supervisor starts from some other directory, where a path that only means
+// something relative to the daemon's working directory would point somewhere else or nowhere.
+func lookPathInPATH(cmd string) (string, error) {
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+
+		path, err := exec.LookPath(filepath.Join(dir, cmd))
+		if err != nil {
+			continue
+		}
+
+		return path, nil
+	}
+
+	return "", errors.Errorf("failed to find %q in PATH", cmd)
 }

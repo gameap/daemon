@@ -121,6 +121,49 @@ func TestResolveCommandExecutable_WorkDirWinsOverPath(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
+// Windows searches the calling process's own working directory before PATH, so without an
+// explicit PATH-only lookup a file sitting next to the daemon binary would be registered as the
+// game server's interpreter instead of the real one.
+func TestResolveCommandExecutable_DaemonDirDoesNotShadowPath(t *testing.T) {
+	daemonDir := t.TempDir()
+	binDir := t.TempDir()
+	fileName, bareToken := executableName()
+
+	writeExecutable(t, daemonDir, fileName)
+	want := writeExecutable(t, binDir, fileName)
+
+	t.Chdir(daemonDir)
+	t.Setenv("PATH", binDir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("PATHEXT", ".EXE")
+	}
+
+	got, err := resolveCommandExecutable(bareToken, t.TempDir())
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+// A command that exists only next to the daemon is not found at all: the daemon's working
+// directory is not a place a game server's program may come from.
+func TestResolveCommandExecutable_DaemonDirIsNotSearched(t *testing.T) {
+	daemonDir := t.TempDir()
+	fileName, bareToken := executableName()
+
+	writeExecutable(t, daemonDir, fileName)
+
+	t.Chdir(daemonDir)
+	t.Setenv("PATH", t.TempDir())
+	if runtime.GOOS == "windows" {
+		t.Setenv("PATHEXT", ".EXE")
+	}
+
+	_, err := resolveCommandExecutable(bareToken, t.TempDir())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), bareToken)
+}
+
 func TestResolveCommandExecutable_NotFound(t *testing.T) {
 	workDir := t.TempDir()
 	t.Setenv("PATH", t.TempDir())
