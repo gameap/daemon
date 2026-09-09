@@ -128,14 +128,16 @@ func Test_makeCommand(t *testing.T) {
 			server: func() *domain.Server {
 				return makeServerWithStartCommandAndDir("invalid", tempDir)
 			},
-			expectedError: `failed to find command 'invalid'`,
+			// The directory that was searched is part of the message: a command that is
+			// missing and a command that is somewhere else look identical without it.
+			expectedError: `failed to find command "invalid" in "` + tempDir + `" and in PATH`,
 		},
 		{
 			name: "error invalid global command",
 			server: func() *domain.Server {
 				return makeServerWithStartCommandAndDir("/usr/bin/invalid", tempDir)
 			},
-			expectedError: `failed to find command '/usr/bin/invalid'`,
+			expectedError: `failed to find command "/usr/bin/invalid"`,
 		},
 	}
 
