@@ -395,6 +395,19 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 		return "", ErrEmptyCommand
 	}
 
+	processWorkDir, err := server.ProcessWorkDir(pm.cfg)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to resolve server process work directory")
+	}
+
+	// WinSW starts the executable from its own directory, so a command written as `.\server.exe`
+	// has to be anchored to the server directory before it reaches the service configuration.
+	// One that cannot be found is left alone, so a game server whose files arrive on the first
+	// start is not blocked from running.
+	if executable, resolveErr := resolveCommandExecutable(cmdArr[0], processWorkDir); resolveErr == nil {
+		cmdArr[0] = executable
+	}
+
 	executable := cmdArr[0]
 
 	argArr := make([]string, 0, len(cmdArr)+1)
@@ -410,11 +423,6 @@ func (pm *WinSW) buildServiceConfig(server *domain.Server) (string, error) {
 
 	if len(argArr) > 0 {
 		arguments = shellquote.WindowsJoin(argArr...)
-	}
-
-	processWorkDir, err := server.ProcessWorkDir(pm.cfg)
-	if err != nil {
-		return "", errors.WithMessage(err, "failed to resolve server process work directory")
 	}
 
 	serviceName := pm.serviceName(server)

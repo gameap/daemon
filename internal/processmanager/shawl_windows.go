@@ -275,6 +275,20 @@ func (pm *Shawl) buildServicePlan(server *domain.Server) (shawlServicePlan, erro
 		return shawlServicePlan{}, errors.WithMessage(err, "failed to resolve server process work directory")
 	}
 
+	// Windows resolves a program that carries a path separator against the working directory of
+	// the process asking for the start, so the service control manager would look for a command
+	// written as `.\server.exe` next to the daemon rather than in the server directory. The
+	// command is anchored here, while the daemon still knows where that directory is.
+	//
+	// A command that cannot be found is registered as it stands rather than refused: shawl
+	// searches the working directory itself for a name that carries no separator, and a game
+	// server whose files arrive on the first start would otherwise never get to run.
+	if len(cmdArr) > 0 {
+		if executable, resolveErr := resolveCommandExecutable(cmdArr[0], processWorkDir); resolveErr == nil {
+			cmdArr[0] = executable
+		}
+	}
+
 	envVars, err := server.EnvironmentVars(pm.cfg)
 	if err != nil {
 		return shawlServicePlan{}, errors.WithMessage(err, "failed to build server environment")
@@ -645,6 +659,11 @@ func (pm *Shawl) waitForServiceRunning(ctx context.Context, server *domain.Serve
 	if err != nil {
 		if errors.Is(err, ErrServiceStoppedOnStart) {
 			_, _ = out.Write([]byte("Service " + serviceName + " stopped immediately after start\n"))
+
+			if hint := pm.missingExecutableHint(server); hint != "" {
+				_, _ = out.Write([]byte(hint))
+			}
+
 			pm.writeLogTail(out, server)
 		}
 
@@ -654,6 +673,33 @@ func (pm *Shawl) waitForServiceRunning(ctx context.Context, server *domain.Serve
 	_, _ = out.Write([]byte("Service " + serviceName + " is running\n"))
 
 	return nil
+}
+
+// missingExecutableHint names the program a start command begins with when that program is
+// nowhere the service could have found it, and returns an empty string otherwise.
+//
+// All shawl has to say about it is "program not found", which names neither the file it looked
+// for nor the directories it looked in. That one line is the difference between a game whose
+// archive unpacked into a subdirectory and a game that crashed on startup, and the two are
+// fixed in entirely different places.
+func (pm *Shawl) missingExecutableHint(server *domain.Server) string {
+	cmdArr, err := domain.BuildCommandArgs(pm.cfg, server, pm.cfg.Scripts.Start, server.StartCommand())
+	if err != nil || len(cmdArr) == 0 {
+		return ""
+	}
+
+	processWorkDir, err := server.ProcessWorkDir(pm.cfg)
+	if err != nil {
+		return ""
+	}
+
+	if _, err := resolveCommandExecutable(cmdArr[0], processWorkDir); err == nil {
+		return ""
+	}
+
+	return "The start command begins with " + quoteName(cmdArr[0]) +
+		", which is neither in " + quoteName(processWorkDir) + " nor in PATH. " +
+		"Check that the game server files are installed and that the start command points at them.\n"
 }
 
 // seekLogTail positions f at the last shawlOutputSizeLimit bytes of the log. It reports whether
