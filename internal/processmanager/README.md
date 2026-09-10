@@ -45,6 +45,41 @@ unreachable container runtime — is reported as undetermined rather than as a
 stopped server. The loop leaves such a server alone: treating an unreadable probe
 as "down" would restart a healthy server.
 
+## How the start command's program is found
+
+A start command names its program relative to the directory the game server
+process runs in — `./srcds_run` on Linux, `srcds.exe` on Windows. That is the
+server directory joined with the configured `work_dir` (see the root README),
+and the server directory itself when no `work_dir` is set. The supervisor that
+launches the command does not run from there. systemd expands `ExecStart=` before it
+applies `WorkingDirectory=`, and Windows resolves a program that contains a path
+separator against the directory of the process that asked for the start, never
+against the one the service is given. A command written as `.\server.exe` or
+`bin\srcds.exe` therefore names a path that does not exist, and the launch fails
+with nothing but the supervisor's own "file not found" to explain it.
+
+`systemd`, `shawl` and `winsw` all resolve the program before the command is
+written into a unit or registered as a service. That process working directory is
+searched first, PATH second, so `powershell` or `java` stays reachable while a
+binary shipped with the server always wins over a same-named one elsewhere on the
+host. What is registered is the absolute path whenever the program was found,
+which means the same file for every supervisor.
+
+The daemon's own working directory is not searched at all, and only absolute PATH
+entries are searched. Windows looks in the calling process's directory before
+PATH, which would let a file dropped next to the daemon binary stand in for the
+interpreter a game server asked for.
+
+The two Windows managers keep an unresolved command as it stands instead of
+refusing to register the service: shawl searches its own `--cwd` for a name that
+carries no path separator, and a game server whose files are downloaded on the
+first start would otherwise never get to run. `systemd` fails instead, because a
+unit is written once and a wrong `ExecStart=` would keep failing silently.
+
+Because the registered command line changes from a relative path to an absolute
+one, Windows services registered by an older daemon differ from the ones the
+config now describes and are registered again on the next start.
+
 ## Metrics support
 
 The `Metrics(ctx, server)` method returns Prometheus-style samples (see
@@ -167,6 +202,12 @@ service control manager accepts the request, and tails the shawl log when a serv
 immediately. Because shawl restarts the game process itself, a running service proves the
 supervisor came up, not that the game stayed up.
 
+All shawl writes about a program it could not launch is `program not found`, which names
+neither the file it wanted nor the directories it searched. When a service stops immediately
+and the start command's program is in neither the working directory nor PATH, the daemon says
+so before the log tail, naming both — the difference between an archive that unpacked into a
+subdirectory and a game that crashed on startup, which are fixed in entirely different places.
+
 Metrics are liveness-only; see the table above.
 
 ### Changing the restart policy
@@ -238,6 +279,13 @@ the root README), the container working directory becomes `docker_workdir` joine
 with that relative path, e.g. `/server/GroundBranch/Binaries/Linux`. In the start
 command `{dir}` expands to `docker_workdir` and `{work_dir}` to that container
 working directory, not to the host paths.
+
+A configured home directory (`home_dir`, `home_dir_linux`, `home_dir_windows`,
+`home_dir_macos`; see the root README) is resolved the same way: `HOME` is set to
+`docker_workdir` joined with that relative path, so a `home_dir` of `.` gives
+`HOME=/server`. During installation the server directory is mounted at
+`/mnt/server` instead, and `HOME` follows it there. Without a configured
+`home_dir` the container keeps whatever `HOME` its image sets.
 
 #### Installation Configuration
 
@@ -442,7 +490,9 @@ Podman uses the same metadata keys as Docker for compatibility:
 As with Docker, the server directory is mounted at `docker_workdir`, which is the
 container working directory by default; a configured process work directory
 (`work_dir*` keys, see the root README) is joined onto it. `{dir}` and `{work_dir}`
-in the start command expand to those container paths.
+in the start command expand to those container paths. A configured `home_dir*`
+is joined onto `docker_workdir` as well and exported as `HOME`, and installation
+uses the `/mnt/server` mount for both.
 
 ### Socket Configuration
 

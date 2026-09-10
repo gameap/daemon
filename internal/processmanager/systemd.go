@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"sort"
@@ -838,28 +837,16 @@ func (pm *SystemD) makeStartCommand(server *domain.Server) (string, error) {
 		return "", ErrEmptyCommand
 	}
 
-	cmd := args[0]
-
 	processWorkDir, err := server.ProcessWorkDir(pm.cfg)
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to resolve server process work directory")
 	}
 
-	var foundPath string
-
-	if filepath.IsAbs(cmd) {
-		foundPath, err = exec.LookPath(cmd)
-		if err != nil {
-			return "", errors.WithMessagef(err, "failed to find command '%s'", cmd)
-		}
-	} else {
-		foundPath, err = exec.LookPath(filepath.Join(processWorkDir, cmd))
-		if err != nil {
-			foundPath, err = exec.LookPath(cmd)
-			if err != nil {
-				return "", errors.WithMessagef(err, "failed to find command '%s'", cmd)
-			}
-		}
+	// systemd expands ExecStart= before it applies WorkingDirectory=, so the unit carries the
+	// absolute path rather than the relative one the games catalogue is written with.
+	foundPath, err := resolveCommandExecutable(args[0], processWorkDir)
+	if err != nil {
+		return "", err
 	}
 
 	args[0] = foundPath
