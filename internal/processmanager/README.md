@@ -62,13 +62,13 @@ with nothing but the supervisor's own "file not found" to explain it.
 written into a unit or registered as a service. That process working directory is
 searched first, PATH second, so `powershell` or `java` stays reachable while a
 binary shipped with the server always wins over a same-named one elsewhere on the
-host. What is registered is the absolute path, which means the same file for every
-supervisor.
+host. What is registered is the absolute path whenever the program was found,
+which means the same file for every supervisor.
 
 The daemon's own working directory is not searched at all, and only absolute PATH
-entries are. Windows looks in the calling process's directory before PATH, which
-would let a file dropped next to the daemon binary stand in for the interpreter a
-game server asked for.
+entries are searched. Windows looks in the calling process's directory before
+PATH, which would let a file dropped next to the daemon binary stand in for the
+interpreter a game server asked for.
 
 The two Windows managers keep an unresolved command as it stands instead of
 refusing to register the service: shawl searches its own `--cwd` for a name that
