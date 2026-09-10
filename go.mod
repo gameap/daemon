@@ -25,7 +25,7 @@ require (
 	github.com/ulikunitz/xz v0.5.16
 	github.com/urfave/cli/v2 v2.27.7
 	go.uber.org/mock v0.6.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
