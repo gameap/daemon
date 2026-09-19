@@ -153,6 +153,66 @@ are ignored if present in a config file (unknown keys do not cause errors):
 `password_authentication`, `dh_file`, `stats_update_period`,
 `stats_db_update_period`, `grpc.enabled`, `task_manager.update_period`
 
+## Command placeholders and server variables
+
+The daemon renders the game mod start command and the `scripts.*` wrappers
+itself. Every `{placeholder}` is replaced once, in a single pass, so a
+substituted value is never expanded again.
+
+### Built-in placeholders
+
+| Placeholder                             | Value
+|-----------------------------------------|------------
+| `{dir}`                                 | Absolute server directory (`work_path` + the server `dir`)
+| `{work_dir}`                            | Absolute process working directory (see below)
+| `{uuid}`, `{uuid_short}`, `{id}`        | Server identifiers from the panel
+| `{ip}`, `{host}`                        | Server IP
+| `{port}`, `{SERVER_PORT}`, `{PORT}`     | Connect port
+| `{query_port}`, `{rcon_port}`           | Query and RCON ports
+| `{rcon_password}`                       | RCON password
+| `{user}`                                | System user the server runs as
+| `{game}`                                | Game start code; a mod variable named `game` wins (see below)
+| `{node_work_path}`, `{node_tools_path}` | Daemon `work_path` and its `tools` subdirectory
+| `{command}`                             | Wrapper templates only: the tokens of the server command
+
+### Game mod variables
+
+Every variable of the game mod (the `vars` list in the games catalogue) is a
+placeholder too, in any letter case: `{maxplayers}` also matches
+`{MAXPLAYERS}`. The value is resolved in this order, the last one wins:
+
+1. the variable default from the game mod;
+2. the server variables (`vars` on the admin server page);
+3. the server settings (the server settings page).
+
+A built-in placeholder wins over a variable of the same name, except `{game}`:
+the catalogue defines it as a mod variable (Quake 2 starts with
+`+set game {game}` and a variable `game=baseq2`), so the variable wins and the
+game start code is only the fallback.
+
+Values are substituted exactly as the panel stores them. Since GameAP 4.5 the
+panel validates typed variables (`int`, `float`, `bool`, `select`, ...) and
+stores the canonical text: a `bool` variable is its `true_value`/`false_value`
+(`1`/`0` by default), a number is its decimal text. The daemon never parses or
+converts a value.
+
+Templates are tokenized first and placeholders are substituted into the
+individual tokens, so a value never splits into several arguments and shell
+metacharacters in a value are harmless. An empty value yields an empty
+argument: `+sv_setsteamaccount {server_token}` becomes
+`+sv_setsteamaccount ""`. A flag-style `bool` variable with an empty
+`false_value` should therefore be embedded in a larger token
+(`--flag={var}`) rather than used as a standalone `{var}`.
+
+### Environment
+
+The merged variables (same order as above) are exported to the game server
+process as environment variables. The name is upper-cased, `-` and spaces
+become `_`, other characters are dropped (`max-players` becomes
+`MAX_PLAYERS`). Then `HOME` is set when a `home_dir` is configured, and finally
+`SERVER_PORT`, `PORT`, `QUERY_PORT` and `RCON_PORT`, which a variable cannot
+override.
+
 ## Game server working directory
 
 By default a game server process starts in the server directory

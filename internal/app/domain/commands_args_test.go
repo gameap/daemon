@@ -170,3 +170,23 @@ func TestBuildCommandArgsWithPaths_StillRejectsInvalidWorkDir(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "path is outside work directory")
 }
+
+func TestBuildCommandArgs_EmptyValueStaysAnEmptyArgument(t *testing.T) {
+	// The games catalogue relies on it: "+sv_setsteamaccount {server_token}"
+	// with an empty token must still hand the server an (empty) argument.
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+	server := newTestServerForVars(
+		[]GameModVarTemplate{{Key: "server_token", DefaultValue: ""}},
+		nil,
+		nil,
+	)
+
+	args, err := BuildCommandArgs(
+		cfg, server,
+		"{command}",
+		"./srcds_run +sv_setsteamaccount {server_token} +map de_dust2",
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"./srcds_run", "+sv_setsteamaccount", "", "+map", "de_dust2"}, args)
+}
