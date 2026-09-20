@@ -309,14 +309,51 @@ func (pm *SystemD) Start(ctx context.Context, server *domain.Server, out io.Writ
 		return domain.ErrorResult, errors.Wrap(err, "failed to close file")
 	}
 
-	if _, err = os.Stat(pm.stdinFile(server)); err == nil {
-		err = os.Remove(pm.stdinFile(server))
-		if err != nil {
-			return domain.ErrorResult, errors.WithMessage(err, "failed to remove file")
-		}
+	if err = pm.resetStdin(ctx, server, out); err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to reset stdin FIFO")
 	}
 
 	return pm.command(ctx, server, "start", out)
+}
+
+// resetStdin drops the stdin FIFO of a previous run, so that input queued while
+// the server was down is not replayed into the new process.
+//
+// The FIFO belongs to the socket unit: systemd keeps the descriptor open for as
+// long as the socket is active and hands that same descriptor to the service as
+// stdin. A server that exited on its own leaves its socket listening, so
+// unlinking only the path would start the service on the orphaned inode while
+// SendInput keeps opening a path that no longer exists. Stopping the socket
+// first makes the start that follows recreate the FIFO. A running service is
+// left alone: taking the FIFO away would cut its console input.
+func (pm *SystemD) resetStdin(ctx context.Context, server *domain.Server, out io.Writer) error {
+	serviceStatus, err := pm.status(ctx, pm.resolveServiceName(server), out)
+	if err != nil {
+		return errors.WithMessage(err, "failed to get service status")
+	}
+	if serviceStatus == domain.SuccessResult {
+		return nil
+	}
+
+	socketName := pm.resolveSocketName(server)
+
+	socketStatus, err := pm.status(ctx, socketName, out)
+	if err != nil {
+		return errors.WithMessage(err, "failed to get socket status")
+	}
+	if socketStatus == domain.SuccessResult {
+		_, err = pm.executor.ExecWithWriter(ctx, pm.systemctl("stop", socketName), out, pm.execOpts())
+		if err != nil {
+			return errors.WithMessagef(err, "failed to stop socket %s", socketName)
+		}
+	}
+
+	err = os.Remove(pm.stdinFile(server))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.Wrapf(err, "failed to remove stdin FIFO %s", pm.stdinFile(server))
+	}
+
+	return nil
 }
 
 func (pm *SystemD) Stop(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
