@@ -169,3 +169,52 @@ func TestMakeFullCommand_InvalidWorkDirReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), `invalid work_dir "/abs" from server vars`)
 	assert.Contains(t, err.Error(), "must be a path relative to the server directory")
 }
+
+func TestReplaceShortCodes_GamePlaceholder(t *testing.T) {
+	cfg := fakeWorkDirReader{workDir: "/work-path"}
+
+	tests := []struct {
+		name        string
+		game        Game
+		gameModVars []GameModVarTemplate
+		settings    Settings
+		expected    string
+	}{
+		{
+			name:        "mod_variable_wins_over_start_code",
+			game:        Game{StartCode: "q2"},
+			gameModVars: []GameModVarTemplate{{Key: "game", DefaultValue: "baseq2"}},
+			expected:    "+set game baseq2",
+		},
+		{
+			name:        "server_setting_overrides_the_variable_default",
+			game:        Game{StartCode: "q2"},
+			gameModVars: []GameModVarTemplate{{Key: "game", DefaultValue: "baseq2"}},
+			settings:    Settings{"game": "ctf"},
+			expected:    "+set game ctf",
+		},
+		{
+			name:     "start_code_is_the_fallback",
+			game:     Game{StartCode: "cstrike"},
+			expected: "+set game cstrike",
+		},
+		{
+			// The panel sends no start code over gRPC, so a mod without a game
+			// variable renders an empty value.
+			name:     "empty_without_start_code_and_variable",
+			game:     Game{},
+			expected: "+set game ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := newTestServerForVarsWithGame(tt.game, tt.gameModVars, nil, tt.settings)
+
+			result, err := ReplaceShortCodes("+set game {game}", cfg, server)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

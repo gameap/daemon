@@ -14,6 +14,15 @@ func newTestServerForVars(
 	vars map[string]string,
 	settings Settings,
 ) *Server {
+	return newTestServerForVarsWithGame(Game{StartCode: "game"}, gameModVars, vars, settings)
+}
+
+func newTestServerForVarsWithGame(
+	game Game,
+	gameModVars []GameModVarTemplate,
+	vars map[string]string,
+	settings Settings,
+) *Server {
 	return NewServer(
 		1,
 		true,
@@ -22,7 +31,7 @@ func newTestServerForVars(
 		"test",
 		"test-uuid",
 		"test",
-		Game{StartCode: "game"},
+		game,
 		GameMod{Vars: gameModVars},
 		"127.0.0.1",
 		27015,

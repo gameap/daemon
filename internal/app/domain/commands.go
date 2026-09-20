@@ -109,6 +109,10 @@ func ReplaceShortCodes(commandTemplate string, cfg workDirReader, server *Server
 // {dir} is the server directory and {work_dir} the directory the process runs
 // in, even when a server variable is called work_dir.
 //
+// {game} is the one exception: the games catalogue defines it as a mod variable
+// (Quake 2 starts with "+set game {game}" and a variable game=baseq2), so a
+// variable named game wins and the game start code is only the fallback.
+//
 // It fails when the configured work_dir is not a relative path inside the
 // server directory; the same value is rejected again before the server starts.
 func newServerReplacer(cfg workDirReader, server *Server, paths CommandPaths) (*strings.Replacer, error) {
@@ -148,7 +152,6 @@ func newServerReplacer(cfg workDirReader, server *Server, paths CommandPaths) (*
 		"{query_port}", strconv.Itoa(server.QueryPort()),
 		"{rcon_port}", strconv.Itoa(server.RCONPort()),
 		"{rcon_password}", server.RCONPassword(),
-		"{game}", server.Game().StartCode,
 		"{user}", server.User(),
 		"{node_work_path}", cfg.WorkDir(),
 		"{node_tools_path}", cfg.WorkDir()+"/tools",
@@ -161,6 +164,8 @@ func newServerReplacer(cfg workDirReader, server *Server, paths CommandPaths) (*
 			"{"+strings.ToUpper(k)+"}", v,
 		)
 	}
+
+	pairs = append(pairs, "{game}", server.Game().StartCode)
 
 	return strings.NewReplacer(pairs...), nil
 }

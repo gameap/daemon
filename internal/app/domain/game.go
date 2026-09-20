@@ -54,43 +54,8 @@ type SteamSettings struct {
 }
 
 type GameModVarTemplate struct {
-	Key          string
-	DefaultValue string
-}
-
-func (g *GameModVarTemplate) UnmarshalJSON(bytes []byte) error {
-	v := struct {
-		Var      string      `json:"var"`
-		Default  interface{} `json:"default"`
-		Info     string      `json:"info"`
-		AdminVar bool        `json:"admin_var"`
-	}{}
-
-	err := json.Unmarshal(bytes, &v)
-	if err != nil {
-		return err
-	}
-
-	g.Key = v.Var
-
-	switch defaultValue := v.Default.(type) {
-	case string:
-		g.DefaultValue = defaultValue
-	case int:
-		g.DefaultValue = strconv.Itoa(defaultValue)
-	case float64:
-		g.DefaultValue = strconv.Itoa(int(defaultValue))
-	case bool:
-		if v.Default.(bool) {
-			g.DefaultValue = "1"
-		} else {
-			g.DefaultValue = "0"
-		}
-	default:
-		g.DefaultValue = ""
-	}
-
-	return nil
+	Key          string `json:"var"`
+	DefaultValue string `json:"default"`
 }
 
 type GameMod struct {

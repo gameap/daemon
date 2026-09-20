@@ -14,6 +14,7 @@ var (
 	ErrServiceNotFound       = errors.New("service is not registered")
 	ErrServiceStateTimeout   = errors.New("timeout waiting for the service to change state")
 	ErrServiceStoppedOnStart = errors.New("service stopped immediately after start")
+	ErrSocketStopFailed      = errors.New("failed to stop socket unit")
 	ErrUserMismatch          = errors.New(
 		"server user does not match daemon user (required for systemctl --user mode)",
 	)

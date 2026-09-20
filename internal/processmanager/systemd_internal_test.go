@@ -3,6 +3,8 @@
 package processmanager
 
 import (
+	"context"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gameap/daemon/internal/app/config"
+	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -660,5 +663,168 @@ func Test_buildServiceConfig_homeDir(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `invalid home_dir "../escape" from server vars`)
+	})
+}
+
+// unitStateExecutor is a contracts.Executor double that answers `systemctl show`
+// with a per-unit ActiveState and records every other command it is given.
+type unitStateExecutor struct {
+	activeStates map[string]string
+	commands     []string
+	onCommand    func(command string)
+	// execResult is the exit code ExecWithWriter reports for every command.
+	execResult int
+}
+
+func (e *unitStateExecutor) Exec(_ context.Context, command string, _ contracts.ExecutorOptions) ([]byte, int, error) {
+	if !strings.Contains(command, " show ") {
+		e.record(command)
+
+		return nil, 0, nil
+	}
+
+	for unit, state := range e.activeStates {
+		if strings.Contains(command, " "+unit+" ") {
+			return []byte("LoadState=loaded\nActiveState=" + state + "\nSubState=x\nResult=success\n"), 0, nil
+		}
+	}
+
+	return []byte("LoadState=not-found\nActiveState=inactive\nSubState=dead\nResult=success\n"), 0, nil
+}
+
+func (e *unitStateExecutor) ExecWithWriter(
+	_ context.Context, command string, _ io.Writer, _ contracts.ExecutorOptions,
+) (int, error) {
+	e.record(command)
+
+	return e.execResult, nil
+}
+
+func (e *unitStateExecutor) ExecArgs(_ context.Context, args []string, _ contracts.ExecutorOptions) ([]byte, int, error) {
+	e.record(strings.Join(args, " "))
+
+	return nil, 0, nil
+}
+
+func (e *unitStateExecutor) ExecWithWriterArgs(
+	_ context.Context, args []string, _ io.Writer, _ contracts.ExecutorOptions,
+) (int, error) {
+	e.record(strings.Join(args, " "))
+
+	return 0, nil
+}
+
+func (e *unitStateExecutor) record(command string) {
+	e.commands = append(e.commands, command)
+
+	if e.onCommand != nil {
+		e.onCommand(command)
+	}
+}
+
+func Test_resetStdin(t *testing.T) {
+	cur, err := user.Current()
+	require.NoError(t, err)
+
+	setup := func(t *testing.T, activeStates map[string]string) (*SystemD, *unitStateExecutor, *domain.Server, string) {
+		t.Helper()
+
+		workDir := t.TempDir()
+		server := makeServerWithUser(cur.Username, workDir)
+
+		executor := &unitStateExecutor{activeStates: map[string]string{}}
+
+		cfg := makeConfigWithScope("")
+		cfg.WorkPath = workDir
+
+		pm := NewSystemD(cfg, nil, executor)
+		pm.servicesDir = t.TempDir()
+
+		for unit, state := range activeStates {
+			switch unit {
+			case "service":
+				executor.activeStates[pm.serviceName(server)] = state
+			case "socket":
+				executor.activeStates[pm.socketName(server)] = state
+			}
+		}
+
+		stdinFile := pm.stdinFile(server)
+		require.NoError(t, os.MkdirAll(filepath.Dir(stdinFile), 0o755))
+		require.NoError(t, os.WriteFile(stdinFile, nil, 0o600))
+
+		return pm, executor, server, stdinFile
+	}
+
+	t.Run("a listening socket left by a server that exited on its own is stopped before the FIFO goes", func(t *testing.T) {
+		pm, executor, server, stdinFile := setup(t, map[string]string{"service": "inactive", "socket": "active"})
+
+		fifoPresentAtStop := false
+		executor.onCommand = func(string) {
+			_, statErr := os.Stat(stdinFile)
+			fifoPresentAtStop = statErr == nil
+		}
+
+		require.NoError(t, pm.resetStdin(context.Background(), server, io.Discard))
+
+		assert.Equal(t, []string{"systemctl stop " + pm.socketName(server)}, executor.commands)
+		assert.True(t, fifoPresentAtStop, "the socket must be stopped while it still owns the FIFO path")
+		assert.NoFileExists(t, stdinFile)
+	})
+
+	t.Run("a failed service counts as down", func(t *testing.T) {
+		pm, executor, server, stdinFile := setup(t, map[string]string{"service": "failed", "socket": "active"})
+
+		require.NoError(t, pm.resetStdin(context.Background(), server, io.Discard))
+
+		assert.Equal(t, []string{"systemctl stop " + pm.socketName(server)}, executor.commands)
+		assert.NoFileExists(t, stdinFile)
+	})
+
+	t.Run("an inactive socket is not stopped again", func(t *testing.T) {
+		pm, executor, server, stdinFile := setup(t, map[string]string{"service": "inactive", "socket": "inactive"})
+
+		require.NoError(t, pm.resetStdin(context.Background(), server, io.Discard))
+
+		assert.Empty(t, executor.commands)
+		assert.NoFileExists(t, stdinFile)
+	})
+
+	t.Run("units that were never created only lose a stale FIFO", func(t *testing.T) {
+		pm, executor, server, stdinFile := setup(t, nil)
+
+		require.NoError(t, pm.resetStdin(context.Background(), server, io.Discard))
+
+		assert.Empty(t, executor.commands)
+		assert.NoFileExists(t, stdinFile)
+	})
+
+	for _, state := range []string{"active", "activating"} {
+		t.Run("a service that is "+state+" keeps its FIFO", func(t *testing.T) {
+			pm, executor, server, stdinFile := setup(t, map[string]string{"service": state, "socket": "active"})
+
+			require.NoError(t, pm.resetStdin(context.Background(), server, io.Discard))
+
+			assert.Empty(t, executor.commands)
+			assert.FileExists(t, stdinFile)
+		})
+	}
+
+	t.Run("a socket that refuses to stop keeps its FIFO", func(t *testing.T) {
+		pm, executor, server, stdinFile := setup(t, map[string]string{"service": "inactive", "socket": "active"})
+		executor.execResult = 1
+
+		err := pm.resetStdin(context.Background(), server, io.Discard)
+
+		require.ErrorIs(t, err, ErrSocketStopFailed)
+		assert.Equal(t, []string{"systemctl stop " + pm.socketName(server)}, executor.commands)
+		assert.FileExists(t, stdinFile)
+	})
+
+	t.Run("a missing FIFO is not an error", func(t *testing.T) {
+		pm, _, server, stdinFile := setup(t, map[string]string{"service": "inactive", "socket": "inactive"})
+		require.NoError(t, os.Remove(stdinFile))
+
+		require.NoError(t, pm.resetStdin(context.Background(), server, io.Discard))
 	})
 }
