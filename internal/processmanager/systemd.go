@@ -342,9 +342,17 @@ func (pm *SystemD) resetStdin(ctx context.Context, server *domain.Server, out io
 		return errors.WithMessage(err, "failed to get socket status")
 	}
 	if socketStatus == domain.SuccessResult {
-		_, err = pm.executor.ExecWithWriter(ctx, pm.systemctl("stop", socketName), out, pm.execOpts())
+		// A stop that did not succeed leaves the socket listening, so the FIFO
+		// has to stay: unlinking it now would start the service on the orphaned
+		// inode that SendInput can no longer reach.
+		result, err := pm.executor.ExecWithWriter(ctx, pm.systemctl("stop", socketName), out, pm.execOpts())
 		if err != nil {
 			return errors.WithMessagef(err, "failed to stop socket %s", socketName)
+		}
+		if domain.Result(result) != domain.SuccessResult {
+			return errors.WithMessagef(
+				ErrSocketStopFailed, "systemctl stop %s exited with code %d", socketName, result,
+			)
 		}
 	}
 

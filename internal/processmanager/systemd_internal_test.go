@@ -672,6 +672,8 @@ type unitStateExecutor struct {
 	activeStates map[string]string
 	commands     []string
 	onCommand    func(command string)
+	// execResult is the exit code ExecWithWriter reports for every command.
+	execResult int
 }
 
 func (e *unitStateExecutor) Exec(_ context.Context, command string, _ contracts.ExecutorOptions) ([]byte, int, error) {
@@ -695,7 +697,7 @@ func (e *unitStateExecutor) ExecWithWriter(
 ) (int, error) {
 	e.record(command)
 
-	return 0, nil
+	return e.execResult, nil
 }
 
 func (e *unitStateExecutor) ExecArgs(_ context.Context, args []string, _ contracts.ExecutorOptions) ([]byte, int, error) {
@@ -807,6 +809,17 @@ func Test_resetStdin(t *testing.T) {
 			assert.FileExists(t, stdinFile)
 		})
 	}
+
+	t.Run("a socket that refuses to stop keeps its FIFO", func(t *testing.T) {
+		pm, executor, server, stdinFile := setup(t, map[string]string{"service": "inactive", "socket": "active"})
+		executor.execResult = 1
+
+		err := pm.resetStdin(context.Background(), server, io.Discard)
+
+		require.ErrorIs(t, err, ErrSocketStopFailed)
+		assert.Equal(t, []string{"systemctl stop " + pm.socketName(server)}, executor.commands)
+		assert.FileExists(t, stdinFile)
+	})
 
 	t.Run("a missing FIFO is not an error", func(t *testing.T) {
 		pm, _, server, stdinFile := setup(t, map[string]string{"service": "inactive", "socket": "inactive"})

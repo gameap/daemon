@@ -178,8 +178,11 @@ substituted value is never expanded again.
 ### Game mod variables
 
 Every variable of the game mod (the `vars` list in the games catalogue) is a
-placeholder too, in any letter case: `{maxplayers}` also matches
-`{MAXPLAYERS}`. The value is resolved in this order, the last one wins:
+placeholder too, in three spellings: the name as the catalogue stores it and its
+all-lowercase and all-uppercase forms, so a variable `maxplayers` fills both
+`{maxplayers}` and `{MAXPLAYERS}`. A mixed-case `{MaxPlayers}` is substituted
+only when the catalogue spells the name that way. The value is resolved in this
+order, the last one wins:
 
 1. the variable default from the game mod;
 2. the server variables (`vars` on the admin server page);
