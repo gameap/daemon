@@ -35,12 +35,19 @@ const (
 
 type Shawl struct {
 	cfg *config.Config
+
+	processes *processSnapshotter
+	usage     *processTreeSampler
 }
 
 // NewShawl builds the Windows process manager. It drives the service control manager through
 // its API rather than sc.exe, so it needs no executor.
 func NewShawl(cfg *config.Config, _, _ contracts.Executor) *Shawl {
-	return &Shawl{cfg: cfg}
+	return &Shawl{
+		cfg:       cfg,
+		processes: &processSnapshotter{},
+		usage:     newProcessTreeSampler(),
+	}
 }
 
 func (pm *Shawl) Install(ctx context.Context, server *domain.Server, out io.Writer) (domain.Result, error) {
@@ -71,6 +78,8 @@ func (pm *Shawl) Uninstall(ctx context.Context, server *domain.Server, out io.Wr
 
 		return domain.ErrorResult, errors.WithMessage(err, "failed to delete service")
 	}
+
+	pm.usage.forget(serviceName)
 
 	configFile := pm.configFile(server)
 	if err := os.Remove(configFile); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -822,8 +831,13 @@ func (pm *Shawl) HasOwnInstallation(_ *domain.Server) bool {
 	return false
 }
 
-// Metrics returns only the cached process-active gauge for now. Resource
-// stats via Windows performance counters / WMI are tracked as a follow-up.
-func (pm *Shawl) Metrics(_ context.Context, server *domain.Server) ([]domain.Metric, error) {
-	return []domain.Metric{livenessMetric(server, time.Now())}, nil
+// Metrics reports the liveness gauge and what the processes shawl started for the server use.
+// shawl itself is not counted; see serviceProcessMetrics.
+func (pm *Shawl) Metrics(ctx context.Context, server *domain.Server) ([]domain.Metric, error) {
+	processMetrics := serviceProcessMetrics(ctx, pm.serviceName(server), pm.processes, pm.usage)
+
+	out := make([]domain.Metric, 0, len(processMetrics)+1)
+	out = append(out, livenessMetric(server, time.Now()))
+
+	return append(out, processMetrics...), nil
 }

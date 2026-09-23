@@ -91,10 +91,11 @@ forwards to the panel via gRPC.
 | `docker`                              |        yes         |                yes                |           yes            |                  yes                  |              yes (Linux)               |             yes              |
 | `podman`                              |        yes         |                yes                |           yes            |                  yes                  |                  yes                   |             yes              |
 | `systemd`                             |        yes         |                yes                |           yes            |                  yes                  |                  yes                   |             yes              |
-| `tmux` / `simple` / `winsw` / `shawl` |        yes         |                 —                 |            —             |                   —                   |                   —                    |              —               |
+| `shawl`                               |        yes         |                yes                |        usage only        |                   —                   |           yes (logical I/O)            |        yes (threads)         |
+| `tmux` / `simple` / `winsw`           |        yes         |                 —                 |            —             |                   —                   |                   —                    |              —               |
 
 Container-backed managers tag their metrics with `{server_id, server_uuid, container}`.
-The systemd manager tags its metrics with `{server_id, server_uuid, service}`.
+The systemd and shawl managers tag their metrics with `{server_id, server_uuid, service}`.
 
 The systemd manager reads metrics from `systemctl show` and relies on the
 `CPUAccounting=yes`, `MemoryAccounting=yes`, `IOAccounting=yes`,
@@ -105,7 +106,7 @@ CPU%) until the next start/restart regenerates the unit. Metrics are also
 suppressed for the first sample after each restart, since the cumulative
 CPU counter has no baseline yet.
 
-PID-based stats for `tmux` / `simple` / `winsw` / `shawl` are tracked as a follow-up.
+PID-based stats for `tmux` / `simple` / `winsw` are tracked as a follow-up.
 
 ## SystemD scopes
 
@@ -208,7 +209,33 @@ and the start command's program is in neither the working directory nor PATH, th
 so before the log tail, naming both — the difference between an archive that unpacked into a
 subdirectory and a game that crashed on startup, which are fixed in entirely different places.
 
-Metrics are liveness-only; see the table above.
+### Metrics
+
+The metrics describe the processes shawl started for the server: the game server and anything it
+runs through or starts, such as `cmd.exe` for a `.bat` or `.cmd` start command. shawl itself is not
+counted, just as systemd and container runtimes stay out of a unit's or a container's accounting.
+The shawl process is the one the service control manager reports for the service, and a single
+`NtQuerySystemInformation(SystemProcessInformation)` call per metrics tick reads every process on
+the host. No process has to be opened, so the account a server runs under does not matter.
+
+- `gameap_server_cpu_usage_percent` is a percentage of one core, as for docker and systemd. Task
+  Manager divides by the number of cores instead.
+- `gameap_server_memory_usage_bytes` is the private working set, the "Memory" column of Task
+  Manager. Shared DLL pages are left out, so the sum over several processes is not inflated. A
+  service has no memory limit, so `gameap_server_memory_limit_bytes` and
+  `gameap_server_memory_usage_percent` are not reported.
+- `gameap_server_block_io_*_bytes_total` count the bytes the processes read and wrote through files
+  and pipes, including reads served from the file cache: the I/O the game asked for, not what
+  reached the disk.
+- `gameap_server_process_pids` is the number of threads, the unit `pids.current` counts on Linux.
+- Windows keeps no per-process network counters, only ETW traces carry them, so no network metrics
+  are reported.
+
+A process counts as a child only when it is not older than its parent: Windows keeps the parent ID
+of a process whose parent has exited and hands that ID to the next process that starts. CPU time and
+I/O are tracked per process, so the counters keep growing when shawl restarts a crashed game, and
+CPU is reported from the second sample after a start. What a process used between the last sample
+and its exit is not counted.
 
 ### Changing the restart policy
 
