@@ -18,4 +18,7 @@ var (
 	ErrUserMismatch          = errors.New(
 		"server user does not match daemon user (required for systemctl --user mode)",
 	)
+
+	ErrProcessSnapshotMalformed = errors.New("malformed process list")
+	ErrProcessSnapshotTooLarge  = errors.New("process list does not fit the buffer")
 )
