@@ -134,6 +134,23 @@ succeed regardless of which server triggers them. `steam_config` is read from th
 yaml config only (it is not pushed from the API). This whole step is a no-op when
 the daemon does not run as `root`.
 
+### Symlinked server directories
+
+| Parameter                 | Required              | Type      | Info
+|---------------------------|-----------------------|-----------|------------
+| allowed_symlink_targets   | no                    | list      | Absolute directories outside `work_path` that symlinks under it may lead into
+
+File operations requested by the panel are confined to `work_path` (Go's `os.Root`):
+a symlink is followed only when it leads into `work_path` or into one of the listed
+directories, every other link answers `path is outside work directory`. Listing a
+directory lets a server directory be a symlink onto another drive
+(`ln -s /mnt/disk2/servers/cs16 /srv/gameap/servers/cs16`). The rule applies to every
+link the daemon meets, so a link planted inside a server directory cannot reach outside
+the listed directories either. Filesystem roots and directories containing `work_path`,
+the config file or the certificate files are rejected at startup. Deleting a server from
+the panel removes the link and keeps the files behind it. Yaml only, not pushed from the
+API.
+
 ### Other
 
 #### Only on Windows

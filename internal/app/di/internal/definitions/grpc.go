@@ -3,6 +3,7 @@ package definitions
 import (
 	"context"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/repositories"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
@@ -28,7 +29,10 @@ func CreateGatewayClient(ctx context.Context, c Container, gameStore *grpcclient
 		cfg.WorkPath,
 	)
 
-	fileHandler := grpcclient.NewGRPCFileHandler(cfg.WorkPath)
+	fileHandler := grpcclient.NewGRPCFileHandler(
+		cfg.WorkPath,
+		fsutil.WithAllowedSymlinkTargets(cfg.AllowedSymlinkTargets),
+	)
 
 	serverHandler := grpcclient.NewGRPCServerHandler(
 		serverRepo,
@@ -68,11 +72,17 @@ func CreateConnectionManager(
 		fileTransferClient,
 		client,
 		4,
+		fsutil.WithAllowedSymlinkTargets(cfg.AllowedSymlinkTargets),
 	)
 	client.SetTransferHandler(transferHandler)
 
 	// 0 selects the handler's own default concurrency.
-	archiveHandler := grpcclient.NewGRPCArchiveHandler(cfg.WorkPath, client, 0)
+	archiveHandler := grpcclient.NewGRPCArchiveHandler(
+		cfg.WorkPath,
+		client,
+		0,
+		fsutil.WithAllowedSymlinkTargets(cfg.AllowedSymlinkTargets),
+	)
 	client.SetArchiveHandler(archiveHandler)
 
 	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)

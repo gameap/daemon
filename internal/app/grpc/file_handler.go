@@ -27,43 +27,29 @@ const (
 	maxHashPaths = 1000
 )
 
+// GRPCFileHandler serves the panel's file operations. Every caller-supplied
+// path goes through the resolver, which confines it to the work directory
+// (and, when configured, the allowed symlink targets) — see fsutil.Resolver.
 type GRPCFileHandler struct {
-	workDir string
+	resolver *fsutil.Resolver
 }
 
-func NewGRPCFileHandler(workDir string) *GRPCFileHandler {
+func NewGRPCFileHandler(workDir string, opts ...fsutil.ResolveOption) *GRPCFileHandler {
 	return &GRPCFileHandler{
-		workDir: workDir,
+		resolver: fsutil.NewResolver(workDir, opts...),
 	}
-}
-
-// openRoot opens an os.Root at the work directory. Every path supplied by the
-// caller is then resolved through this root, which refuses symlink and ".."
-// escapes per path component without TOCTOU races. The root is opened per
-// request because workDir is provisioned from the API after construction and
-// may not exist yet at startup.
-func (h *GRPCFileHandler) openRoot() (*os.Root, error) {
-	root, err := os.OpenRoot(h.workDir)
-	if err != nil {
-		return nil, errors.Wrap(err, "work directory unavailable")
-	}
-
-	return root, nil
 }
 
 func (h *GRPCFileHandler) HandleFileRead(
 	_ context.Context, requestID string, req *pb.FileReadRequest,
 ) (*pb.FileReadResponse, error) {
-	root, err := h.openRoot()
+	res, err := h.resolver.Resolve(req.Path, fsutil.FollowLeaf)
 	if err != nil {
 		return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
-	defer root.Close()
+	defer res.Close()
 
-	rel, err := fsutil.RootRel(req.Path)
-	if err != nil {
-		return &pb.FileReadResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
-	}
+	root, rel := res.Root, res.Rel
 
 	info, err := root.Stat(rel)
 	if err != nil {
@@ -128,16 +114,13 @@ func (h *GRPCFileHandler) HandleFileRead(
 func (h *GRPCFileHandler) HandleFileWrite(
 	_ context.Context, requestID string, req *pb.FileWriteRequest,
 ) (*pb.FileWriteResponse, error) {
-	root, err := h.openRoot()
+	res, err := h.resolver.Resolve(req.Path, fsutil.FollowLeaf)
 	if err != nil {
 		return &pb.FileWriteResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
-	defer root.Close()
+	defer res.Close()
 
-	rel, err := fsutil.RootRel(req.Path)
-	if err != nil {
-		return &pb.FileWriteResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
-	}
+	root, rel := res.Root, res.Rel
 
 	owner := osowner.Options{
 		User: req.OwnerUser,
@@ -196,16 +179,13 @@ func (h *GRPCFileHandler) HandleFileWrite(
 func (h *GRPCFileHandler) HandleFileList(
 	_ context.Context, requestID string, req *pb.FileListRequest,
 ) (*pb.FileListResponse, error) {
-	root, err := h.openRoot()
+	res, err := h.resolver.Resolve(req.Path, fsutil.FollowLeaf)
 	if err != nil {
 		return &pb.FileListResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
 	}
-	defer root.Close()
+	defer res.Close()
 
-	rel, err := fsutil.RootRel(req.Path)
-	if err != nil {
-		return &pb.FileListResponse{RequestId: requestID, Success: false, Error: err.Error()}, nil
-	}
+	root, rel := res.Root, res.Rel
 
 	var files []*pb.FileStat
 
@@ -345,121 +325,147 @@ func (h *GRPCFileHandler) HandleFileOperation(
 ) (*pb.FileOperationResponse, error) {
 	rid := req.GetRequestId()
 
-	root, err := h.openRoot()
-	if err != nil {
-		return fileOpErrResp(rid, err)
-	}
-	defer root.Close()
-
+	// Each operation resolves its own path with the leaf mode of the os.Root
+	// primitive it ends in: operations that act on a symlink itself (Lstat,
+	// Remove, Rename, the copy's Lstat) must not have the link expanded.
 	switch req.GetOperation() {
 	case pb.FileOperationType_FILE_OPERATION_TYPE_STAT:
-		p := req.GetStatParams()
-		if p == nil {
-			return fileOpErrResp(rid, errors.New("stat_params required"))
-		}
-		rel, relErr := fsutil.RootRel(p.GetPath())
-		if relErr != nil {
-			return fileOpErrResp(rid, relErr)
-		}
-		info, statErr := root.Lstat(rel)
-		if statErr != nil {
-			return fileOpErrResp(rid, statErr)
-		}
-		return &pb.FileOperationResponse{
-			RequestId: rid,
-			Success:   true,
-			Result: &pb.FileOperationResponse_StatResult{
-				StatResult: &pb.StatResult{
-					Stat: fileInfoToStat(p.GetPath(), info),
-				},
-			},
-		}, nil
+		return h.handleStatOp(rid, req.GetStatParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_EXISTS:
-		p := req.GetExistsParams()
-		if p == nil {
-			return fileOpErrResp(rid, errors.New("exists_params required"))
-		}
-		rel, relErr := fsutil.RootRel(p.GetPath())
-		if relErr != nil {
-			return fileOpErrResp(rid, relErr)
-		}
-		_, statErr := root.Stat(rel)
-		return &pb.FileOperationResponse{
-			RequestId: rid,
-			Success:   true,
-			Result: &pb.FileOperationResponse_ExistsResult{
-				ExistsResult: &pb.ExistsResult{
-					Exists: statErr == nil,
-				},
-			},
-		}, nil
+		return h.handleExistsOp(rid, req.GetExistsParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_DELETE:
-		return h.handleDeleteOp(root, rid, req.GetDeleteParams())
+		return h.handleDeleteOp(rid, req.GetDeleteParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_MOVE:
-		return h.handleMoveOp(root, rid, req.GetMoveParams())
+		return h.handleMoveOp(rid, req.GetMoveParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_COPY:
-		return h.handleCopyOp(root, rid, req.GetCopyParams())
+		return h.handleCopyOp(rid, req.GetCopyParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_CHMOD:
-		p := req.GetChmodParams()
-		if p == nil {
-			return fileOpErrResp(rid, errors.New("chmod_params required"))
-		}
-		rel, relErr := fsutil.RootRel(p.GetPath())
-		if relErr != nil {
-			return fileOpErrResp(rid, relErr)
-		}
-		if err := root.Chmod(rel, permMode(p.GetMode())); err != nil {
-			return fileOpErrResp(rid, err)
-		}
-		return fileOpOkResp(rid)
+		return h.handleChmodOp(rid, req.GetChmodParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_CHOWN:
-		p := req.GetChownParams()
-		if p == nil {
-			return fileOpErrResp(rid, errors.New("chown_params required"))
-		}
-		rel, relErr := fsutil.RootRel(p.GetPath())
-		if relErr != nil {
-			return fileOpErrResp(rid, relErr)
-		}
-		if err := root.Chown(rel, int(p.GetUid()), int(p.GetGid())); err != nil {
-			return fileOpErrResp(rid, err)
-		}
-		return fileOpOkResp(rid)
+		return h.handleChownOp(rid, req.GetChownParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_MKDIR:
-		return h.handleMkdirOp(root, rid, req.GetMkdirParams())
+		return h.handleMkdirOp(rid, req.GetMkdirParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_TOUCH:
-		return h.handleTouchOp(root, rid, req.GetTouchParams())
+		return h.handleTouchOp(rid, req.GetTouchParams())
 
 	case pb.FileOperationType_FILE_OPERATION_TYPE_HASH:
-		return h.handleHashOp(ctx, root, rid, req.GetHashParams())
+		return h.handleHashOp(ctx, rid, req.GetHashParams())
 
 	default:
 		return fileOpErrResp(rid, errors.Errorf("unsupported file operation: %s", req.GetOperation()))
 	}
 }
 
-func (h *GRPCFileHandler) handleDeleteOp(
-	root *os.Root, rid string, p *pb.DeleteParams,
-) (*pb.FileOperationResponse, error) {
+func (h *GRPCFileHandler) handleStatOp(rid string, p *pb.StatParams) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("stat_params required"))
+	}
+	res, err := h.resolver.Resolve(p.GetPath(), fsutil.NoFollowLeaf)
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	defer res.Close()
+
+	info, err := res.Root.Lstat(res.Rel)
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	return &pb.FileOperationResponse{
+		RequestId: rid,
+		Success:   true,
+		Result: &pb.FileOperationResponse_StatResult{
+			StatResult: &pb.StatResult{
+				Stat: fileInfoToStat(p.GetPath(), info),
+			},
+		},
+	}, nil
+}
+
+func (h *GRPCFileHandler) handleExistsOp(rid string, p *pb.ExistsParams) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("exists_params required"))
+	}
+
+	exists := false
+
+	res, err := h.resolver.Resolve(p.GetPath(), fsutil.FollowLeaf)
+	switch {
+	case err == nil:
+		_, statErr := res.Root.Stat(res.Rel)
+		res.Close()
+		exists = statErr == nil
+	case errors.As(err, new(*fsutil.SymlinkRefusedError)):
+		// A link the daemon will not follow has nothing behind it as far as
+		// the caller is concerned — the answer os.Root gave for it before.
+	default:
+		return fileOpErrResp(rid, err)
+	}
+
+	return &pb.FileOperationResponse{
+		RequestId: rid,
+		Success:   true,
+		Result: &pb.FileOperationResponse_ExistsResult{
+			ExistsResult: &pb.ExistsResult{
+				Exists: exists,
+			},
+		},
+	}, nil
+}
+
+func (h *GRPCFileHandler) handleChmodOp(rid string, p *pb.ChmodParams) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("chmod_params required"))
+	}
+	res, err := h.resolver.Resolve(p.GetPath(), fsutil.FollowLeaf)
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	defer res.Close()
+
+	if err := res.Root.Chmod(res.Rel, permMode(p.GetMode())); err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	return fileOpOkResp(rid)
+}
+
+func (h *GRPCFileHandler) handleChownOp(rid string, p *pb.ChownParams) (*pb.FileOperationResponse, error) {
+	if p == nil {
+		return fileOpErrResp(rid, errors.New("chown_params required"))
+	}
+	res, err := h.resolver.Resolve(p.GetPath(), fsutil.FollowLeaf)
+	if err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	defer res.Close()
+
+	if err := res.Root.Chown(res.Rel, int(p.GetUid()), int(p.GetGid())); err != nil {
+		return fileOpErrResp(rid, err)
+	}
+	return fileOpOkResp(rid)
+}
+
+func (h *GRPCFileHandler) handleDeleteOp(rid string, p *pb.DeleteParams) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("delete_params required"))
 	}
-	rel, err := fsutil.RootRel(p.GetPath())
+	res, err := h.resolver.Resolve(p.GetPath(), fsutil.NoFollowLeaf)
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
+	defer res.Close()
+
 	if p.GetRecursive() {
-		err = root.RemoveAll(rel)
+		err = res.Root.RemoveAll(res.Rel)
 	} else {
-		err = root.Remove(rel)
+		err = res.Root.Remove(res.Rel)
 	}
 	if err != nil {
 		return fileOpErrResp(rid, err)
@@ -467,56 +473,77 @@ func (h *GRPCFileHandler) handleDeleteOp(
 	return fileOpOkResp(rid)
 }
 
-func (h *GRPCFileHandler) handleMoveOp(
-	root *os.Root, rid string, p *pb.MoveParams,
-) (*pb.FileOperationResponse, error) {
+func (h *GRPCFileHandler) handleMoveOp(rid string, p *pb.MoveParams) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("move_params required"))
 	}
-	src, err := fsutil.RootRel(p.GetSource())
+	src, err := h.resolver.Resolve(p.GetSource(), fsutil.NoFollowLeaf)
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	dst, err := fsutil.RootRel(p.GetDestination())
+	defer src.Close()
+
+	dst, err := h.resolver.Resolve(p.GetDestination(), fsutil.NoFollowLeaf)
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	if err := root.Rename(src, dst); err != nil {
+	defer dst.Close()
+
+	// os.Root.Rename works within one root; both paths are relative to the
+	// same directory when the anchors match.
+	if !src.SameAnchor(dst) {
+		return fileOpErrResp(rid, errors.Errorf(
+			"cannot move %q to %q: the paths are under different storage roots", p.GetSource(), p.GetDestination(),
+		))
+	}
+
+	if err := src.Root.Rename(src.Rel, dst.Rel); err != nil {
 		return fileOpErrResp(rid, err)
 	}
 	return fileOpOkResp(rid)
 }
 
-func (h *GRPCFileHandler) handleCopyOp(
-	root *os.Root, rid string, p *pb.CopyParams,
-) (*pb.FileOperationResponse, error) {
+func (h *GRPCFileHandler) handleCopyOp(rid string, p *pb.CopyParams) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("copy_params required"))
 	}
-	src, err := fsutil.RootRel(p.GetSource())
+	src, err := h.resolver.Resolve(p.GetSource(), fsutil.NoFollowLeaf)
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	dst, err := fsutil.RootRel(p.GetDestination())
+	defer src.Close()
+
+	dst, err := h.resolver.Resolve(p.GetDestination(), fsutil.NoFollowLeaf)
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
-	if err := fsutil.CopyInRoot(root, src, dst, fsutil.CopyOptions{}); err != nil {
+	defer dst.Close()
+
+	if err := fsutil.CopyTree(src.Root, src.Rel, dst.Root, dst.Rel, fsutil.CopyOptions{}); err != nil {
 		return fileOpErrResp(rid, err)
 	}
 	return fileOpOkResp(rid)
 }
 
-func (h *GRPCFileHandler) handleMkdirOp(
-	root *os.Root, rid string, p *pb.MkdirParams,
-) (*pb.FileOperationResponse, error) {
+func (h *GRPCFileHandler) handleMkdirOp(rid string, p *pb.MkdirParams) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("mkdir_params required"))
 	}
-	rel, err := fsutil.RootRel(p.GetPath())
+
+	// mkdir never follows a final symlink, and MkdirAll on one stats it
+	// without ever creating the target; a directory that already exists
+	// behind an allowed link is therefore checked for first.
+	if p.GetRecursive() && h.dirExistsBehindLink(p.GetPath()) {
+		return fileOpOkResp(rid)
+	}
+
+	res, err := h.resolver.Resolve(p.GetPath(), fsutil.NoFollowLeaf)
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
+	defer res.Close()
+
+	root, rel := res.Root, res.Rel
 
 	owner := osowner.Options{
 		User: p.GetOwnerUser(),
@@ -559,16 +586,31 @@ func (h *GRPCFileHandler) handleMkdirOp(
 	return fileOpOkResp(rid)
 }
 
-func (h *GRPCFileHandler) handleTouchOp(
-	root *os.Root, rid string, p *pb.TouchParams,
-) (*pb.FileOperationResponse, error) {
+// dirExistsBehindLink reports whether p, with a final symlink followed, is an
+// existing directory.
+func (h *GRPCFileHandler) dirExistsBehindLink(p string) bool {
+	res, err := h.resolver.Resolve(p, fsutil.FollowLeaf)
+	if err != nil {
+		return false
+	}
+	defer res.Close()
+
+	info, err := res.Root.Stat(res.Rel)
+
+	return err == nil && info.IsDir()
+}
+
+func (h *GRPCFileHandler) handleTouchOp(rid string, p *pb.TouchParams) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("touch_params required"))
 	}
-	rel, err := fsutil.RootRel(p.GetPath())
+	res, err := h.resolver.Resolve(p.GetPath(), fsutil.FollowLeaf)
 	if err != nil {
 		return fileOpErrResp(rid, err)
 	}
+	defer res.Close()
+
+	root, rel := res.Root, res.Rel
 	if _, statErr := root.Stat(rel); os.IsNotExist(statErr) {
 		f, createErr := root.Create(rel)
 		if createErr != nil {
@@ -587,7 +629,7 @@ func (h *GRPCFileHandler) handleTouchOp(
 }
 
 func (h *GRPCFileHandler) handleHashOp(
-	ctx context.Context, root *os.Root, rid string, p *pb.HashParams,
+	ctx context.Context, rid string, p *pb.HashParams,
 ) (*pb.FileOperationResponse, error) {
 	if p == nil {
 		return fileOpErrResp(rid, errors.New("hash_params required"))
@@ -607,7 +649,7 @@ func (h *GRPCFileHandler) handleHashOp(
 			return fileOpErrResp(rid, errors.Wrap(err, "hash operation canceled"))
 		}
 
-		hashes = append(hashes, hashFileInRoot(ctx, root, pth, p.GetAlgorithm()))
+		hashes = append(hashes, h.hashFile(ctx, pth, p.GetAlgorithm()))
 	}
 
 	return &pb.FileOperationResponse{
@@ -622,18 +664,19 @@ func (h *GRPCFileHandler) handleHashOp(
 	}, nil
 }
 
-// hashFileInRoot hashes a single file inside root. Any failure is reported in
-// the returned FileHash.Error; per-file failures must not fail the operation.
-func hashFileInRoot(
-	ctx context.Context, root *os.Root, path string, algorithm pb.HashAlgorithm,
-) *pb.FileHash {
+// hashFile hashes a single file. Any failure is reported in the returned
+// FileHash.Error; per-file failures must not fail the operation.
+func (h *GRPCFileHandler) hashFile(ctx context.Context, path string, algorithm pb.HashAlgorithm) *pb.FileHash {
 	fh := &pb.FileHash{Path: path}
 
-	rel, err := fsutil.RootRel(path)
+	res, err := h.resolver.Resolve(path, fsutil.NoFollowLeaf)
 	if err != nil {
 		fh.Error = err.Error()
 		return fh
 	}
+	defer res.Close()
+
+	root, rel := res.Root, res.Rel
 
 	info, err := root.Lstat(rel)
 	if err != nil {

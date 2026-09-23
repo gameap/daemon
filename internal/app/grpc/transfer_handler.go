@@ -23,42 +23,32 @@ const (
 )
 
 type GRPCTransferHandler struct {
-	workDir         string
+	resolver        *fsutil.Resolver
 	fileTransfer    *FileTransferClient
 	responseSender  ResponseSender
 	sem             *semaphore.Weighted
 	activeTransfers sync.Map // map[string]context.CancelFunc
 }
 
+// NewGRPCTransferHandler confines every caller-supplied path to workDir; see
+// fsutil.Resolver for what the options may widen that to.
 func NewGRPCTransferHandler(
 	workDir string,
 	fileTransfer *FileTransferClient,
 	responseSender ResponseSender,
 	maxConcurrent int64,
+	opts ...fsutil.ResolveOption,
 ) *GRPCTransferHandler {
 	if maxConcurrent <= 0 {
 		maxConcurrent = defaultMaxConcurrentTransfers
 	}
 
 	return &GRPCTransferHandler{
-		workDir:        workDir,
+		resolver:       fsutil.NewResolver(workDir, opts...),
 		fileTransfer:   fileTransfer,
 		responseSender: responseSender,
 		sem:            semaphore.NewWeighted(maxConcurrent),
 	}
-}
-
-// openRoot opens an os.Root at the work directory so every caller-supplied
-// path is resolved component-by-component without symlink/".." escapes or
-// TOCTOU races. Opened per request because workDir is provisioned from the
-// API after construction.
-func (h *GRPCTransferHandler) openRoot() (*os.Root, error) {
-	root, err := os.OpenRoot(h.workDir)
-	if err != nil {
-		return nil, errors.Wrap(err, "work directory unavailable")
-	}
-
-	return root, nil
 }
 
 // HandleFileUploadTask handles a file upload task from the API.
@@ -72,21 +62,17 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 
 	l.Info("Handling file upload task (download from API)")
 
-	root, err := h.openRoot()
-	if err != nil {
-		l.WithError(err).Error("Failed to open work directory")
-		h.sendResponse(requestID, false, err.Error())
-		return
-	}
-	defer root.Close()
-
-	rel, err := fsutil.RootRel(task.Path)
+	// The final rename replaces whatever sits at the path, a symlink included,
+	// so the target is the path itself rather than what a link there points at.
+	res, err := h.resolver.Resolve(task.Path, fsutil.NoFollowLeaf)
 	if err != nil {
 		l.WithError(err).Error("Failed to resolve path")
 		h.sendResponse(requestID, false, err.Error())
 		return
 	}
+	defer res.Close()
 
+	root, rel := res.Root, res.Rel
 	tempRel := rel + ".tmp_" + task.TransferId
 
 	// Idempotency check: if target file already exists with matching checksum, skip.
@@ -265,20 +251,15 @@ func (h *GRPCTransferHandler) HandleFileDownloadTask(ctx context.Context, reques
 
 	l.Info("Handling file download task (upload to API)")
 
-	root, err := h.openRoot()
-	if err != nil {
-		l.WithError(err).Error("Failed to open work directory")
-		h.sendResponse(requestID, false, err.Error())
-		return
-	}
-	defer root.Close()
-
-	rel, err := fsutil.RootRel(task.Path)
+	res, err := h.resolver.Resolve(task.Path, fsutil.FollowLeaf)
 	if err != nil {
 		l.WithError(err).Error("Failed to resolve path")
 		h.sendResponse(requestID, false, err.Error())
 		return
 	}
+	defer res.Close()
+
+	root, rel := res.Root, res.Rel
 
 	info, err := root.Stat(rel)
 	if err != nil {

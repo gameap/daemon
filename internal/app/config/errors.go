@@ -23,6 +23,7 @@ var (
 	ErrScopeOnlyForSystemD = errors.New(
 		"process_manager.config.scope is only valid for process_manager.name=systemd",
 	)
+	ErrInvalidAllowedSymlinkTarget   = errors.New("invalid allowed_symlink_targets entry")
 	ErrEmptyReplacementKey           = errors.New("host key is empty")
 	ErrDuplicateReplacementKey       = errors.New("duplicate host key")
 	ErrNoReplacementTargets          = errors.New("no replacement targets")

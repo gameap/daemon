@@ -3,9 +3,11 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -100,6 +102,11 @@ type Config struct {
 	ToolsPath    string `yaml:"tools_path"`
 	SteamCMDPath string `yaml:"steamcmd_path"`
 
+	// AllowedSymlinkTargets are directories outside WorkPath that symlinks
+	// under it may lead into, e.g. a server directory kept on another drive.
+	// Every other symlink target outside WorkPath stays refused.
+	AllowedSymlinkTargets []string `yaml:"allowed_symlink_targets"`
+
 	SteamConfig SteamConfig `yaml:"steam_config"`
 
 	RemoteRepositoryReplacements RepositoryReplacements `yaml:"remote_repository_replacements"`
@@ -129,6 +136,10 @@ type Config struct {
 	// This user has limited permissions and is suitable for running game servers securely.
 	// If false, servers will run under the user specified in the "users" section of the config.
 	UseNetworkServiceUser bool `yaml:"use_network_service_user"`
+
+	// configPath is where the file was loaded from; it takes part in
+	// validation but is not itself a configuration value.
+	configPath string
 }
 
 func NewConfig() *Config {
@@ -216,6 +227,10 @@ func (cfg *Config) validate() error {
 		return err
 	}
 
+	if err := cfg.validateAllowedSymlinkTargets(); err != nil {
+		return err
+	}
+
 	if cfg.APIKey == "" {
 		return ErrEmptyAPIKey
 	}
@@ -254,6 +269,62 @@ func (cfg *Config) validate() error {
 	}
 
 	return nil
+}
+
+// validateAllowedSymlinkTargets cleans and deduplicates the list and refuses
+// entries that would widen file access beyond game-server data: filesystem
+// roots, and anything holding the work directory, the config file or the
+// certificate files — a symlink made from inside a game server would then
+// reach the daemon's own configuration and keys.
+func (cfg *Config) validateAllowedSymlinkTargets() error {
+	protected := []string{cfg.WorkPath}
+	if cfg.configPath != "" {
+		protected = append(protected, filepath.Dir(cfg.configPath))
+	}
+	for _, file := range []string{cfg.CACertificateFile, cfg.CertificateChainFile, cfg.PrivateKeyFile} {
+		if file != "" {
+			protected = append(protected, filepath.Dir(file))
+		}
+	}
+
+	cleaned := make([]string, 0, len(cfg.AllowedSymlinkTargets))
+	for _, entry := range cfg.AllowedSymlinkTargets {
+		if !filepath.IsAbs(entry) {
+			return errors.WithMessagef(ErrInvalidAllowedSymlinkTarget, "%q is not an absolute path", entry)
+		}
+
+		dir := filepath.Clean(entry)
+
+		if dir == filepath.VolumeName(dir)+string(filepath.Separator) {
+			return errors.WithMessagef(ErrInvalidAllowedSymlinkTarget, "%q is a filesystem root", entry)
+		}
+
+		for _, p := range protected {
+			if p != "" && isAncestorOrEqual(dir, p) {
+				return errors.WithMessagef(
+					ErrInvalidAllowedSymlinkTarget,
+					"%q contains %q (work_path, the config file or the certificate files)", entry, p,
+				)
+			}
+		}
+
+		if !slices.Contains(cleaned, dir) {
+			cleaned = append(cleaned, dir)
+		}
+	}
+
+	cfg.AllowedSymlinkTargets = cleaned
+
+	return nil
+}
+
+func isAncestorOrEqual(dir, p string) bool {
+	rel, err := filepath.Rel(dir, filepath.Clean(p))
+	if err != nil {
+		return false
+	}
+
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func (cfg *Config) validateProcessManager() error {

@@ -444,33 +444,39 @@ func mkdirAllOwned(root *os.Root, rel string, perm os.FileMode, owner osowner.Op
 }
 
 // Extract unpacks archive_path into destination. See the package doc for the
-// confinement model and safeEntryName for the zip-slip rules.
-func Extract(ctx context.Context, workDir string, p *pb.ExtractArchiveParams, progress ProgressFunc) (*Result, error) {
+// confinement model (opts may widen it to allowed symlink targets) and
+// safeEntryName for the zip-slip rules.
+func Extract(
+	ctx context.Context, workDir string, p *pb.ExtractArchiveParams, progress ProgressFunc, opts ...fsutil.ResolveOption,
+) (*Result, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, errors.Wrap(err, "extract archive canceled")
 	}
 
-	root, err := os.OpenRoot(workDir)
-	if err != nil {
-		return nil, errors.Wrap(err, "work directory unavailable")
-	}
-	defer root.Close()
+	resolver := fsutil.NewResolver(workDir, opts...)
 
-	archiveRel, err := fsutil.RootRel(p.GetArchivePath())
+	// The archive is only read, so it may sit in a different root than the
+	// destination; the sink works in the destination's root alone.
+	archive, err := resolver.Resolve(p.GetArchivePath(), fsutil.FollowLeaf)
 	if err != nil {
 		return nil, err
 	}
+	defer archive.Close()
 
-	destRel, err := fsutil.RootRel(p.GetDestination())
+	dest, err := resolver.Resolve(p.GetDestination(), fsutil.FollowLeaf)
 	if err != nil {
 		return nil, err
 	}
+	defer dest.Close()
+
+	root, destRel := dest.Root, dest.Rel
+	archiveRel := archive.Rel
 
 	if err := prepareDestination(root, destRel, p); err != nil {
 		return nil, err
 	}
 
-	archiveFile, err := root.Open(archiveRel)
+	archiveFile, err := archive.Root.Open(archiveRel)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open archive %q", p.GetArchivePath())
 	}

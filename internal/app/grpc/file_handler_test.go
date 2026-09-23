@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,6 +116,246 @@ func TestGRPCFileHandler_SymlinkEscapeBlocked(t *testing.T) {
 			assert.NotContains(t, string(rresp.Content), "TOPSECRET",
 				"a copy must never materialize the secret inside the work dir")
 		}
+	})
+}
+
+// TestGRPCFileHandler_SymlinkIntoAllowedTarget is the counterpart for
+// gameap#109: a server directory that is a symlink onto another drive works
+// once that drive is listed in allowed_symlink_targets, while links to
+// anything else — including links planted on the other drive — stay refused.
+func TestGRPCFileHandler_SymlinkIntoAllowedTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privilege on Windows")
+	}
+
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+
+	workDir := filepath.Join(base, "work")
+	drive := filepath.Join(base, "disk2", "servers")
+	serverDir := filepath.Join(drive, "x")
+	secret := filepath.Join(base, "secret")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(workDir, "servers"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(serverDir, "cfg"), 0o755))
+	require.NoError(t, os.MkdirAll(secret, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "cfg", "server.cfg"), []byte("hostname x"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(secret, "passwd"), []byte("TOPSECRET"), 0o644))
+
+	require.NoError(t, os.Symlink(serverDir, filepath.Join(workDir, "servers", "x")))
+	require.NoError(t, os.Symlink(secret, filepath.Join(serverDir, "jump")))
+	require.NoError(t, os.Symlink(secret, filepath.Join(workDir, "servers", "other")))
+	require.NoError(t, os.Symlink(filepath.Join(serverDir, "jump"), filepath.Join(workDir, "servers", "evil")))
+
+	h := NewGRPCFileHandler(workDir, fsutil.WithAllowedSymlinkTargets([]string{drive}))
+	ctx := context.Background()
+
+	fileOp := func(t *testing.T, req *pb.FileOperationRequest) *pb.FileOperationResponse {
+		t.Helper()
+		resp, err := h.HandleFileOperation(ctx, req)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	t.Run("list_server_root_through_the_link", func(t *testing.T) {
+		resp, err := h.HandleFileList(ctx, "l", &pb.FileListRequest{Path: "servers/x"})
+		require.NoError(t, err)
+		require.True(t, resp.Success, resp.Error)
+
+		names := make([]string, 0, len(resp.Files))
+		for _, f := range resp.Files {
+			names = append(names, f.Path)
+		}
+		assert.Contains(t, names, "servers/x/cfg")
+	})
+
+	t.Run("read_through_the_link", func(t *testing.T) {
+		resp, err := h.HandleFileRead(ctx, "r", &pb.FileReadRequest{Path: "servers/x/cfg/server.cfg"})
+		require.NoError(t, err)
+		require.True(t, resp.Success, resp.Error)
+		assert.Equal(t, []byte("hostname x"), resp.Content)
+	})
+
+	t.Run("write_lands_on_the_other_drive", func(t *testing.T) {
+		resp, err := h.HandleFileWrite(ctx, "w", &pb.FileWriteRequest{
+			Path: "servers/x/cfg/new.cfg", Content: []byte("new"), Mode: 0o644, CreateDirs: true,
+		})
+		require.NoError(t, err)
+		require.True(t, resp.Success, resp.Error)
+
+		content, readErr := os.ReadFile(filepath.Join(serverDir, "cfg", "new.cfg"))
+		require.NoError(t, readErr)
+		assert.Equal(t, "new", string(content))
+	})
+
+	t.Run("mkdir_inside", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "m",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_MKDIR,
+			Parameters: &pb.FileOperationRequest_MkdirParams{
+				MkdirParams: &pb.MkdirParams{Path: "servers/x/maps/de", Recursive: true},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		assert.DirExists(t, filepath.Join(serverDir, "maps", "de"))
+	})
+
+	t.Run("mkdir_recursive_on_the_link_itself_succeeds", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "m2",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_MKDIR,
+			Parameters: &pb.FileOperationRequest_MkdirParams{
+				MkdirParams: &pb.MkdirParams{Path: "servers/x", Recursive: true},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+	})
+
+	t.Run("copy_move_delete_inside", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "c",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_COPY,
+			Parameters: &pb.FileOperationRequest_CopyParams{
+				CopyParams: &pb.CopyParams{Source: "servers/x/cfg/server.cfg", Destination: "servers/x/cfg/copy.cfg"},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		assert.FileExists(t, filepath.Join(serverDir, "cfg", "copy.cfg"))
+
+		resp = fileOp(t, &pb.FileOperationRequest{
+			RequestId: "mv",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_MOVE,
+			Parameters: &pb.FileOperationRequest_MoveParams{
+				MoveParams: &pb.MoveParams{Source: "servers/x/cfg/copy.cfg", Destination: "servers/x/moved.cfg"},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		assert.FileExists(t, filepath.Join(serverDir, "moved.cfg"))
+
+		resp = fileOp(t, &pb.FileOperationRequest{
+			RequestId: "d",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_DELETE,
+			Parameters: &pb.FileOperationRequest_DeleteParams{
+				DeleteParams: &pb.DeleteParams{Path: "servers/x/moved.cfg"},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		assert.NoFileExists(t, filepath.Join(serverDir, "moved.cfg"))
+	})
+
+	t.Run("move_between_drives_is_refused", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "mv2",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_MOVE,
+			Parameters: &pb.FileOperationRequest_MoveParams{
+				MoveParams: &pb.MoveParams{Source: "servers/x/cfg/server.cfg", Destination: "servers/pulled.cfg"},
+			},
+		})
+		require.False(t, resp.Success)
+		assert.Contains(t, resp.Error, "different storage roots")
+		assert.FileExists(t, filepath.Join(serverDir, "cfg", "server.cfg"))
+	})
+
+	t.Run("copy_between_drives_works", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "c2",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_COPY,
+			Parameters: &pb.FileOperationRequest_CopyParams{
+				CopyParams: &pb.CopyParams{Source: "servers/x/cfg/server.cfg", Destination: "servers/pulled.cfg"},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		assert.FileExists(t, filepath.Join(workDir, "servers", "pulled.cfg"))
+	})
+
+	t.Run("hash_inside", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "h",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_HASH,
+			Parameters: &pb.FileOperationRequest_HashParams{
+				HashParams: &pb.HashParams{
+					Paths: []string{"servers/x/cfg/server.cfg"}, Algorithm: pb.HashAlgorithm_HASH_ALGORITHM_SHA256,
+				},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		require.Len(t, resp.GetHashResult().GetHashes(), 1)
+		assert.Empty(t, resp.GetHashResult().GetHashes()[0].GetError())
+		assert.NotEmpty(t, resp.GetHashResult().GetHashes()[0].GetHash())
+	})
+
+	t.Run("exists_through_the_link", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "e",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_EXISTS,
+			Parameters: &pb.FileOperationRequest_ExistsParams{
+				ExistsParams: &pb.ExistsParams{Path: "servers/x/cfg/server.cfg"},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		assert.True(t, resp.GetExistsResult().GetExists())
+	})
+
+	t.Run("exists_behind_a_refused_link_is_false", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "e2",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_EXISTS,
+			Parameters: &pb.FileOperationRequest_ExistsParams{
+				ExistsParams: &pb.ExistsParams{Path: "servers/other/passwd"},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		assert.False(t, resp.GetExistsResult().GetExists())
+	})
+
+	t.Run("stat_reports_the_link_itself", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "s",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_STAT,
+			Parameters: &pb.FileOperationRequest_StatParams{
+				StatParams: &pb.StatParams{Path: "servers/x"},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+		assert.Equal(t, pb.FileType_FILE_TYPE_SYMLINK, resp.GetStatResult().GetStat().GetType())
+	})
+
+	t.Run("nested_link_on_the_other_drive_refused", func(t *testing.T) {
+		resp, err := h.HandleFileRead(ctx, "r2", &pb.FileReadRequest{Path: "servers/x/jump/passwd"})
+		require.NoError(t, err)
+		require.False(t, resp.Success, "a link planted on the allowed drive must not reach outside it")
+		assert.Contains(t, resp.Error, "outside work directory")
+		assert.NotEqual(t, []byte("TOPSECRET"), resp.Content)
+	})
+
+	t.Run("link_spelled_into_the_drive_through_a_planted_link_refused", func(t *testing.T) {
+		resp, err := h.HandleFileRead(ctx, "r3", &pb.FileReadRequest{Path: "servers/evil/passwd"})
+		require.NoError(t, err)
+		require.False(t, resp.Success, "the spelling of a link target must not be trusted")
+		assert.NotEqual(t, []byte("TOPSECRET"), resp.Content)
+	})
+
+	t.Run("link_to_an_unlisted_directory_refused", func(t *testing.T) {
+		resp, err := h.HandleFileList(ctx, "l2", &pb.FileListRequest{Path: "servers/other"})
+		require.NoError(t, err)
+		require.False(t, resp.Success)
+		assert.Contains(t, resp.Error, "allowed_symlink_targets")
+	})
+
+	t.Run("delete_of_the_link_keeps_the_files", func(t *testing.T) {
+		resp := fileOp(t, &pb.FileOperationRequest{
+			RequestId: "d2",
+			Operation: pb.FileOperationType_FILE_OPERATION_TYPE_DELETE,
+			Parameters: &pb.FileOperationRequest_DeleteParams{
+				DeleteParams: &pb.DeleteParams{Path: "servers/x"},
+			},
+		})
+		require.True(t, resp.Success, resp.Error)
+
+		_, statErr := os.Lstat(filepath.Join(workDir, "servers", "x"))
+		assert.ErrorIs(t, statErr, os.ErrNotExist)
+		assert.FileExists(t, filepath.Join(serverDir, "cfg", "server.cfg"))
 	})
 }
 

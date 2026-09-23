@@ -107,6 +107,15 @@ log_level: debug
 # game installations. The enroll command writes it automatically.
 # steamcmd_path: /srv/gameap/steamcmd
 
+# Directories outside work_path that symlinks under work_path may lead into,
+# e.g. to keep a server directory on another drive:
+#   ln -s /mnt/disk2/servers/cs16 /srv/gameap/servers/cs16
+# Any other symlink target outside work_path is refused. List only directories
+# that hold game server files: everything under them becomes reachable from
+# the file manager of every server on this node.
+# allowed_symlink_targets:
+#   - /mnt/disk2/servers
+
 # Windows-only paths:
 # path_7zip: C:\gameap\tools\7zip\7za.exe
 # path_starter: C:\gameap\daemon\gameap-starter.exe

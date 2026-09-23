@@ -28,8 +28,10 @@ func (e sourceEntry) isSymlink() bool {
 }
 
 // Create packs the requested sources into archive_path. See the package doc
-// for the confinement model.
-func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, progress ProgressFunc) (*Result, error) {
+// for the confinement model; opts may widen it to allowed symlink targets.
+func Create(
+	ctx context.Context, workDir string, p *pb.CreateArchiveParams, progress ProgressFunc, opts ...fsutil.ResolveOption,
+) (*Result, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, errors.Wrap(err, "create archive canceled")
 	}
@@ -38,16 +40,18 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 		return nil, errors.New("no sources given")
 	}
 
-	root, err := os.OpenRoot(workDir)
-	if err != nil {
-		return nil, errors.Wrap(err, "work directory unavailable")
-	}
-	defer root.Close()
+	resolver := fsutil.NewResolver(workDir, opts...)
 
-	archiveRel, err := fsutil.RootRel(p.GetArchivePath())
+	// The archive is created at the path itself, never behind a link found
+	// there; it may sit in a different root than the sources, which is why it
+	// has a root of its own.
+	archive, err := resolver.Resolve(p.GetArchivePath(), fsutil.NoFollowLeaf)
 	if err != nil {
 		return nil, err
 	}
+	defer archive.Close()
+
+	root, archiveRel := archive.Root, archive.Rel
 
 	// The proto resolves an unset create format from the target file extension.
 	format := p.GetFormat()
@@ -64,10 +68,11 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 		return nil, err
 	}
 
-	baseRel, err := fsutil.RootRel(p.GetBasePath())
+	base, err := resolver.Resolve(p.GetBasePath(), fsutil.FollowLeaf)
 	if err != nil {
 		return nil, err
 	}
+	defer base.Close()
 
 	if parent := path.Dir(archiveRel); parent != "." && parent != "/" {
 		if err := root.MkdirAll(parent, 0o755); err != nil {
@@ -91,7 +96,7 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 
 	acc := newAccumulator(p.GetMaxTotalBytes(), p.GetMaxFiles(), progress)
 
-	createErr := createInto(ctx, root, archiveFile, baseRel, p, format, class, acc)
+	createErr := createInto(ctx, resolver, base, archiveFile, p, format, class, acc)
 
 	closeErr := archiveFile.Close()
 	if createErr != nil {
@@ -140,9 +145,9 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 
 func createInto(
 	ctx context.Context,
-	root *os.Root,
+	resolver *fsutil.Resolver,
+	base *fsutil.Resolved,
 	archiveFile *os.File,
-	baseRel string,
 	p *pb.CreateArchiveParams,
 	format pb.ArchiveFormat,
 	class formatClass,
@@ -153,7 +158,9 @@ func createInto(
 		return errors.Wrap(err, "failed to stat archive file")
 	}
 
-	entries, err := collectSources(ctx, root, baseRel, p.GetSources(), &walkLimits{
+	root := base.Root
+
+	entries, err := collectSources(ctx, resolver, base, p.GetBasePath(), p.GetSources(), &walkLimits{
 		follow:     p.GetFollowSymlinks(),
 		maxEntries: acc.maxFiles,
 		archive:    archiveInfo,
@@ -203,10 +210,23 @@ type sourceWalker struct {
 }
 
 // collectSources expands every source into one flat, bounded entry list.
+// Sources are resolved one by one from the request base path, so a source
+// reached through an allowed symlink is found; they all have to live in the
+// root the base resolved to, because the walk runs through that one root.
 func collectSources(
-	ctx context.Context, root *os.Root, baseRel string, sources []string, limits *walkLimits,
+	ctx context.Context,
+	resolver *fsutil.Resolver,
+	base *fsutil.Resolved,
+	basePath string,
+	sources []string,
+	limits *walkLimits,
 ) ([]sourceEntry, error) {
-	w := &sourceWalker{ctx: ctx, root: root, limits: limits}
+	w := &sourceWalker{ctx: ctx, root: base.Root, limits: limits}
+
+	leaf := fsutil.NoFollowLeaf
+	if limits.follow {
+		leaf = fsutil.FollowLeaf
+	}
 
 	for _, src := range sources {
 		srcRel, err := fsutil.RootRel(src)
@@ -214,9 +234,17 @@ func collectSources(
 			return nil, errors.Wrapf(err, "invalid source %q", src)
 		}
 
-		rel := srcRel
-		if baseRel != "." {
-			rel = path.Join(baseRel, srcRel)
+		res, err := resolver.Resolve(path.Join(basePath, srcRel), leaf)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid source %q", src)
+		}
+
+		rel := res.Rel
+		sameRoot := res.SameAnchor(base)
+		_ = res.Close()
+
+		if !sameRoot {
+			return nil, errors.Errorf("source %q is not under the same storage root as base_path", src)
 		}
 
 		if err := w.walk(rel, srcRel, 0); err != nil {

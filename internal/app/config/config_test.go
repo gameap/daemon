@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -85,6 +86,50 @@ func TestValidate(t *testing.T) {
 			},
 			ErrScopeOnlyForSystemD,
 		},
+		{
+			"relative allowed_symlink_targets entry",
+			func(cfg *Config) {
+				cfg.AllowedSymlinkTargets = []string{"mnt/disk2/servers"}
+			},
+			ErrInvalidAllowedSymlinkTarget,
+		},
+		{
+			"filesystem root as allowed_symlink_targets entry",
+			func(cfg *Config) {
+				cfg.AllowedSymlinkTargets = []string{filesystemRoot(cfg.WorkPath)}
+			},
+			ErrInvalidAllowedSymlinkTarget,
+		},
+		{
+			"allowed_symlink_targets entry containing work_path",
+			func(cfg *Config) {
+				cfg.AllowedSymlinkTargets = []string{filepath.Dir(cfg.WorkPath)}
+			},
+			ErrInvalidAllowedSymlinkTarget,
+		},
+		{
+			"allowed_symlink_targets entry equal to work_path",
+			func(cfg *Config) {
+				cfg.AllowedSymlinkTargets = []string{cfg.WorkPath}
+			},
+			ErrInvalidAllowedSymlinkTarget,
+		},
+		{
+			"allowed_symlink_targets entry containing the config file",
+			func(cfg *Config) {
+				cfg.configPath = filepath.Join(filepath.Dir(cfg.WorkPath), "etc", "gameap-daemon.yaml")
+				cfg.AllowedSymlinkTargets = []string{filepath.Join(filepath.Dir(cfg.WorkPath), "etc")}
+			},
+			ErrInvalidAllowedSymlinkTarget,
+		},
+		{
+			"allowed_symlink_targets entry containing the certificate files",
+			func(cfg *Config) {
+				cfg.CACertificateFile, _ = filepath.Abs(cfg.CACertificateFile)
+				cfg.AllowedSymlinkTargets = []string{filepath.Dir(cfg.CACertificateFile)}
+			},
+			ErrInvalidAllowedSymlinkTarget,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -96,6 +141,37 @@ func TestValidate(t *testing.T) {
 			assert.ErrorIs(t, err, test.expectedError)
 		})
 	}
+}
+
+func TestValidate_AllowedSymlinkTargetsCleanedAndDeduplicated(t *testing.T) {
+	cfg := givenValidConfig(t)
+	drive := filepath.Join(filepath.Dir(cfg.WorkPath), "disk2", "servers")
+	other := filepath.Join(filepath.Dir(cfg.WorkPath), "other")
+	cfg.AllowedSymlinkTargets = []string{
+		drive + string(filepath.Separator),
+		drive,
+		filepath.Join(other, "sub", ".."),
+	}
+
+	err := cfg.Init()
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{drive, other}, cfg.AllowedSymlinkTargets)
+}
+
+func TestValidate_AllowedSymlinkTargetsEmptyByDefault(t *testing.T) {
+	cfg := givenValidConfig(t)
+
+	err := cfg.Init()
+
+	require.NoError(t, err)
+	assert.Empty(t, cfg.AllowedSymlinkTargets)
+}
+
+// filesystemRoot returns the root of the volume p is on: "/" on unix, "C:\"
+// on Windows.
+func filesystemRoot(p string) string {
+	return filepath.VolumeName(p) + string(filepath.Separator)
 }
 
 func TestValidate_SystemDScope_AcceptsValidValues(t *testing.T) {

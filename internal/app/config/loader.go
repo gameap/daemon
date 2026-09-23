@@ -79,6 +79,7 @@ func updatePaths(cfgPath string, cfg *Config) *Config {
 	}
 
 	cfgDirPath := filepath.Dir(cfgPath)
+	cfg.configPath = cfgPath
 
 	if cfg.CACertificateFile != "" && !filepath.IsAbs(cfg.CACertificateFile) {
 		cfg.CACertificateFile, _ = filepath.Abs(filepath.Join(cfgDirPath, cfg.CACertificateFile))
