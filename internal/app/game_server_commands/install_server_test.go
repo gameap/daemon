@@ -352,6 +352,59 @@ func TestInstallation_ServerInstalledFromLocalRepository(t *testing.T) {
 	assert.FileExists(t, workPath+"/test-server/directory_file.txt")
 }
 
+// An update of a running server stops it and starts it again afterwards. A
+// suspended server stays stopped, and the update itself still succeeds: it is a
+// scheduled update that did what it was asked, not a failed one.
+func TestInstallation_ServerRunningBeforeInstallation(t *testing.T) {
+	tests := []struct {
+		name       string
+		server     func(t *testing.T) *domain.Server
+		wantActive bool
+		wantOutput bool
+	}{
+		{
+			name:       "is started again",
+			server:     givenLocalInstallationServer,
+			wantActive: true,
+			wantOutput: false,
+		},
+		{
+			name:       "is not started again while suspended",
+			server:     givenSuspendedLocalInstallationServer,
+			wantActive: false,
+			wantOutput: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				WorkPath: t.TempDir(),
+			}
+			install := newInstallServer(
+				cfg,
+				components.NewExecutor(),
+				processmanager.NewSimple(cfg, components.NewExecutor(), components.NewExecutor()),
+				mocks.NewServerRepository(),
+				commandmocks.LoadServerCommand(domain.Status),
+				commandmocks.LoadServerCommand(domain.Stop),
+				commandmocks.LoadServerCommand(domain.Start),
+			)
+			server := tt.server(t)
+
+			err := install.Execute(context.Background(), server)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantActive, server.IsActive())
+			assert.Equal(
+				t,
+				tt.wantOutput,
+				bytes.Contains(install.ReadOutput(), []byte(suspendedServerNotStartedAgain)),
+			)
+		})
+	}
+}
+
 func TestInstallation_RunAfterInstallScript(t *testing.T) {
 	workPath, err := os.MkdirTemp(os.TempDir(), "gameap-daemon-test")
 	defer func(path string) {
@@ -487,6 +540,22 @@ func givenRemoteInstallationServer(t *testing.T) *domain.Server {
 func givenLocalInstallationServer(t *testing.T) *domain.Server {
 	t.Helper()
 
+	game, gameMod := givenLocalInstallationGame(t)
+
+	return givenServer(t, game, gameMod)
+}
+
+func givenSuspendedLocalInstallationServer(t *testing.T) *domain.Server {
+	t.Helper()
+
+	game, gameMod := givenLocalInstallationGame(t)
+
+	return givenServerWithState(t, game, gameMod, true)
+}
+
+func givenLocalInstallationGame(t *testing.T) (domain.Game, domain.GameMod) {
+	t.Helper()
+
 	pathToFileZip, err := filepath.Abs("../../../test/files/file.zip")
 	if err != nil {
 		t.Fatal(err)
@@ -509,7 +578,7 @@ func givenLocalInstallationServer(t *testing.T) *domain.Server {
 		RemoteRepository: "https://files.gameap.ru/mod-game.tar.gz",
 	}
 
-	return givenServer(t, game, gameMod)
+	return game, gameMod
 }
 
 func givenLocalInstallationServerWithAfterInstallScript(t *testing.T) *domain.Server {
@@ -538,11 +607,17 @@ func givenLocalInstallationServerWithAfterInstallScript(t *testing.T) *domain.Se
 func givenServer(t *testing.T, game domain.Game, gameMod domain.GameMod) *domain.Server {
 	t.Helper()
 
+	return givenServerWithState(t, game, gameMod, false)
+}
+
+func givenServerWithState(t *testing.T, game domain.Game, gameMod domain.GameMod, blocked bool) *domain.Server {
+	t.Helper()
+
 	return domain.NewServer(
 		1,
 		true,
 		domain.ServerInstalled,
-		false,
+		blocked,
 		"name",
 		"759b875e-d910-11eb-aff7-d796d7fcf7ef",
 		"759b875e",

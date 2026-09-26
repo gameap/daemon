@@ -164,11 +164,15 @@ func (l *fakeLoader) Calls() int {
 }
 
 func newServerForTask(id int) *domain.Server {
+	return newServerForTaskWithState(id, false)
+}
+
+func newServerForTaskWithState(id int, blocked bool) *domain.Server {
 	return domain.NewServer(
 		id,
 		true,
 		domain.ServerInstalled,
-		false,
+		blocked,
 		"server-"+strconv.Itoa(id),
 		"uuid-"+strconv.Itoa(id),
 		"short-"+strconv.Itoa(id),

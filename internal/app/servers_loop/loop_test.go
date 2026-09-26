@@ -32,6 +32,11 @@ type fakeProcessManager struct {
 
 	startCalls  int
 	statusCalls int
+	stopCalls   int
+
+	// stopLeavesRunning makes a stop report success while the server stays up,
+	// the way a stop that did not take looks from the outside.
+	stopLeavesRunning bool
 
 	// startPanics makes the start command panic, to prove one broken process
 	// manager cannot take the daemon down with it.
@@ -101,6 +106,13 @@ func (pm *fakeProcessManager) StartCalls() int {
 	return pm.startCalls
 }
 
+func (pm *fakeProcessManager) StopCalls() int {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	return pm.stopCalls
+}
+
 func (pm *fakeProcessManager) StatusCalls() int {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -130,6 +142,15 @@ func (pm *fakeProcessManager) Uninstall(
 func (pm *fakeProcessManager) Stop(
 	_ context.Context, _ *domain.Server, _ io.Writer,
 ) (domain.Result, error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	pm.stopCalls++
+
+	if !pm.stopLeavesRunning {
+		pm.running = false
+	}
+
 	return domain.SuccessResult, nil
 }
 
@@ -290,13 +311,14 @@ func newLoopFixture(t *testing.T, server *domain.Server) *loopFixture {
 	return f
 }
 
-// tick runs one iteration and waits for any start it launched, since starts run
-// off the tick on their own goroutine.
+// tick runs one iteration and waits for any start or stop it launched, since
+// they run off the tick on their own goroutines.
 func (f *loopFixture) tick(t *testing.T) {
 	t.Helper()
 
 	f.loop.tick(context.Background())
 	f.loop.starts.Wait()
+	f.loop.stops.Wait()
 }
 
 func (f *loopFixture) advance(d time.Duration) {
@@ -357,6 +379,143 @@ func TestTick_BlockedServerIsNotStarted(t *testing.T) {
 	f.tick(t)
 
 	assert.Equal(t, 0, f.pm.StartCalls())
+}
+
+// runTicks drives the loop at the real ticker's pace for the given span: a tick
+// now, then one every loop interval while less than span has passed.
+func (f *loopFixture) runTicks(t *testing.T, span time.Duration) {
+	t.Helper()
+
+	for elapsed := time.Duration(0); elapsed < span; elapsed += loopDuration {
+		f.tick(t)
+		f.advance(loopDuration)
+	}
+}
+
+// A suspended server that is still running — the stop task failed, or a Windows
+// service came up with the machine — is stopped by the loop, but only after the
+// grace period that leaves the panel's own stop task to do it first.
+func TestTick_SuspendedRunningServerIsStoppedAfterGrace(t *testing.T) {
+	server := givenServer(withBlocked())
+	f := newLoopFixture(t, server)
+	f.pm.setRunning(true)
+
+	f.runTicks(t, suspendedStopGrace)
+	require.Equal(t, 0, f.pm.StopCalls(), "not within the grace period")
+
+	f.tick(t)
+
+	assert.Equal(t, 1, f.pm.StopCalls())
+	assert.Equal(t, 0, f.pm.StartCalls())
+
+	f.advance(loopDuration)
+	f.runTicks(t, suspendedStopRetry*2)
+
+	assert.Equal(t, 1, f.pm.StopCalls(), "a stopped server is not stopped again")
+	assert.False(t, server.IsActive())
+}
+
+func TestTick_RunningServerIsNotStoppedWhenNotSuspended(t *testing.T) {
+	server := givenServer()
+	f := newLoopFixture(t, server)
+	f.pm.setRunning(true)
+
+	f.runTicks(t, suspendedStopGrace+suspendedStopRetry*2)
+
+	assert.Equal(t, 0, f.pm.StopCalls())
+	assert.True(t, server.IsActive())
+}
+
+// A stop that did not take is retried, but not on every probe.
+func TestTick_SuspendedServerStopIsRetriedOncePerInterval(t *testing.T) {
+	server := givenServer(withBlocked())
+	f := newLoopFixture(t, server)
+	f.pm.setRunning(true)
+	f.pm.stopLeavesRunning = true
+
+	f.runTicks(t, suspendedStopGrace)
+	f.tick(t)
+	require.Equal(t, 1, f.pm.StopCalls())
+
+	f.advance(loopDuration)
+	f.runTicks(t, suspendedStopRetry-loopDuration)
+	require.Equal(t, 1, f.pm.StopCalls(), "not again within the retry interval")
+
+	f.tick(t)
+
+	assert.Equal(t, 2, f.pm.StopCalls())
+}
+
+// The grace is counted from when the loop saw the server running while
+// suspended. It starts over once the server was seen stopped, when the
+// suspension was lifted and imposed again, and for a server that left the cache
+// and came back.
+func TestTick_SuspendedStopGraceStartsOver(t *testing.T) {
+	tests := []struct {
+		name     string
+		interval func(f *loopFixture)
+	}{
+		{
+			name: "after the server was seen stopped",
+			interval: func(f *loopFixture) {
+				f.pm.setRunning(false)
+			},
+		},
+		{
+			name: "after the suspension was lifted",
+			interval: func(f *loopFixture) {
+				f.repo.Set([]*domain.Server{givenServer()})
+			},
+		},
+		{
+			name: "after the server left the cache",
+			interval: func(f *loopFixture) {
+				f.repo.Clear()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newLoopFixture(t, givenServer(withBlocked()))
+			f.pm.setRunning(true)
+
+			f.runTicks(t, suspendedStopGrace-loopDuration)
+			tt.interval(f)
+			f.tick(t)
+			f.advance(loopDuration)
+			f.repo.Set([]*domain.Server{givenServer(withBlocked())})
+			f.pm.setRunning(true)
+
+			f.runTicks(t, suspendedStopGrace)
+			assert.Equal(t, 0, f.pm.StopCalls(), "a new sighting waits out the whole grace period")
+
+			f.tick(t)
+			assert.Equal(t, 1, f.pm.StopCalls())
+		})
+	}
+}
+
+// The stop shares the server's lease with the task manager: while a stop task
+// from the panel is still running, the loop leaves the server alone, and a
+// skipped stop does not count as an attempt.
+func TestTick_SuspendedServerIsNotStoppedWhileAnotherCommandHoldsIt(t *testing.T) {
+	server := givenServer(withBlocked())
+	f := newLoopFixture(t, server)
+	f.pm.setRunning(true)
+	f.runTicks(t, suspendedStopGrace)
+
+	release, ok := f.factory.TryLockServer(server.ID())
+	require.True(t, ok)
+	f.tick(t)
+	release()
+
+	require.Equal(t, 0, f.pm.StopCalls())
+
+	f.advance(loopDuration)
+	f.tick(t)
+
+	assert.Equal(t, 1, f.pm.StopCalls())
 }
 
 func TestTick_DisabledServerIsNotStarted(t *testing.T) {

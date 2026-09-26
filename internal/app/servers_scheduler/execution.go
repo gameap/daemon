@@ -33,6 +33,13 @@ func (s *Scheduler) executeNow(parent context.Context, rec *executionRecord, ser
 		return
 	}
 
+	if server.IsSuspended() && refusedWhileSuspended(domainCmd) {
+		s.sendFinished(rec,
+			pb.ServerTaskExecutionStatus_SERVER_TASK_EXECUTION_STATUS_SKIPPED,
+			domain.ErrServerBlocked.Error(), nil, s.now())
+		return
+	}
+
 	cmd := s.commandLoader.LoadServerCommand(domainCmd, server)
 	if cmd == nil {
 		s.sendFinished(rec,

@@ -296,11 +296,32 @@ func TestServer_Set_ConvergesAfterTheDaemonActsAgain(t *testing.T) {
 	assert.True(t, server.AutoStart())
 }
 
+// A suspension arrives the same way as any other change: the panel pushes the
+// whole server, and lifting it is just another push.
+func TestServer_IsSuspended_FollowsThePanel(t *testing.T) {
+	server := newTestServerForAutostart(true, false, Settings{autostartSettingKey: "1"})
+	require.False(t, server.IsSuspended())
+
+	pushServer(server, true, Settings{autostartSettingKey: "1"})
+
+	assert.True(t, server.IsSuspended())
+	assert.False(t, server.CanAutoStart(), "a suspended server is never started by the loop")
+
+	pushServer(server, false, Settings{autostartSettingKey: "1"})
+
+	assert.False(t, server.IsSuspended())
+	assert.True(t, server.CanAutoStart())
+}
+
 func pushServerSettings(server *Server, settings Settings) {
+	pushServer(server, false, settings)
+}
+
+func pushServer(server *Server, blocked bool, settings Settings) {
 	server.Set(
 		true,
 		ServerInstalled,
-		false,
+		blocked,
 		"test",
 		"759b875e-d910-11eb-aff7-d796d7fcf7ef",
 		"759b875e",

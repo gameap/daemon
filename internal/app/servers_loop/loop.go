@@ -3,6 +3,7 @@ package serversloop
 import (
 	"context"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"time"
 
@@ -48,6 +49,19 @@ const (
 	maxRestartDelay     = 10 * time.Minute
 	restartDelayFactor  = 3
 	settleUptime        = 1 * time.Minute
+
+	// A server suspended in the panel that is found running is stopped by the
+	// loop, but only after it has been seen running for the grace period. The
+	// panel sends a stop task together with the suspension, and that stop,
+	// which leaves a record the panel can show, is the one expected to do it.
+	// The loop is the safety net for a stop that failed or never arrived, and
+	// for a supervisor that brought the server up on its own, such as a Windows
+	// service starting with the machine.
+	suspendedStopGrace = 30 * time.Second
+	// A stop that did not take is retried at this pace rather than on every
+	// probe of a server that is still up.
+	suspendedStopRetry = 1 * time.Minute
+	stopCommandTimeout = 10 * time.Minute
 )
 
 type ServerStatusReporter interface {
@@ -66,6 +80,15 @@ const (
 	probeStopped
 )
 
+// suspendedRun is what the loop remembers about a suspended server it found
+// running.
+type suspendedRun struct {
+	seenAt time.Time
+
+	// stoppedAt is when the loop last launched a stop, zero before the first.
+	stoppedAt time.Time
+}
+
 type ServersLoop struct {
 	cfg                  *config.Config
 	serverRepo           domain.ServerRepository
@@ -74,9 +97,14 @@ type ServersLoop struct {
 
 	nowFn func() time.Time
 
-	// starts is held by the asynchronous start goroutines so shutdown can wait
-	// for them instead of leaving them behind.
+	// suspendedRunning holds the suspended servers last seen running, by id.
+	// Only the tick touches it.
+	suspendedRunning map[int]*suspendedRun
+
+	// starts and stops are held by the asynchronous start and stop goroutines
+	// so shutdown can wait for them instead of leaving them behind.
 	starts sync.WaitGroup
+	stops  sync.WaitGroup
 }
 
 func NewServersLoop(
@@ -89,6 +117,7 @@ func NewServersLoop(
 		serverRepo:           serverRepo,
 		serverCommandFactory: serverCommandFactory,
 		nowFn:                time.Now,
+		suspendedRunning:     make(map[int]*suspendedRun),
 	}
 }
 
@@ -108,6 +137,7 @@ func (l *ServersLoop) loop(ctx context.Context) error {
 	ticker := time.NewTicker(loopDuration)
 	defer ticker.Stop()
 	defer l.starts.Wait()
+	defer l.stops.Wait()
 
 	for {
 		select {
@@ -124,6 +154,13 @@ func (l *ServersLoop) tick(ctx context.Context) {
 	if err != nil {
 		log.Error(err)
 		return
+	}
+
+	// A server that left the cache and comes back is a new sighting.
+	for id := range l.suspendedRunning {
+		if !slices.Contains(ids, id) {
+			delete(l.suspendedRunning, id)
+		}
 	}
 
 	if len(ids) == 0 {
@@ -183,6 +220,14 @@ func (l *ServersLoop) processServer(ctx context.Context, id int) {
 		logger.Error(ctx, err)
 		return
 	}
+
+	if result == probeRunning && server.IsSuspended() {
+		l.stopSuspended(ctx, server)
+
+		return
+	}
+
+	delete(l.suspendedRunning, id)
 
 	if result == probeRunning {
 		l.noticeRunning(server)
@@ -359,6 +404,82 @@ func (l *ServersLoop) startServer(ctx context.Context, server *domain.Server, at
 			WithField("result", startCMD.Result()).
 			WithField("output", string(startCMD.ReadOutput())).
 			Error("Automatic start was rejected by the process manager")
+	}
+}
+
+// stopSuspended stops a server that is running although the panel suspended
+// it, once suspendedStopGrace has passed since the loop first saw it so. Like a
+// start, the stop runs off the tick and holds the server's lease, so it never
+// runs alongside a stop task the panel sent.
+func (l *ServersLoop) stopSuspended(ctx context.Context, server *domain.Server) {
+	now := l.now()
+
+	run, seen := l.suspendedRunning[server.ID()]
+	if !seen {
+		l.suspendedRunning[server.ID()] = &suspendedRun{seenAt: now}
+
+		return
+	}
+
+	if now.Sub(run.seenAt) < suspendedStopGrace {
+		return
+	}
+
+	if !run.stoppedAt.IsZero() && now.Sub(run.stoppedAt) < suspendedStopRetry {
+		return
+	}
+
+	release, ok := l.serverCommandFactory.TryLockServer(server.ID())
+	if !ok {
+		logger.Debug(ctx, "Skipping the stop of a suspended server, another command is running for this server")
+
+		return
+	}
+
+	run.stoppedAt = now
+
+	logger.Warn(ctx, "Game server is suspended in the panel but still running, stopping it")
+
+	l.stops.Add(1)
+
+	go func() {
+		defer l.stops.Done()
+		defer release()
+
+		l.stopServer(ctx, server)
+	}()
+}
+
+func (l *ServersLoop) stopServer(ctx context.Context, server *domain.Server) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Logger(ctx).
+				WithField("panic", r).
+				WithField("stack", string(debug.Stack())).
+				Error("Panic while stopping suspended game server")
+		}
+	}()
+
+	stopCMD := l.serverCommandFactory.LoadServerCommand(domain.Stop, server)
+	if stopCMD == nil {
+		logger.Error(ctx, errors.New("stop command is not implemented for this server"))
+		return
+	}
+
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, stopCommandTimeout)
+	defer cancel()
+
+	err := stopCMD.Execute(ctxWithTimeout, server)
+	if err != nil {
+		logger.Logger(ctx).WithError(err).Error("Stopping suspended game server failed")
+		return
+	}
+
+	if stopCMD.Result() != commands.SuccessResult {
+		logger.Logger(ctx).
+			WithField("result", stopCMD.Result()).
+			WithField("output", string(stopCMD.ReadOutput())).
+			Error("Stopping suspended game server was rejected by the process manager")
 	}
 }
 

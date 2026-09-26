@@ -16,6 +16,14 @@ const (
 	ErrorResult   = int(domain.ErrorResult)
 )
 
+// Written to the command output of a suspended server, so the task log in the
+// panel says in plain words why the server stayed down.
+const (
+	suspendedServerStartRefused = "The server is suspended in the panel " +
+		"and cannot be started until the suspension is lifted.\n"
+	suspendedServerNotStartedAgain = "The server is suspended in the panel and is not started again.\n"
+)
+
 type LoadServerCommandFunc func(cmd domain.ServerCommand, server *domain.Server) contracts.GameServerCommand
 
 var nilLoadServerCommandFunc = func(_ domain.ServerCommand, _ *domain.Server) contracts.GameServerCommand {

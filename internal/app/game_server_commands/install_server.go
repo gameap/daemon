@@ -215,6 +215,15 @@ func (cmd *installServer) startServerIfNeeded(ctx context.Context, server *domai
 		return nil
 	}
 
+	// The start command would refuse anyway, but as an error, and a scheduled
+	// update that did everything it was asked to would be reported as failed.
+	if server.IsSuspended() {
+		logger.Info(ctx, "Game server is suspended, it is not started again after installation/updating")
+		_, _ = cmd.installOutput.Write([]byte(suspendedServerNotStartedAgain))
+
+		return nil
+	}
+
 	err := cmd.startCommand.Execute(ctx, server)
 	if err != nil {
 		return errors.WithMessage(
