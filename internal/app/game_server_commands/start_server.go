@@ -33,6 +33,14 @@ func newDefaultStartServer(
 }
 
 func (cmd *defaultStartServer) Execute(ctx context.Context, server *domain.Server) error {
+	if server.IsSuspended() {
+		_, _ = cmd.startOutput.Write([]byte(suspendedServerStartRefused))
+		cmd.SetResult(ErrorResult)
+		cmd.SetComplete()
+
+		return errors.WithMessage(domain.ErrServerBlocked, "[game_server_commands.defaultStartServer] start refused")
+	}
+
 	if cmd.enableUpdatingBefore && server.UpdateBeforeStart() {
 		updateCmd := cmd.loadServerCommand(domain.Update, server)
 

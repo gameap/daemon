@@ -33,6 +33,24 @@ func (suite *Suite) TestStartSuccess() {
 	}
 }
 
+func (suite *Suite) TestStart_SuspendedServer_StartScriptIsNotExecuted() {
+	server := suite.GivenSuspendedServerWithStartAndStopCommand(
+		serverscommand.CommandScript+" start",
+		serverscommand.CommandScript+" stop",
+	)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Start, server)
+
+	err := cmd.Execute(context.Background(), server)
+
+	suite.Require().ErrorIs(err, domain.ErrServerBlocked)
+	suite.Assert().True(cmd.IsComplete())
+	suite.Assert().Equal(gameservercommands.ErrorResult, cmd.Result())
+	suite.Assert().Equal(
+		"The server is suspended in the panel and cannot be started until the suspension is lifted.\n",
+		string(cmd.ReadOutput()),
+	)
+}
+
 func (suite *Suite) TestStartInvalidCommand() {
 	server := suite.GivenServerWithStartAndStopCommand(
 		"./invalid_command.sh",

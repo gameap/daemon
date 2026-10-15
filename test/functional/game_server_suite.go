@@ -66,7 +66,17 @@ func (suite *GameServerSuite) GivenServerWithSettings(
 ) *domain.Server {
 	suite.T().Helper()
 
-	return suite.givenServer(startCommand, stopCommand, defaultServerVars(), settings)
+	return suite.givenServer(startCommand, stopCommand, defaultServerVars(), settings, false)
+}
+
+// GivenSuspendedServerWithStartAndStopCommand builds a server the panel has
+// suspended (blocked).
+func (suite *GameServerSuite) GivenSuspendedServerWithStartAndStopCommand(
+	startCommand string, stopCommand string,
+) *domain.Server {
+	suite.T().Helper()
+
+	return suite.givenServer(startCommand, stopCommand, defaultServerVars(), domain.Settings{}, true)
 }
 
 // GivenServerWithVars builds a server with explicit vars, which is how a test
@@ -76,7 +86,7 @@ func (suite *GameServerSuite) GivenServerWithVars(
 ) *domain.Server {
 	suite.T().Helper()
 
-	return suite.givenServer(startCommand, stopCommand, vars, domain.Settings{})
+	return suite.givenServer(startCommand, stopCommand, vars, domain.Settings{}, false)
 }
 
 func defaultServerVars() map[string]string {
@@ -87,7 +97,7 @@ func defaultServerVars() map[string]string {
 }
 
 func (suite *GameServerSuite) givenServer(
-	startCommand string, stopCommand string, vars map[string]string, settings domain.Settings,
+	startCommand string, stopCommand string, vars map[string]string, settings domain.Settings, blocked bool,
 ) *domain.Server {
 	suite.T().Helper()
 
@@ -95,7 +105,7 @@ func (suite *GameServerSuite) givenServer(
 		1337,
 		true,
 		domain.ServerInstalled,
-		false,
+		blocked,
 		"name",
 		"759b875e-d910-11eb-aff7-d796d7fcf7ef",
 		"759b875e",

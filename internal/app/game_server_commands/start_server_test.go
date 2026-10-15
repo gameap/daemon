@@ -113,11 +113,25 @@ func givenServerWithStartCommandAndVars(
 ) *domain.Server {
 	t.Helper()
 
+	return givenServerWithState(t, startCommand, vars, false)
+}
+
+func givenSuspendedServerWithStartCommand(t *testing.T, startCommand string) *domain.Server {
+	t.Helper()
+
+	return givenServerWithState(t, startCommand, map[string]string{}, true)
+}
+
+func givenServerWithState(
+	t *testing.T, startCommand string, vars map[string]string, blocked bool,
+) *domain.Server {
+	t.Helper()
+
 	return domain.NewServer(
 		1337,
 		true,
 		domain.ServerInstalled,
-		false,
+		blocked,
 		"name",
 		"759b875e-d910-11eb-aff7-d796d7fcf7ef",
 		"759b875e",

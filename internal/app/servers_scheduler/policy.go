@@ -13,6 +13,19 @@ import (
 // tick without policy intervention.
 const catchupGracePeriod = time.Minute
 
+// refusedWhileSuspended reports whether a scheduled command is skipped for a
+// server suspended in the panel: the same commands the panel refuses to send,
+// everything that starts the game server or rebuilds its files. A scheduled
+// stop still runs.
+func refusedWhileSuspended(c domain.ServerCommand) bool {
+	switch c {
+	case domain.Start, domain.Restart, domain.Update, domain.Install, domain.Reinstall:
+		return true
+	default:
+		return false
+	}
+}
+
 func mapProtoCommandToDomain(c pb.ServerTaskCommand) (domain.ServerCommand, bool) {
 	switch c {
 	case pb.ServerTaskCommand_SERVER_TASK_COMMAND_START:

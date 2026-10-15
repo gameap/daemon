@@ -43,6 +43,10 @@ const autostartSettingKey = "autostart"
 const autostartCurrentSettingKey = "autostart_current"
 const updateBeforeStartSettingKey = "update_before_start"
 
+// ErrServerBlocked is returned for an attempt to start a server suspended in
+// the panel. The text matches the panel's own refusal.
+var ErrServerBlocked = errors.New("server is blocked")
+
 type workDirReader interface {
 	WorkDir() string
 }
@@ -269,6 +273,21 @@ func (s *Server) Blocked() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.blocked
+}
+
+// IsSuspended reports whether the panel suspended the server: it must not be
+// started by any path, and a copy still running is to be stopped. Every such
+// check goes through here, so a future suspension reason (an expiry date) only
+// has to be added in one place.
+func (s *Server) IsSuspended() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.isSuspended()
+}
+
+func (s *Server) isSuspended() bool {
 	return s.blocked
 }
 
@@ -660,7 +679,7 @@ func (s *Server) CanAutoStart() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.blocked {
+	if s.isSuspended() {
 		return false
 	}
 

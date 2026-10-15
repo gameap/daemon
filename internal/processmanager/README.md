@@ -40,6 +40,14 @@ takes over only once the supervisor has given up and left the unit inactive or
 failed — and because a unit that exhausted its start limit refuses every further
 start, the daemon runs `systemctl reset-failed` before starting one.
 
+A server suspended in the panel (`blocked`) is never started by the daemon: start
+and restart commands are refused, the servers loop does not bring it back, a
+scheduled start, restart, update or reinstall is skipped, and an installation or
+update does not start it again afterwards. A copy that runs anyway — a `shawl` or
+`winsw` service starting with Windows, a stop task that failed — is stopped by the
+servers loop once it has been seen running for 30 seconds. The delay leaves the
+stop task the panel sends with the suspension to do it first.
+
 A status check that cannot be evaluated — a probe killed by its own deadline, an
 unreachable container runtime — is reported as undetermined rather than as a
 stopped server. The loop leaves such a server alone: treating an unreadable probe

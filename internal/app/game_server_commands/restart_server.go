@@ -39,7 +39,16 @@ func newDefaultRestartServer(
 }
 
 func (cmd *defaultRestartServer) Execute(ctx context.Context, server *domain.Server) error {
-	cmd.output = components.NewSafeBuffer()
+	// Refused as a whole rather than left to the start command: the default
+	// restart script restarts through the process manager and never runs it, and
+	// the stop/start path would stop the server before the start is refused.
+	if server.IsSuspended() {
+		_, _ = cmd.output.Write([]byte(suspendedServerStartRefused))
+		cmd.SetResult(ErrorResult)
+		cmd.SetComplete()
+
+		return errors.WithMessage(domain.ErrServerBlocked, "[game_server_commands.defaultRestartServer] restart refused")
+	}
 
 	// Checked before either restart path runs. The stop/start path would otherwise stop a healthy
 	// server first and only then fail in the start command, leaving a server that was running
@@ -106,21 +115,15 @@ func (cmd *defaultRestartServer) restartViaStopStart(ctx context.Context, server
 }
 
 func (cmd *defaultRestartServer) ReadOutput() []byte {
-	var err error
-	var out []byte
+	out, err := io.ReadAll(cmd.output)
+	if err != nil {
+		return []byte(err.Error())
+	}
 
 	if cmd.cfg.Scripts.Restart == "" {
-		statusOut := cmd.statusServer.ReadOutput()
-		stopOut := cmd.stopServer.ReadOutput()
-		startOut := cmd.startServer.ReadOutput()
-		out = append(out, statusOut...)
-		out = append(out, stopOut...)
-		out = append(out, startOut...)
-	} else {
-		out, err = io.ReadAll(cmd.output)
-		if err != nil {
-			return []byte(err.Error())
-		}
+		out = append(out, cmd.statusServer.ReadOutput()...)
+		out = append(out, cmd.stopServer.ReadOutput()...)
+		out = append(out, cmd.startServer.ReadOutput()...)
 	}
 
 	return out

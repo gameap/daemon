@@ -32,6 +32,27 @@ func (suite *Suite) TestRestartViaStartStop_ServerIsActive_ExecutedStatusStopAnd
 	}
 }
 
+// A running suspended server must not be stopped by a restart that is then
+// refused on the start: nothing runs at all.
+func (suite *Suite) TestRestartViaStartStop_SuspendedServer_NothingIsExecuted() {
+	suite.GivenServerIsActive()
+	server := suite.GivenSuspendedServerWithStartAndStopCommand(
+		serverscommand.CommandScript+" start",
+		serverscommand.CommandScript+" stop",
+	)
+	cmd := suite.CommandFactory.LoadServerCommand(domain.Restart, server)
+
+	err := cmd.Execute(context.Background(), server)
+
+	suite.Require().ErrorIs(err, domain.ErrServerBlocked)
+	suite.Assert().True(cmd.IsComplete())
+	suite.Assert().Equal(gameservercommands.ErrorResult, cmd.Result())
+	suite.Assert().Equal(
+		"The server is suspended in the panel and cannot be started until the suspension is lifted.\n",
+		string(cmd.ReadOutput()),
+	)
+}
+
 func (suite *Suite) TestRestartViaStartStop_ServerIsNotActive_ExecutedStatusAndStartCommands() {
 	suite.GivenServerIsDown()
 	server := suite.GivenServerWithStartAndStopCommand(
