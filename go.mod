@@ -14,7 +14,7 @@ require (
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485
 	github.com/hashicorp/go-getter v1.8.9
 	github.com/klauspost/compress v1.20.0
-	github.com/moby/moby/api v1.56.0
+	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/client v0.6.0
 	github.com/nwaples/rardecode/v2 v2.4.1
 	github.com/pkg/errors v0.9.1
