@@ -6,8 +6,10 @@ import (
 	"archive/zip"
 	"context"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/gameap/daemon/internal/app/fsutil"
@@ -647,6 +649,169 @@ func TestCreate_SourcesAboveTheServerDirs(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "path escapes from parent")
 	})
+}
+
+// A node-level link need not lead to a game server directory itself: it can end
+// in the middle of one, at a directory that is no boundary. What is read
+// through it still is that server's tree, so the links its tenant keeps there
+// are followed inside the game server directory and nowhere else.
+func TestCreate_NodeLinkIntoTheMiddleOfAServer(t *testing.T) {
+	t.Parallel()
+
+	opts := []fsutil.ConfineOption{fsutil.WithServerDirs(knownServerDirs{"servers/a", "servers/b"})}
+
+	// newTree leaves server "a" with the links that stay inside it and adds
+	// the node-level links into it.
+	newTree := func(t *testing.T) string {
+		t.Helper()
+
+		workDir := tenantWorkDir(t)
+		for _, link := range []string{"servers-link", "node-link", "file-link"} {
+			require.NoError(t, os.Remove(filepath.Join(workDir, "servers", "a", link)))
+		}
+
+		writeTree(t, workDir, map[string]string{"shortcuts/.keep": ""})
+		require.NoError(t, os.Symlink("../servers/a/cstrike", filepath.Join(workDir, "shortcuts", "current")))
+		require.NoError(t, os.Symlink("../own.txt", filepath.Join(workDir, "servers", "a", "cstrike", "inside")))
+
+		return workDir
+	}
+
+	requests := map[string]*pb.CreateArchiveParams{
+		"directory_holding_the_link": {BasePath: ".", Sources: []string{"shortcuts"}},
+		"link_named_as_a_source":     {BasePath: ".", Sources: []string{"shortcuts/current"}},
+		"link_below_the_base_path":   {BasePath: "shortcuts", Sources: []string{"current"}},
+		"link_named_as_the_base":     {BasePath: "shortcuts/current", Sources: []string{"."}},
+		"whole_work_directory":       {BasePath: "", Sources: []string{"shortcuts", "steamcmd"}},
+	}
+
+	for name, params := range requests {
+		t.Run("link_to_the_neighbour_is_refused/"+name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := newTree(t)
+			require.NoError(t, os.Symlink(
+				"../../b/cstrike/server.cfg", filepath.Join(workDir, "servers", "a", "cstrike", "leak"),
+			))
+
+			neighbour := readTree(t, filepath.Join(workDir, "servers", "b"))
+
+			res, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+				ArchivePath:    "backups/node.zip",
+				BasePath:       params.GetBasePath(),
+				Sources:        params.GetSources(),
+				FollowSymlinks: true,
+			}, nil, opts...)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "path escapes from parent")
+			assert.Nil(t, res)
+			assert.Equal(t, neighbour, readTree(t, filepath.Join(workDir, "servers", "b")))
+
+			_, statErr := os.Lstat(filepath.Join(workDir, "backups", "node.zip"))
+			assert.ErrorIs(t, statErr, os.ErrNotExist, "a refused operation leaves no archive behind")
+		})
+
+		t.Run("links_staying_inside_the_server_are_followed/"+name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := newTree(t)
+
+			_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+				ArchivePath:    "backups/node.zip",
+				BasePath:       params.GetBasePath(),
+				Sources:        params.GetSources(),
+				FollowSymlinks: true,
+			}, nil, opts...)
+			require.NoError(t, err)
+
+			bodies := slices.Collect(maps.Values(zipContents(t, filepath.Join(workDir, "backups", "node.zip"))))
+
+			assert.Contains(t, bodies, "hostname a", "the server file behind the link")
+			assert.Contains(t, bodies, "own", "the file a link inside the server leads to")
+			assert.NotContains(t, bodies, "rcon_password secret")
+		})
+	}
+
+	t.Run("file_link_led_on_by_the_tenant_is_refused", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := newTree(t)
+		require.NoError(t, os.Symlink("../servers/a/redirect.cfg", filepath.Join(workDir, "shortcuts", "config")))
+		require.NoError(t, os.Symlink("../b/cstrike/server.cfg", filepath.Join(workDir, "servers", "a", "redirect.cfg")))
+
+		res, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+			ArchivePath:    "backups/node.zip",
+			BasePath:       ".",
+			Sources:        []string{"shortcuts/config"},
+			FollowSymlinks: true,
+		}, nil, opts...)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+		assert.Nil(t, res)
+	})
+
+	t.Run("link_is_packed_as_a_link_when_links_are_not_followed", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := newTree(t)
+		require.NoError(t, os.Symlink("a", filepath.Join(workDir, "servers", "alias")))
+
+		_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+			ArchivePath: "backups/node.zip",
+			BasePath:    ".",
+			Sources:     []string{"shortcuts/current", "servers/alias"},
+		}, nil, opts...)
+
+		require.NoError(t, err)
+		assert.ElementsMatch(
+			t, []string{"shortcuts/current", "servers/alias"},
+			zipEntryNames(t, filepath.Join(workDir, "backups", "node.zip")),
+		)
+	})
+}
+
+// A walk lasts, and a game server directory can be removed and created again
+// while it does. The directory the walk then enters under that name confines
+// what is read below it, however long ago the walk first looked.
+func TestSourceWalker_ServerDirReplacedDuringTheWalk(t *testing.T) {
+	t.Parallel()
+
+	workDir := tenantWorkDir(t)
+	for _, link := range []string{"servers-link", "node-link", "file-link"} {
+		require.NoError(t, os.Remove(filepath.Join(workDir, "servers", "a", link)))
+	}
+
+	confiner := fsutil.NewConfiner(workDir, fsutil.WithServerDirs(knownServerDirs{"servers/a", "servers/b"}))
+
+	base, err := confiner.Resolve(".", fsutil.TargetTree)
+	require.NoError(t, err)
+	defer base.Close()
+
+	w := &sourceWalker{
+		ctx:      context.Background(),
+		confiner: confiner,
+		limits:   &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
+	}
+	defer w.close()
+
+	_, err = w.collect(base, ".", []string{"steamcmd"})
+	require.NoError(t, err)
+
+	former, err := os.Stat(filepath.Join(workDir, "servers", "b"))
+	require.NoError(t, err)
+	require.True(t, confiner.IsServerDir(former))
+
+	require.NoError(t, os.Rename(filepath.Join(workDir, "servers", "b"), filepath.Join(workDir, "removed-b")))
+	require.NoError(t, os.Mkdir(filepath.Join(workDir, "servers", "b"), 0o755))
+	require.NoError(t, os.Symlink("../a/own.txt", filepath.Join(workDir, "servers", "b", "leak")))
+
+	entries, err := w.collect(base, ".", []string{"servers"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "path escapes from parent")
+	assert.Empty(t, entries)
 }
 
 // Many sources, and many links to one game server directory, are read through

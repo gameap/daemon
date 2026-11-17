@@ -549,17 +549,22 @@ func TestWalkSourceSymlinkDepthLimit(t *testing.T) {
 	writeTree(t, workDir, map[string]string{"src/file.txt": "data"})
 	require.NoError(t, os.Symlink(".", filepath.Join(workDir, "src", "loop")))
 
-	root, err := os.OpenRoot(workDir)
+	confiner := fsutil.NewConfiner(workDir)
+
+	base, err := confiner.Resolve(".", fsutil.TargetTree)
 	require.NoError(t, err)
-	defer root.Close()
+	defer base.Close()
 
 	w := &sourceWalker{
 		ctx:      context.Background(),
-		confiner: fsutil.NewConfiner(workDir),
+		confiner: confiner,
 		limits:   &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
 	}
 
-	err = w.walk(root, "src/loop", "src/loop", maxFollowDepth)
+	scope, err := w.adopt(base, false)
+	require.NoError(t, err)
+
+	err = w.walk(scope, "src/loop", "src/loop", maxFollowDepth)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink nesting too deep")
 }
@@ -611,17 +616,22 @@ func TestSourceWalkerRespectsContext(t *testing.T) {
 	workDir := t.TempDir()
 	writeTree(t, workDir, map[string]string{"src/a.txt": "a"})
 
-	root, err := os.OpenRoot(workDir)
+	confiner := fsutil.NewConfiner(workDir)
+
+	base, err := confiner.Resolve(".", fsutil.TargetTree)
 	require.NoError(t, err)
-	defer root.Close()
+	defer base.Close()
 
 	w := &sourceWalker{
 		ctx:      canceledContext(t),
-		confiner: fsutil.NewConfiner(workDir),
+		confiner: confiner,
 		limits:   &walkLimits{maxEntries: defaultMaxFilesLimit()},
 	}
 
-	err = w.walk(root, "src", "src", 0)
+	scope, err := w.adopt(base, false)
+	require.NoError(t, err)
+
+	err = w.walk(scope, "src", "src", 0)
 	require.ErrorIs(t, err, context.Canceled)
 }
 

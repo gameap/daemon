@@ -286,7 +286,8 @@ func TestConfiner_RequestRootKeepsTheServerDirBoundary(t *testing.T) {
 }
 
 // A game server directory reached under a name the daemon does not know it by
-// is still that directory: the request is confined to it all the same.
+// is still that directory: the request is confined to it all the same, and
+// placed under the name the link leads to.
 func TestConfiner_ServerDirUnderAnotherName(t *testing.T) {
 	t.Parallel()
 
@@ -309,8 +310,9 @@ func TestConfiner_ServerDirUnderAnotherName(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = got.Close() })
 
-		assert.Equal(t, "servers/alias", got.Scope)
+		assert.Equal(t, "servers/a", got.Scope)
 		assert.Equal(t, "servers-link/b/secret.cfg", got.Rel)
+		assert.True(t, got.InServerDir)
 
 		_, err = got.Root.ReadFile(got.Rel)
 		require.Error(t, err)
@@ -342,7 +344,7 @@ func TestConfiner_ServerDirUnderAnotherName(t *testing.T) {
 		tree, err := confiner.Resolve("servers/alias", TargetTree)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = tree.Close() })
-		assert.Equal(t, "servers/alias", tree.Scope)
+		assert.Equal(t, "servers/a", tree.Scope)
 		assert.Equal(t, ".", tree.Rel)
 	})
 
@@ -353,7 +355,7 @@ func TestConfiner_ServerDirUnderAnotherName(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = got.Close() })
 
-		assert.Equal(t, "servers/alias", got.Scope)
+		assert.Equal(t, "servers/a", got.Scope)
 
 		_, err = got.Root.Stat("servers-link/b/secret.cfg")
 		require.Error(t, err)
@@ -437,4 +439,326 @@ func TestConfiner_ServerDirSpelledInAnotherCase(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrPathOutsideConfinement)
 	assert.Nil(t, rooted)
+}
+
+// A link to a game server directory need not stand next to it. Whatever depth
+// it is at, the path through it is confined to the directory it leads to, so
+// that a link the tenant keeps there cannot carry the request back out.
+func TestConfiner_ServerDirBehindALinkAtAnotherDepth(t *testing.T) {
+	t.Parallel()
+
+	newTree := func(t *testing.T) string {
+		t.Helper()
+
+		workDir := confineTree(t)
+		plantLinks(t, workDir)
+
+		require.NoError(t, os.Symlink("servers/a", filepath.Join(workDir, "shortcut")))
+		require.NoError(t, os.MkdirAll(filepath.Join(workDir, "links", "deep"), 0o755))
+		require.NoError(t, os.Symlink("../../servers/a", filepath.Join(workDir, "links", "deep", "current")))
+
+		return workDir
+	}
+
+	known := WithServerDirs(serverDirs{"servers/a", "servers/b"})
+
+	for _, alias := range []string{"shortcut", "links/deep/current"} {
+		t.Run(alias, func(t *testing.T) {
+			t.Parallel()
+
+			confiner := NewConfiner(newTree(t), known)
+
+			escaping, err := confiner.Resolve(alias+"/servers-link/b/secret.cfg", TargetEntry)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = escaping.Close() })
+
+			assert.Equal(t, "servers/a", escaping.Scope)
+			assert.Equal(t, "servers-link/b/secret.cfg", escaping.Rel)
+			assert.True(t, escaping.InServerDir)
+
+			_, err = escaping.Root.ReadFile(escaping.Rel)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "path escapes from parent")
+
+			own, err := confiner.Resolve(alias+"/in-link/inner.txt", TargetEntry)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = own.Close() })
+
+			content, err := own.Root.ReadFile(own.Rel)
+			require.NoError(t, err)
+			assert.Equal(t, "inner", string(content))
+
+			byName, err := confiner.Resolve("servers/a/own.txt", TargetEntry)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = byName.Close() })
+
+			assert.True(t, own.SameRoot(byName))
+		})
+	}
+
+	t.Run("the_link_itself", func(t *testing.T) {
+		t.Parallel()
+
+		confiner := NewConfiner(newTree(t), known)
+
+		entry, err := confiner.Resolve("shortcut", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = entry.Close() })
+
+		assert.Equal(t, ".", entry.Scope)
+		assert.Equal(t, "shortcut", entry.Rel)
+		assert.False(t, entry.InServerDir)
+
+		tree, err := confiner.Resolve("shortcut", TargetTree)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = tree.Close() })
+
+		assert.Equal(t, "servers/a", tree.Scope)
+		assert.Equal(t, ".", tree.Rel)
+		assert.True(t, tree.InServerDir)
+	})
+
+	t.Run("it_is_inside_the_request_root_it_leads_to", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := newTree(t)
+		require.NoError(t, os.Symlink("servers/b", filepath.Join(workDir, "other")))
+
+		confiner := NewConfiner(workDir, WithRoot("servers/a"))
+
+		got, err := confiner.Resolve("shortcut/own.txt", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = got.Close() })
+
+		assert.Equal(t, "servers/a", got.Scope)
+
+		_, err = got.Root.Stat("servers-link/b/secret.cfg")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+
+		root, err := confiner.Resolve("shortcut", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = root.Close() })
+
+		assert.Equal(t, "servers/a", root.Scope)
+		assert.Equal(t, ".", root.Rel)
+
+		outside, err := confiner.Resolve("other/secret.cfg", TargetEntry)
+
+		require.ErrorIs(t, err, ErrPathOutsideConfinement)
+		assert.Nil(t, outside)
+	})
+}
+
+// A link can also lead into the middle of a game server directory, to a
+// directory that is no boundary itself. The path through it is placed in the
+// game server directory that directory lies in.
+func TestConfiner_LinkIntoTheMiddleOfAServerDir(t *testing.T) {
+	t.Parallel()
+
+	newTree := func(t *testing.T) string {
+		t.Helper()
+
+		workDir := confineTree(t)
+
+		require.NoError(t, os.Mkdir(filepath.Join(workDir, "shortcuts"), 0o755))
+		require.NoError(t, os.Symlink("../servers/a/sub", filepath.Join(workDir, "shortcuts", "current")))
+		require.NoError(t, os.Symlink("../../b/secret.cfg", filepath.Join(workDir, "servers", "a", "sub", "leak")))
+		require.NoError(t, os.Symlink("../own.txt", filepath.Join(workDir, "servers", "a", "sub", "inside")))
+
+		return workDir
+	}
+
+	known := WithServerDirs(serverDirs{"servers/a", "servers/b"})
+
+	t.Run("link_out_of_the_server_dir_is_refused", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := NewConfiner(newTree(t), known).Resolve("shortcuts/current/leak", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = got.Close() })
+
+		assert.Equal(t, "servers/a", got.Scope)
+		assert.Equal(t, "sub/leak", got.Rel)
+		assert.True(t, got.InServerDir)
+
+		content, err := got.Root.ReadFile(got.Rel)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+		assert.Empty(t, content)
+	})
+
+	t.Run("link_staying_inside_is_followed", func(t *testing.T) {
+		t.Parallel()
+
+		confiner := NewConfiner(newTree(t), known)
+
+		for name, want := range map[string]string{"inner.txt": "inner", "inside": "own"} {
+			got, err := confiner.Resolve("shortcuts/current/"+name, TargetEntry)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = got.Close() })
+
+			content, err := got.Root.ReadFile(got.Rel)
+			require.NoError(t, err)
+			assert.Equal(t, want, string(content))
+		}
+	})
+
+	t.Run("the_link_itself", func(t *testing.T) {
+		t.Parallel()
+
+		confiner := NewConfiner(newTree(t), known)
+
+		entry, err := confiner.Resolve("shortcuts/current", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = entry.Close() })
+
+		assert.Equal(t, ".", entry.Scope)
+		assert.Equal(t, "shortcuts/current", entry.Rel)
+
+		tree, err := confiner.Resolve("shortcuts/current", TargetTree)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = tree.Close() })
+
+		assert.Equal(t, "servers/a", tree.Scope)
+		assert.Equal(t, "sub", tree.Rel)
+
+		_, err = tree.Root.Stat(tree.Rel + "/leak")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+	})
+
+	t.Run("a_request_root_does_not_lift_the_boundary", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := NewConfiner(newTree(t), known, WithRoot("/")).Resolve("shortcuts/current/leak", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = got.Close() })
+
+		assert.Equal(t, "servers/a", got.Scope)
+
+		_, err = got.Root.ReadFile(got.Rel)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+	})
+}
+
+// The tenant can turn what a node-level link points at into a link of its own.
+// The path is in the game server directory by then, and does not get out.
+func TestConfiner_LinkLeavingTheServerDirItLeadsInto(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		link   string
+		path   string
+		target Target
+	}{
+		{name: "leading_component", link: "servers/a/servers-link", path: "shortcut/b/secret.cfg"},
+		{name: "tree", link: "servers/a/servers-link/b", path: "shortcut", target: TargetTree},
+		{name: "through_the_node", link: "servers/a/node-link/steamcmd", path: "shortcut/steamcmd.sh"},
+		{name: "back_out_by_dot_dot", link: "servers/a/sub/../../b", path: "shortcut/secret.cfg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := confineTree(t)
+			plantLinks(t, workDir)
+			require.NoError(t, os.Symlink(tt.link, filepath.Join(workDir, "shortcut")))
+
+			_, statErr := os.Stat(filepath.Join(workDir, filepath.FromSlash(tt.path)))
+			require.NoError(t, statErr, "the path leads somewhere when nothing confines it")
+
+			got, err := NewConfiner(workDir, WithServerDirs(serverDirs{"servers/a", "servers/b"})).
+				Resolve(tt.path, tt.target)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `failed to follow link "shortcut"`)
+			assert.Nil(t, got)
+		})
+	}
+}
+
+// Passing a game server directory by is not entering it: a link written as
+// "servers/a/../b" leads to the neighbour without ever being inside "a".
+func TestConfiner_LinkPassingAServerDirBy(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	require.NoError(t, os.Symlink("servers/a/../b", filepath.Join(workDir, "shortcut")))
+
+	got, err := NewConfiner(workDir, WithServerDirs(serverDirs{"servers/a", "servers/b"})).
+		Resolve("shortcut/secret.cfg", TargetEntry)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = got.Close() })
+
+	assert.Equal(t, "servers/b", got.Scope)
+	assert.Equal(t, "secret.cfg", got.Rel)
+}
+
+// A link that crosses no boundary changes nothing about where the path
+// belongs. Followed on the way, it is replaced by what it leads to; named as
+// the target of the operation, it is left for the operation to deal with.
+func TestConfiner_LinkAboveTheServerDirs(t *testing.T) {
+	t.Parallel()
+
+	newTree := func(t *testing.T) string {
+		t.Helper()
+
+		workDir := confineTree(t)
+		require.NoError(t, os.Symlink("steamcmd", filepath.Join(workDir, "tools")))
+		require.NoError(t, os.Symlink("absent", filepath.Join(workDir, "dangling")))
+
+		return workDir
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		target  Target
+		wantRel string
+	}{
+		{name: "followed_on_the_way", path: "tools/steamcmd.sh", wantRel: "steamcmd/steamcmd.sh"},
+		{name: "named_as_an_entry", path: "tools", wantRel: "tools"},
+		{name: "named_as_a_tree", path: "tools", target: TargetTree, wantRel: "tools"},
+		{name: "dangling_on_the_way", path: "dangling/new.txt", wantRel: "dangling/new.txt"},
+		{name: "missing_on_the_way", path: "fresh/dir/new.txt", wantRel: "fresh/dir/new.txt"},
+		{name: "file_on_the_way", path: "steamcmd/steamcmd.sh/x", wantRel: "steamcmd/steamcmd.sh/x"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := NewConfiner(newTree(t), WithServerDirs(serverDirs{"servers/a", "servers/b"})).
+				Resolve(tt.path, tt.target)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = got.Close() })
+
+			assert.Equal(t, ".", got.Scope)
+			assert.Equal(t, tt.wantRel, got.Rel)
+			assert.False(t, got.InServerDir)
+		})
+	}
+}
+
+// A link chain that never ends is nothing os.Root follows, so the walk does
+// not either: the path is left as it is, for the operation to fail on.
+func TestConfiner_LinkLoop(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	require.NoError(t, os.Symlink("pong", filepath.Join(workDir, "ping")))
+	require.NoError(t, os.Symlink("ping", filepath.Join(workDir, "pong")))
+
+	got, err := NewConfiner(workDir, WithServerDirs(serverDirs{"servers/a"})).Resolve("ping/file.txt", TargetEntry)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = got.Close() })
+
+	assert.Equal(t, "ping/file.txt", got.Rel)
+
+	_, err = got.Root.Stat(got.Rel)
+	require.Error(t, err)
 }

@@ -948,3 +948,78 @@ func TestGRPCFileHandler_CopyIntoItselfIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// A link the node keeps outside every game server directory can lead to one,
+// or into the middle of one. A request that goes through it is in that game
+// server directory all the same, whatever name it got there by, so the links
+// the tenant keeps inside do not carry it on to a neighbour.
+func TestGRPCFileHandler_ServerDirBehindANodeLink(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	newHandler := func(t *testing.T) *GRPCFileHandler {
+		t.Helper()
+
+		workDir := tenantWorkDir(t)
+
+		require.NoError(t, os.Symlink("servers/a", filepath.Join(workDir, "shortcut")))
+		require.NoError(t, os.Mkdir(filepath.Join(workDir, "shortcuts"), 0o755))
+		require.NoError(t, os.Symlink("../servers/a/cstrike", filepath.Join(workDir, "shortcuts", "current")))
+		require.NoError(t, os.Symlink(
+			"../../b/cstrike/server.cfg", filepath.Join(workDir, "servers", "a", "cstrike", "leak"),
+		))
+
+		return NewGRPCFileHandler(workDir, fsutil.WithServerDirs(knownServerDirs{"servers/a", "servers/b"}))
+	}
+
+	for _, p := range []string{
+		"shortcut/servers-link/b/cstrike/server.cfg",
+		"shortcut/file-link",
+		"shortcut/node-link/steamcmd/steamcmd.sh",
+		"shortcuts/current/leak",
+	} {
+		t.Run("refused/"+p, func(t *testing.T) {
+			t.Parallel()
+
+			resp, err := newHandler(t).HandleFileRead(ctx, "r", &pb.FileReadRequest{Path: p})
+			require.NoError(t, err)
+
+			assert.False(t, resp.GetSuccess())
+			assert.Contains(t, resp.GetError(), "path escapes from parent")
+			assert.Empty(t, resp.GetContent())
+		})
+	}
+
+	for p, want := range map[string]string{
+		"shortcut/own.txt":              "own",
+		"shortcut/in-link/server.cfg":   "hostname a",
+		"shortcuts/current/server.cfg":  "hostname a",
+		"shortcuts/current/maps/de.bsp": "map",
+	} {
+		t.Run("own/"+p, func(t *testing.T) {
+			t.Parallel()
+
+			resp, err := newHandler(t).HandleFileRead(ctx, "r", &pb.FileReadRequest{Path: p})
+			require.NoError(t, err)
+
+			require.True(t, resp.GetSuccess(), resp.GetError())
+			assert.Equal(t, want, string(resp.GetContent()))
+		})
+	}
+
+	t.Run("listing_shows_the_directory_the_link_leads_to", func(t *testing.T) {
+		t.Parallel()
+
+		resp, err := newHandler(t).HandleFileList(ctx, "l", &pb.FileListRequest{Path: "shortcuts/current"})
+		require.NoError(t, err)
+		require.True(t, resp.GetSuccess(), resp.GetError())
+
+		names := make([]string, 0, len(resp.GetFiles()))
+		for _, file := range resp.GetFiles() {
+			names = append(names, file.GetName())
+		}
+
+		assert.ElementsMatch(t, []string{"server.cfg", "maps", "leak"}, names)
+	})
+}

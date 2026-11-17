@@ -36,8 +36,9 @@ type CopyOptions struct {
 // it keeps finding, and copying, what it has just written.
 var ErrCopyIntoItself = errors.New("cannot copy a directory into itself")
 
-// ErrCopySameFile is returned when the source and the destination of a copy
-// are one file. Opening the destination for writing would empty the source.
+// ErrCopySameFile is returned when a file would be copied onto itself: its
+// destination is the same file under this or another name. Emptying the
+// destination to write it would empty the source.
 var ErrCopySameFile = errors.New("source and destination are the same file")
 
 // CopyInRoot copies src to dst where both are paths relative to the same root.
@@ -49,8 +50,8 @@ func CopyInRoot(root *os.Root, src, dst string, opts CopyOptions) error {
 // existing destination and regular files overwrite an existing one, matching
 // the default behaviour of the recursive-copy library this package replaced.
 //
-// A destination that is the source, or lies inside it, is refused with
-// ErrCopyIntoItself or ErrCopySameFile.
+// A directory is not copied into itself, and no file onto itself: the copy
+// fails with ErrCopyIntoItself or ErrCopySameFile.
 func CopyTree(srcRoot *os.Root, src string, dstRoot *os.Root, dst string, opts CopyOptions) error {
 	info, err := srcRoot.Lstat(src)
 	if err != nil {
@@ -74,33 +75,29 @@ func CopyTree(srcRoot *os.Root, src string, dstRoot *os.Root, dst string, opts C
 	return err
 }
 
-// refuseOverlap rejects, before anything is written, a copy whose destination
-// is the source or one of the directories the destination is created in. The
-// two are compared as files, not by name: they are named through different
-// roots, and one directory can be spelled in more than one way.
+// refuseOverlap rejects, before anything is written, the copy of a directory
+// to itself or to one of the directories its destination is created in. The
+// two are compared as directories, not by name: they are named through
+// different roots, and one directory can be spelled in more than one way.
 //
 // A destination whose path leads into the source from outside of dstRoot, or
 // through a link, is not seen from here; copier.dir stops that copy as soon as
-// it reaches the destination.
+// it reaches the destination. A file is compared with its destination where it
+// is written, see copier.file.
 func refuseOverlap(src fs.FileInfo, dstRoot *os.Root, dst string) error {
-	switch {
-	case src.IsDir():
-		for dir := dst; ; dir = path.Dir(dir) {
-			if info, err := dstRoot.Stat(dir); err == nil && os.SameFile(src, info) {
-				return ErrCopyIntoItself
-			}
-
-			if dir == "." || dir == "/" {
-				return nil
-			}
-		}
-	case src.Mode().IsRegular():
-		if info, err := dstRoot.Stat(dst); err == nil && os.SameFile(src, info) {
-			return ErrCopySameFile
-		}
+	if !src.IsDir() {
+		return nil
 	}
 
-	return nil
+	for dir := dst; ; dir = path.Dir(dir) {
+		if info, err := dstRoot.Stat(dir); err == nil && os.SameFile(src, info) {
+			return ErrCopyIntoItself
+		}
+
+		if dir == "." || dir == "/" {
+			return nil
+		}
+	}
 }
 
 // Copy copies absolute src to absolute dst. It is a convenience for trusted,
@@ -237,9 +234,18 @@ func (c *copier) file(src, dst string, info fs.FileInfo) error {
 
 	perm := (info.Mode() | c.opts.AddPermission).Perm()
 
-	dstFile, err := c.dstRoot.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	// The destination is opened as it stands and emptied only once it is known
+	// to be another file. Its name says nothing about that: a link in the
+	// destination tree, a link the source was reached through or a second name
+	// of the same file all lead back to what is being read.
+	dstFile, err := c.dstRoot.OpenFile(dst, os.O_WRONLY|os.O_CREATE, perm)
 	if err != nil {
 		return errors.Wrap(err, "failed to create destination file")
+	}
+
+	if err := emptyUnlessSame(srcFile, dstFile); err != nil {
+		_ = dstFile.Close()
+		return errors.WithMessagef(err, "failed to copy %q to %q", src, dst)
 	}
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
@@ -255,6 +261,36 @@ func (c *copier) file(src, dst string, info fs.FileInfo) error {
 	// otherwise strip the executable bit from game-server scripts.
 	if err := c.dstRoot.Chmod(dst, perm); err != nil {
 		return errors.Wrap(err, "failed to set destination file mode")
+	}
+
+	return nil
+}
+
+// emptyUnlessSame truncates dst, unless it is the file src reads from. The two
+// are compared as they were opened, so neither can become another file between
+// the comparison and the write.
+func emptyUnlessSame(src, dst *os.File) error {
+	srcInfo, err := src.Stat()
+	if err != nil {
+		return errors.Wrap(err, "failed to stat source file")
+	}
+
+	dstInfo, err := dst.Stat()
+	if err != nil {
+		return errors.Wrap(err, "failed to stat destination file")
+	}
+
+	if os.SameFile(srcInfo, dstInfo) {
+		return ErrCopySameFile
+	}
+
+	// Only a regular file has a length to cut, as with O_TRUNC.
+	if !dstInfo.Mode().IsRegular() {
+		return nil
+	}
+
+	if err := dst.Truncate(0); err != nil {
+		return errors.Wrap(err, "failed to truncate destination file")
 	}
 
 	return nil

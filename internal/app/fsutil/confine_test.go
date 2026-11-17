@@ -408,30 +408,157 @@ func TestConfiner_IsServerDir(t *testing.T) {
 	assert.False(t, NewConfiner(workDir, WithRoot("servers/a")).IsServerDir(stat("servers/a")))
 }
 
-func TestLeadingLen(t *testing.T) {
+// The game server directories are the ones on disk when the question is asked.
+// One that was replaced since the Confiner was made, or since it was last
+// asked, is known by its replacement, and the directory that used to stand
+// there is a boundary no more.
+func TestConfiner_IsServerDir_FollowsTheDirectoryOnDisk(t *testing.T) {
 	t.Parallel()
 
+	workDir := confineTree(t)
+	serverDir := filepath.Join(workDir, "servers", "b")
+
+	confiner := NewConfiner(workDir, WithServerDirs(serverDirs{"servers/a", "servers/b"}))
+
+	former, err := os.Stat(serverDir)
+	require.NoError(t, err)
+	require.True(t, confiner.IsServerDir(former))
+
+	// The directory is put aside rather than removed: a removed one could hand
+	// its identity on to the directory created next.
+	require.NoError(t, os.Rename(serverDir, serverDir+".old"))
+	require.NoError(t, os.Mkdir(serverDir, 0o755))
+
+	replacement, err := os.Stat(serverDir)
+	require.NoError(t, err)
+	require.False(t, os.SameFile(former, replacement))
+
+	assert.True(t, confiner.IsServerDir(replacement), "the directory now standing there is the boundary")
+	assert.False(t, confiner.IsServerDir(former), "the directory put aside is not")
+
+	require.NoError(t, os.Remove(serverDir))
+
+	assert.False(t, confiner.IsServerDir(replacement), "a game server directory that is gone confines nothing")
+}
+
+func TestConfiner_Resolve_InServerDir(t *testing.T) {
+	t.Parallel()
+
+	known := serverDirs{"servers/a", "servers/b"}
+
 	tests := []struct {
-		rel  string
-		dir  string
-		want string
+		name       string
+		serverDirs ServerDirLister
+		root       string
+		path       string
+		target     Target
+		want       bool
 	}{
-		{rel: "servers/a/sub/inner.txt", dir: "servers/a", want: "servers/a"},
-		{rel: "servers/a", dir: "servers/a", want: "servers/a"},
-		{rel: "servers/ab/other.txt", dir: "servers/a", want: "servers/ab"},
-		{rel: "SERVERS/A/own.txt", dir: "servers/a", want: "SERVERS/A"},
-		{rel: "servers/a/own.txt", dir: "servers", want: "servers"},
-		{rel: "servers/a/nested/deep.md", dir: "servers/a/nested", want: "servers/a/nested"},
-		{rel: "servers", dir: "servers/a", want: ""},
-		{rel: "servers/a", dir: "servers/a/nested", want: ""},
-		{rel: ".", dir: "servers", want: ""},
+		{name: "path_below_a_server_dir", serverDirs: known, path: "servers/a/sub/inner.txt", want: true},
+		{name: "server_dir_as_tree", serverDirs: known, path: "servers/a", target: TargetTree, want: true},
+		{name: "server_dir_as_entry", serverDirs: known, path: "servers/a"},
+		{name: "path_outside_every_server_dir", serverDirs: known, path: "steamcmd/steamcmd.sh"},
+		{name: "directory_holding_the_server_dirs", serverDirs: known, path: "servers", target: TargetTree},
+		{name: "server_dir_not_on_disk_yet", serverDirs: serverDirs{"servers/new"}, path: "servers/new/server.cfg"},
+		{name: "request_root_the_daemon_does_not_know", root: "servers/a", path: "servers/a/own.txt"},
+		{
+			name:       "request_root_that_is_a_server_dir_as_entry",
+			serverDirs: known, root: "servers/a", path: "servers/a",
+			want: true,
+		},
+		{
+			name:       "request_root_inside_a_server_dir",
+			serverDirs: known, root: "servers/a/nested", path: "servers/a/nested/deep.md",
+			want: true,
+		},
+		{
+			name:       "request_root_enclosing_the_server_dirs",
+			serverDirs: known, root: "servers", path: "servers/ab/other.txt",
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.rel+"_"+tt.dir, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, tt.want, tt.rel[:leadingLen(tt.rel, tt.dir)])
+			confiner := NewConfiner(confineTree(t), WithServerDirs(tt.serverDirs), WithRoot(tt.root))
+
+			got, err := confiner.Resolve(tt.path, tt.target)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = got.Close() })
+
+			assert.Equal(t, tt.want, got.InServerDir)
 		})
 	}
+}
+
+// A boundary is compared by the name it is found under and then opened by that
+// name. The walk moves into the directory it opened only when that is the one
+// it compared; a name that has come to lead elsewhere in between is refused.
+func TestPlacer_CrossTakesTheDirectoryItCompared(t *testing.T) {
+	t.Parallel()
+
+	newPlacer := func(t *testing.T, at string) (*placer, os.FileInfo) {
+		t.Helper()
+
+		work, err := os.OpenRoot(confineTree(t))
+		require.NoError(t, err)
+
+		p := &placer{root: work, scope: ".", at: at}
+		t.Cleanup(func() { _ = p.root.Close() })
+
+		boundary, err := work.Stat("servers/a")
+		require.NoError(t, err)
+
+		p.reqRoot = boundary
+
+		return p, boundary
+	}
+
+	t.Run("the_directory_compared", func(t *testing.T) {
+		t.Parallel()
+
+		p, boundary := newPlacer(t, "servers/a")
+
+		require.NoError(t, p.cross(boundary))
+
+		assert.Equal(t, "servers/a", p.scope)
+		assert.Equal(t, ".", p.at)
+		assert.True(t, p.inRoot)
+
+		opened, err := p.root.Stat(".")
+		require.NoError(t, err)
+		assert.True(t, os.SameFile(boundary, opened))
+	})
+
+	t.Run("another_directory_under_the_name", func(t *testing.T) {
+		t.Parallel()
+
+		p, boundary := newPlacer(t, "servers/b")
+		work := p.root
+
+		err := p.cross(boundary)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `confinement directory "servers/b" was replaced while it was being opened`)
+
+		assert.Same(t, work, p.root, "the walk stays where it was")
+		assert.Equal(t, "servers/b", p.at)
+		assert.False(t, p.inRoot)
+	})
+
+	t.Run("a_directory_that_is_no_boundary", func(t *testing.T) {
+		t.Parallel()
+
+		p, _ := newPlacer(t, "servers/b")
+		work := p.root
+
+		other, err := work.Stat("servers/b")
+		require.NoError(t, err)
+
+		require.NoError(t, p.cross(other))
+
+		assert.Same(t, work, p.root)
+		assert.Equal(t, "servers/b", p.at)
+	})
 }

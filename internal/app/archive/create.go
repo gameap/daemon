@@ -212,23 +212,31 @@ type walkLimits struct {
 // symlinks unless follow is set, in which case the symlink target contents are
 // archived.
 //
-// Every source is placed by the confiner on its own, and a game server
-// directory the walk enters from above is read through a root opened at it.
-// A tree packed for the node is thus confined the way a tree packed for one
-// game server is: os.Root refuses a link leading out of the game server
-// directory it stands in, whichever directory the request started from.
+// Every source is placed by the confiner on its own, and the walk keeps to the
+// same boundary as it goes: a game server directory it enters from above is
+// read through a root opened at it, and a link it follows from above is read
+// where the link ends, in the game server directory that place lies in. A tree
+// packed for the node is thus confined the way a tree packed for one game
+// server is: os.Root refuses a link leading out of the game server directory
+// it stands in, whichever directory the request started from.
 type sourceWalker struct {
 	ctx      context.Context
 	confiner *fsutil.Confiner
 	limits   *walkLimits
 	entries  []sourceEntry
-	scopes   []sourceScope
+	scopes   []*sourceScope
 }
 
 // sourceScope is a root the sources are read through.
 type sourceScope struct {
 	root *os.Root
 	dir  os.FileInfo
+	// path is where root stands, relative to the work directory.
+	path string
+	// confined is set for a root standing in a game server directory. Nothing
+	// read through it leads out of that directory, so the walk looks for no
+	// further boundary below it.
+	confined bool
 	// owned roots are opened by the walker and closed with it.
 	owned bool
 }
@@ -250,7 +258,7 @@ func (w *sourceWalker) collect(base *fsutil.Confined, basePath string, sources [
 		return nil, err
 	}
 
-	if _, err := w.adopt(base.Root, false); err != nil {
+	if _, err := w.adopt(base, false); err != nil {
 		return nil, err
 	}
 
@@ -260,17 +268,25 @@ func (w *sourceWalker) collect(base *fsutil.Confined, basePath string, sources [
 			return nil, errors.Wrapf(err, "invalid source %q", src)
 		}
 
-		placed, err := w.confiner.Resolve(path.Join(baseRel, srcRel), fsutil.TargetTree)
+		// The base path is a directory to pack from. Anything else is an entry
+		// of it: a link is packed as a link unless the request has links
+		// followed, and a directory is entered by the walk like any other.
+		target := fsutil.TargetEntry
+		if srcRel == "." {
+			target = fsutil.TargetTree
+		}
+
+		placed, err := w.confiner.Resolve(path.Join(baseRel, srcRel), target)
 		if err != nil {
 			return nil, err
 		}
 
-		root, err := w.adopt(placed.Root, true)
+		scope, err := w.adopt(placed, true)
 		if err != nil {
 			return nil, err
 		}
 
-		if err := w.walk(root, placed.Rel, srcRel, 0); err != nil {
+		if err := w.walk(scope, placed.Rel, srcRel, 0); err != nil {
 			return nil, err
 		}
 	}
@@ -278,37 +294,48 @@ func (w *sourceWalker) collect(base *fsutil.Confined, basePath string, sources [
 	return w.entries, nil
 }
 
-// adopt returns the root to read the directory of root through: the one
-// already open there, or root itself, which is then kept. The sources of one
-// request mostly share a directory, and a link can lead to a game server
-// directory any number of times; neither may cost a descriptor each.
-func (w *sourceWalker) adopt(root *os.Root, owned bool) (*os.Root, error) {
-	dir, err := root.Stat(".")
+// adopt returns the scope to read the directory of placed through: the one
+// already open there, or one made of placed, whose root is then kept. The
+// sources of one request mostly share a directory, and a link can lead to a
+// game server directory any number of times; neither may cost a descriptor
+// each.
+func (w *sourceWalker) adopt(placed *fsutil.Confined, owned bool) (*sourceScope, error) {
+	dir, err := placed.Root.Stat(".")
 	if err != nil {
 		if owned {
-			_ = root.Close()
+			_ = placed.Root.Close()
 		}
 
-		return nil, errors.Wrap(err, "failed to stat source directory")
+		return nil, errors.Wrapf(err, "failed to stat source directory %q", placed.Scope)
 	}
 
 	if known := w.scopeOf(dir); known != nil {
 		if owned {
-			_ = root.Close()
+			_ = placed.Root.Close()
 		}
+
+		known.confined = known.confined || placed.InServerDir
 
 		return known, nil
 	}
 
-	w.scopes = append(w.scopes, sourceScope{root: root, dir: dir, owned: owned})
+	scope := &sourceScope{
+		root:     placed.Root,
+		dir:      dir,
+		path:     placed.Scope,
+		confined: placed.InServerDir,
+		owned:    owned,
+	}
 
-	return root, nil
+	w.scopes = append(w.scopes, scope)
+
+	return scope, nil
 }
 
-func (w *sourceWalker) scopeOf(dir os.FileInfo) *os.Root {
+func (w *sourceWalker) scopeOf(dir os.FileInfo) *sourceScope {
 	for _, scope := range w.scopes {
 		if os.SameFile(scope.dir, dir) {
-			return scope.root
+			return scope
 		}
 	}
 
@@ -343,10 +370,12 @@ func copySource(root *os.Root, rel string, w io.Writer, bytesLeft int64) (int64,
 	return n, nil
 }
 
-func (w *sourceWalker) walk(root *os.Root, rel, name string, symlinkDepth int) error {
+func (w *sourceWalker) walk(scope *sourceScope, rel, name string, symlinkDepth int) error {
 	if err := w.ctx.Err(); err != nil {
 		return errors.Wrap(err, "create archive canceled")
 	}
+
+	root := scope.root
 
 	info, err := root.Lstat(rel)
 	if err != nil {
@@ -373,11 +402,20 @@ func (w *sourceWalker) walk(root *os.Root, rel, name string, symlinkDepth int) e
 		if os.SameFile(info, w.limits.archive) {
 			return nil
 		}
+
+		into, intoRel, err := w.cross(scope, rel)
+		if err != nil {
+			return err
+		}
+
+		if into != nil {
+			return w.walk(into, intoRel, name, symlinkDepth)
+		}
 	}
 
 	switch {
 	case info.IsDir():
-		return w.walkDir(root, rel, name, info, symlinkDepth)
+		return w.walkDir(scope, rel, name, info, symlinkDepth)
 	case info.Mode()&os.ModeSymlink != 0:
 		link, err := root.Readlink(rel)
 		if err != nil {
@@ -394,11 +432,44 @@ func (w *sourceWalker) walk(root *os.Root, rel, name string, symlinkDepth int) e
 	}
 }
 
-func (w *sourceWalker) walkDir(root *os.Root, rel, name string, info os.FileInfo, symlinkDepth int) error {
-	root, rel, err := w.enter(root, rel, info)
+// cross returns where to go on reading what the followed link rel of scope
+// leads to, when that lies behind a boundary: the scope of the game server
+// directory the link ends in and the path there. A link that crosses no
+// boundary is read through the root it stands in, and nothing is returned.
+//
+// The root of scope would follow the link wherever it leads below it, into the
+// middle of a game server directory as well, and the links the tenant keeps
+// there would then be followed through that root too, out of the game server
+// directory again.
+func (w *sourceWalker) cross(scope *sourceScope, rel string) (*sourceScope, string, error) {
+	if scope.confined {
+		return nil, "", nil
+	}
+
+	placed, err := w.confiner.Resolve(path.Join(scope.path, rel), fsutil.TargetTree)
+	if err != nil {
+		return nil, "", err
+	}
+
+	into, err := w.adopt(placed, true)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if into == scope {
+		return nil, "", nil
+	}
+
+	return into, placed.Rel, nil
+}
+
+func (w *sourceWalker) walkDir(scope *sourceScope, rel, name string, info os.FileInfo, symlinkDepth int) error {
+	scope, rel, err := w.enter(scope, rel, info)
 	if err != nil {
 		return err
 	}
+
+	root := scope.root
 
 	// The "." source contributes its children only; storing "." itself would
 	// produce a useless root entry.
@@ -419,7 +490,7 @@ func (w *sourceWalker) walkDir(root *os.Root, rel, name string, info os.FileInfo
 			childName = path.Join(name, child.Name())
 		}
 
-		if err := w.walk(root, path.Join(rel, child.Name()), childName, symlinkDepth); err != nil {
+		if err := w.walk(scope, path.Join(rel, child.Name()), childName, symlinkDepth); err != nil {
 			return err
 		}
 	}
@@ -427,33 +498,31 @@ func (w *sourceWalker) walkDir(root *os.Root, rel, name string, info os.FileInfo
 	return nil
 }
 
-// enter returns where to read the directory rel of root from. A game server
+// enter returns where to read the directory rel of scope from. A game server
 // directory is read through a root of its own from there on; any other
 // directory stays where it is.
-func (w *sourceWalker) enter(root *os.Root, rel string, info os.FileInfo) (*os.Root, string, error) {
-	if rel == "." || !w.confiner.IsServerDir(info) {
-		return root, rel, nil
+func (w *sourceWalker) enter(scope *sourceScope, rel string, info os.FileInfo) (*sourceScope, string, error) {
+	if scope.confined || rel == "." || !w.confiner.IsServerDir(info) {
+		return scope, rel, nil
 	}
 
 	if known := w.scopeOf(info); known != nil {
-		// A link back to the directory the walk is already confined to keeps
-		// its path, and with it the limit os.Root puts on a chain of links.
-		if known == root {
-			return root, rel, nil
-		}
+		known.confined = true
 
 		return known, ".", nil
 	}
 
-	inner, err := root.OpenRoot(rel)
+	dir := path.Join(scope.path, rel)
+
+	inner, err := scope.root.OpenRoot(rel)
 	if err != nil {
-		return nil, "", errors.Wrapf(err, "failed to open game server directory %q", rel)
+		return nil, "", errors.Wrapf(err, "failed to open game server directory %q", dir)
 	}
 
-	inner, err = w.adopt(inner, true)
+	into, err := w.adopt(&fsutil.Confined{Root: inner, Rel: ".", Scope: dir, InServerDir: true}, true)
 	if err != nil {
 		return nil, "", err
 	}
 
-	return inner, ".", nil
+	return into, ".", nil
 }

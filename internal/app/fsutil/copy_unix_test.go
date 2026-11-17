@@ -107,3 +107,71 @@ func TestCopyTree_FileOntoItselfThroughALink(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "own", string(content))
 }
+
+// A link that is followed is read as the file it leads to. When that file is
+// the destination, the copy has nothing to read once the destination is
+// emptied: the source is told from the destination as it is opened, not by the
+// name it was asked for.
+func TestCopyTree_FileOntoItselfThroughAFollowedLink(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	require.NoError(t, os.Symlink("own.txt", filepath.Join(workDir, "servers", "a", "own-link.txt")))
+
+	root := openTestRoot(t, workDir)
+
+	err := CopyTree(root, "servers/a/own-link.txt", root, "servers/a/own.txt", CopyOptions{Symlink: SymlinkDeep})
+	require.ErrorIs(t, err, ErrCopySameFile)
+
+	content, err := os.ReadFile(filepath.Join(workDir, "servers", "a", "own.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "own", string(content), "the source must not be emptied")
+}
+
+// A link standing in the destination tree leads the write back to the source
+// file, whatever the copy does with links it finds in the source.
+func TestCopyTree_FileOntoItselfThroughALinkInTheDestination(t *testing.T) {
+	t.Parallel()
+
+	for name, opts := range map[string]CopyOptions{
+		"shallow": {},
+		"deep":    {Symlink: SymlinkDeep},
+		"skip":    {Symlink: SymlinkSkip},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := confineTree(t)
+			mirror := filepath.Join(workDir, "servers", "a", "mirror")
+
+			require.NoError(t, os.Mkdir(mirror, 0o755))
+			require.NoError(t, os.Symlink("../sub/inner.txt", filepath.Join(mirror, "inner.txt")))
+
+			root := openTestRoot(t, workDir)
+
+			err := CopyTree(root, "servers/a/sub", root, "servers/a/mirror", opts)
+			require.ErrorIs(t, err, ErrCopySameFile)
+
+			content, err := os.ReadFile(filepath.Join(workDir, "servers", "a", "sub", "inner.txt"))
+			require.NoError(t, err)
+			assert.Equal(t, "inner", string(content), "the source must not be emptied")
+		})
+	}
+}
+
+// A followed link to the directory the copy is written to makes every file in
+// it its own destination.
+func TestCopyTree_DirectoryOntoItselfThroughAFollowedLink(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	require.NoError(t, os.Symlink("a", filepath.Join(workDir, "servers", "alias")))
+
+	before := treeFiles(t, workDir)
+	root := openTestRoot(t, workDir)
+
+	err := CopyTree(root, "servers/alias", root, "servers/a", CopyOptions{Symlink: SymlinkDeep})
+
+	require.ErrorIs(t, err, ErrCopySameFile)
+	assert.Equal(t, before, treeFiles(t, workDir), "no file may be emptied")
+}

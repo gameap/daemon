@@ -222,6 +222,43 @@ func TestCopyTree_FileOntoItself(t *testing.T) {
 	require.NoError(t, CopyTree(root, "servers/a/own.txt", root, "servers/a/own-copy.txt", CopyOptions{}))
 }
 
+// A second name of the source is the source: writing through it would empty
+// the file before a byte of it is read.
+func TestCopyTree_FileOntoItsHardLink(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	own := filepath.Join(workDir, "servers", "a", "own.txt")
+
+	if err := os.Link(own, filepath.Join(workDir, "servers", "a", "own-hard.txt")); err != nil {
+		t.Skipf("cannot create a hard link: %v", err)
+	}
+
+	root := openTestRoot(t, workDir)
+
+	err := CopyTree(root, "servers/a/own.txt", root, "servers/a/own-hard.txt", CopyOptions{})
+	require.ErrorIs(t, err, ErrCopySameFile)
+
+	content, err := os.ReadFile(own)
+	require.NoError(t, err)
+	assert.Equal(t, "own", string(content), "the source must not be emptied")
+}
+
+// The destination is emptied once it is known to be another file, so what was
+// in it does not outlast a shorter copy.
+func TestCopyTree_FileOverALongerOne(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	root := openTestRoot(t, workDir)
+
+	require.NoError(t, CopyTree(root, "servers/a/own.txt", root, "servers/b/secret.cfg", CopyOptions{}))
+
+	content, err := os.ReadFile(filepath.Join(workDir, "servers", "b", "secret.cfg"))
+	require.NoError(t, err)
+	assert.Equal(t, "own", string(content))
+}
+
 // treeFiles reads every regular file below dir, keyed by its slash-separated
 // path, and lists the directories, so that two snapshots compare as a whole.
 func treeFiles(t *testing.T, dir string) map[string]string {
