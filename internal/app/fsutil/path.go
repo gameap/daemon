@@ -1,9 +1,10 @@
 // Package fsutil provides path confinement and recursive copy primitives built
 // on top of Go's os.Root. Every file operation that handles a caller-supplied
-// path should resolve it with RootRel and then act through an *os.Root opened
-// at the work directory: os.Root resolves each path component through the
-// directory fd and refuses symlink / ".." escapes without TOCTOU races, on
-// both Linux and Windows.
+// path should place it with a Confiner and then act through the *os.Root it
+// opens: at the game server directory the path belongs to, or at the work
+// directory for a path outside every game server. os.Root resolves each path
+// component through the directory fd and refuses symlink / ".." escapes
+// without TOCTOU races, on both Linux and Windows.
 //
 // The recursive copy reproduces the default behaviour of the recursive-copy
 // library it replaced (shallow symlinks, source permissions preserved, merge

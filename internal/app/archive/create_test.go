@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	pb "github.com/gameap/gameap/pkg/proto"
 )
 
@@ -548,17 +549,22 @@ func TestWalkSourceSymlinkDepthLimit(t *testing.T) {
 	writeTree(t, workDir, map[string]string{"src/file.txt": "data"})
 	require.NoError(t, os.Symlink(".", filepath.Join(workDir, "src", "loop")))
 
-	root, err := os.OpenRoot(workDir)
+	confiner := fsutil.NewConfiner(workDir)
+
+	base, err := confiner.Resolve(".", fsutil.TargetTree)
 	require.NoError(t, err)
-	defer root.Close()
+	defer base.Close()
 
 	w := &sourceWalker{
-		ctx:    context.Background(),
-		root:   root,
-		limits: &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
+		ctx:      context.Background(),
+		confiner: confiner,
+		limits:   &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
 	}
 
-	err = w.walk("src/loop", "src/loop", maxFollowDepth)
+	scope, err := w.adopt(base, false)
+	require.NoError(t, err)
+
+	err = w.walk(scope, "src/loop", "src/loop", maxFollowDepth)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink nesting too deep")
 }
@@ -610,17 +616,22 @@ func TestSourceWalkerRespectsContext(t *testing.T) {
 	workDir := t.TempDir()
 	writeTree(t, workDir, map[string]string{"src/a.txt": "a"})
 
-	root, err := os.OpenRoot(workDir)
+	confiner := fsutil.NewConfiner(workDir)
+
+	base, err := confiner.Resolve(".", fsutil.TargetTree)
 	require.NoError(t, err)
-	defer root.Close()
+	defer base.Close()
 
 	w := &sourceWalker{
-		ctx:    canceledContext(t),
-		root:   root,
-		limits: &walkLimits{maxEntries: defaultMaxFilesLimit()},
+		ctx:      canceledContext(t),
+		confiner: confiner,
+		limits:   &walkLimits{maxEntries: defaultMaxFilesLimit()},
 	}
 
-	err = w.walk("src", "src", 0)
+	scope, err := w.adopt(base, false)
+	require.NoError(t, err)
+
+	err = w.walk(scope, "src", "src", 0)
 	require.ErrorIs(t, err, context.Canceled)
 }
 

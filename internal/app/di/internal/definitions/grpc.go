@@ -3,6 +3,7 @@ package definitions
 import (
 	"context"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	grpcclient "github.com/gameap/daemon/internal/app/grpc"
 	"github.com/gameap/daemon/internal/app/repositories"
 	serversscheduler "github.com/gameap/daemon/internal/app/servers_scheduler"
@@ -28,7 +29,7 @@ func CreateGatewayClient(ctx context.Context, c Container, gameStore *grpcclient
 		cfg.WorkPath,
 	)
 
-	fileHandler := grpcclient.NewGRPCFileHandler(cfg.WorkPath)
+	fileHandler := grpcclient.NewGRPCFileHandler(cfg.WorkPath, fsutil.WithServerDirs(serverRepo))
 
 	serverHandler := grpcclient.NewGRPCServerHandler(
 		serverRepo,
@@ -62,20 +63,21 @@ func CreateConnectionManager(
 ) *grpcclient.ConnectionManager {
 	cfg := c.Cfg(ctx)
 	fileTransferClient := CreateFileTransferClient(ctx, c)
+	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)
 
 	transferHandler := grpcclient.NewGRPCTransferHandler(
 		cfg.WorkPath,
 		fileTransferClient,
 		client,
 		4,
+		fsutil.WithServerDirs(serverRepo),
 	)
 	client.SetTransferHandler(transferHandler)
 
 	// 0 selects the handler's own default concurrency.
-	archiveHandler := grpcclient.NewGRPCArchiveHandler(cfg.WorkPath, client, 0)
+	archiveHandler := grpcclient.NewGRPCArchiveHandler(cfg.WorkPath, client, 0, fsutil.WithServerDirs(serverRepo))
 	client.SetArchiveHandler(archiveHandler)
 
-	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)
 	attachHandler := grpcclient.NewGRPCAttachHandler(
 		serverRepo,
 		c.Services().ProcessManager(ctx),

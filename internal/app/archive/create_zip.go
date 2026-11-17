@@ -5,7 +5,6 @@ import (
 	"compress/flate"
 	"context"
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
 
@@ -16,7 +15,6 @@ import (
 // per-entry Store; other levels tune the deflate compressor.
 func createZip(
 	ctx context.Context,
-	root *os.Root,
 	w io.Writer,
 	entries []sourceEntry,
 	p *pb.CreateArchiveParams,
@@ -71,7 +69,7 @@ func createZip(
 				return errors.Wrapf(writeErr, "failed to write symlink %q", e.name)
 			}
 		default:
-			n, err = copySource(root, e.rel, entryWriter, acc.bytesLeft())
+			n, err = copySource(e.root, e.rel, entryWriter, acc.bytesLeft())
 			if err != nil {
 				return err
 			}

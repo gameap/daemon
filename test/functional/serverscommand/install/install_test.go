@@ -25,7 +25,7 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameInstalled() {
 	server := suite.GivenServerForGameAndMod(
 		domain.Game{
 			StartCode:        "cstrike",
-			RemoteRepository: "https://files.gameap.ru/test/test.tar.xz",
+			RemoteRepository: "https://cdn.gameap.com/test/test.tar.xz",
 		},
 		domain.GameMod{
 			Name: "public",
@@ -45,11 +45,11 @@ func (suite *Suite) TestInstall_InstallFromRemoteRepository_GameAndModInstalled(
 	server := suite.GivenServerForGameAndMod(
 		domain.Game{
 			StartCode:        "cstrike",
-			RemoteRepository: "https://files.gameap.ru/test/test.tar.xz",
+			RemoteRepository: "https://cdn.gameap.com/test/test.tar.xz",
 		},
 		domain.GameMod{
 			Name:             "public",
-			RemoteRepository: "https://files.gameap.ru/mod-game.tar.gz",
+			RemoteRepository: "https://cdn.gameap.com/mod-game.tar.gz",
 		},
 	)
 	server.SetInstallationStatus(domain.ServerNotInstalled)
@@ -66,12 +66,12 @@ func (suite *Suite) TestInstall_InstallFromLocalRepository_GameAndModInstalledFr
 	server := suite.GivenServerForGameAndMod(
 		domain.Game{
 			StartCode:        "cstrike",
-			RemoteRepository: "https://files.gameap.ru/test/test.tar.xz",
+			RemoteRepository: "https://cdn.gameap.com/test/test.tar.xz",
 			LocalRepository:  filepath.Join(suite.WorkPath, "repository", "game.tar.gz"),
 		},
 		domain.GameMod{
 			Name:             "public",
-			RemoteRepository: "https://files.gameap.ru/mod-game.tar.gz",
+			RemoteRepository: "https://cdn.gameap.com/mod-game.tar.gz",
 			LocalRepository:  filepath.Join(suite.WorkPath, "repository", "game_mod.tar.gz"),
 		},
 	)

@@ -1,10 +1,22 @@
 // Package archive creates and extracts archives (zip, tar family, single-file
 // compression, 7z, rar) on behalf of API requests. Every caller-supplied path
-// is resolved with fsutil.RootRel and accessed through an *os.Root opened at
-// the work directory, so no operation can escape the work directory — os.Root
-// refuses symlink and ".." resolution outside of it. Extracted archive entries
-// are additionally rejected lexically when their path is absolute or starts
-// with ".." (zip-slip), because the API contract requires the friendly error.
+// is placed by an fsutil.Confiner and accessed through the *os.Root it opens:
+// at the game server directory the path belongs to, or at the work directory
+// for a path outside every game server. No operation can leave that directory
+// — os.Root refuses symlink and ".." resolution outside of it — so a link in
+// one game server cannot pull a neighbour's files into an archive or unpack an
+// archive over them. Extracted archive entries are additionally rejected
+// lexically when their path is absolute or starts with ".." (zip-slip),
+// because the API contract requires the friendly error.
+//
+// A request acting for the node may start above the game server directories.
+// Create holds to the same boundary there: every source is placed on its own,
+// a game server directory entered while a larger tree is packed is read
+// through a root opened at it, and a link followed from above is read in the
+// game server directory it ends in. Extract does not: an archive unpacked
+// above the game server directories is written through the root of its
+// destination alone, so an entry naming a path inside one of them is followed
+// through the links standing there, as far as the destination reaches.
 //
 // Extraction feeds attacker-controlled bytes to third-party format decoders,
 // so the caller is expected to run it under a recover (see the gRPC archive
