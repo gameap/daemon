@@ -239,7 +239,7 @@ type sourceScope struct {
 	placed *fsutil.Confined
 	// confined is set for a root standing in a game server directory that
 	// holds no other one. Nothing read through it leads out of that directory,
-	// so the walk looks for no further boundary below it. That holds for the
+	// so the walk can skip placement of non-boundaries below it. That holds for the
 	// game servers known when the root was placed, and the walk outlasts it:
 	// the flag is read through sourceWalker.confined.
 	confined bool
@@ -426,7 +426,7 @@ func (w *sourceWalker) walk(scope *sourceScope, rel, name string, symlinkDepth i
 			return nil
 		}
 
-		into, intoRel, err := w.cross(scope, rel)
+		into, intoRel, err := w.cross(scope, rel, w.confiner.IsServerDir(info))
 		if err != nil {
 			return err
 		}
@@ -458,14 +458,15 @@ func (w *sourceWalker) walk(scope *sourceScope, rel, name string, symlinkDepth i
 // cross returns where to go on reading rel of scope, when that lies behind a
 // boundary: the scope of the game server directory rel is, or the followed
 // link rel ends in, and the path there. What crosses no boundary is read
-// through the root it stands in, and nothing is returned.
+// through the root it stands in, and nothing is returned. A boundary already
+// observed by identity takes precedence over the confined shortcut.
 //
 // The root of scope would follow a link wherever it leads below it, into the
 // middle of a game server directory as well, and the links the tenant keeps
 // there would then be followed through that root too, out of the game server
 // directory again.
-func (w *sourceWalker) cross(scope *sourceScope, rel string) (*sourceScope, string, error) {
-	if w.confined(scope) {
+func (w *sourceWalker) cross(scope *sourceScope, rel string, serverBoundary bool) (*sourceScope, string, error) {
+	if !serverBoundary && w.confined(scope) {
 		return nil, "", nil
 	}
 
@@ -525,11 +526,11 @@ func (w *sourceWalker) walkDir(scope *sourceScope, rel, name string, info os.Fil
 // directory is read through a root of its own from there on; any other
 // directory stays where it is.
 func (w *sourceWalker) enter(scope *sourceScope, rel string, info os.FileInfo) (*sourceScope, string, error) {
-	if rel == "." || w.confined(scope) || !w.confiner.IsServerDir(info) {
+	if rel == "." || !w.confiner.IsServerDir(info) {
 		return scope, rel, nil
 	}
 
-	into, intoRel, err := w.cross(scope, rel)
+	into, intoRel, err := w.cross(scope, rel, true)
 	if err != nil {
 		return nil, "", errors.WithMessagef(err, "failed to enter game server directory %q", path.Join(scope.path, rel))
 	}

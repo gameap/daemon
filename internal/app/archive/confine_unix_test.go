@@ -1031,6 +1031,67 @@ func TestSourceWalker_ServerDirLearnedDuringTheWalk(t *testing.T) {
 	})
 }
 
+// changingServerDirs lets a test publish a new membership snapshot on a lookup.
+type changingServerDirs func() []string
+
+func (d changingServerDirs) ServerDirs() []string { return d() }
+
+// A boundary observed by identity must be resolved even when the enclosing
+// scope's names still describe it as innermost. Membership can change between
+// the identity lookup and placement, as the daemon learns another spelling.
+func TestSourceWalker_ObservedBoundaryInConfinedScope(t *testing.T) {
+	t.Parallel()
+
+	for _, source := range []string{"child", "jump"} {
+		t.Run(source, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := t.TempDir()
+			writeTree(t, workDir, map[string]string{
+				"servers/a/own.txt":        "outer",
+				"servers/a/child/data.txt": "child",
+			})
+			require.NoError(t, os.Symlink("child", filepath.Join(workDir, "servers/a/jump")))
+			require.NoError(t, os.Symlink("servers/a/child", filepath.Join(workDir, "child-alias")))
+
+			names := []string{"servers/a"}
+			publish := false
+			confiner := fsutil.NewConfiner(workDir, fsutil.WithServerDirs(changingServerDirs(func() []string {
+				snapshot := names
+				if publish {
+					publish = false
+					names = []string{"servers/a", "servers/a/child"}
+				}
+				return snapshot
+			})))
+			base, err := confiner.Resolve("servers/a", fsutil.TargetTree)
+			require.NoError(t, err)
+			defer base.Close()
+
+			w := &sourceWalker{
+				ctx: context.Background(), confiner: confiner,
+				limits: &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
+			}
+			defer w.close()
+			scope, err := w.adopt(base, false)
+			require.NoError(t, err)
+			require.True(t, w.confined(scope))
+
+			// The first lookup sees the boundary through an alias. The next
+			// lookup also knows its spelling below the enclosing scope.
+			names = []string{"servers/a", "child-alias"}
+			publish = true
+			require.NoError(t, w.walk(scope, source, source, 0))
+			require.NotEmpty(t, w.entries)
+			for _, entry := range w.entries {
+				assert.NotSame(t, scope.root, entry.root, entry.name)
+				_, err := entry.root.ReadFile("../own.txt")
+				assert.Error(t, err, "the child root must refuse access to the outer server")
+			}
+		})
+	}
+}
+
 // One directory can be placed under two names, and only one of them may show
 // that it holds another game server directory. The scope shared by both
 // placements goes by the one that does.
