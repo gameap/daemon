@@ -284,3 +284,157 @@ func TestConfiner_RequestRootKeepsTheServerDirBoundary(t *testing.T) {
 		})
 	}
 }
+
+// A game server directory reached under a name the daemon does not know it by
+// is still that directory: the request is confined to it all the same.
+func TestConfiner_ServerDirUnderAnotherName(t *testing.T) {
+	t.Parallel()
+
+	newTree := func(t *testing.T) string {
+		t.Helper()
+
+		workDir := confineTree(t)
+		plantLinks(t, workDir)
+		require.NoError(t, os.Symlink("a", filepath.Join(workDir, "servers", "alias")))
+
+		return workDir
+	}
+
+	known := WithServerDirs(serverDirs{"servers/a", "servers/b"})
+
+	t.Run("path_below_it_is_confined", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := NewConfiner(newTree(t), known).Resolve("servers/alias/servers-link/b/secret.cfg", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = got.Close() })
+
+		assert.Equal(t, "servers/alias", got.Scope)
+		assert.Equal(t, "servers-link/b/secret.cfg", got.Rel)
+
+		_, err = got.Root.ReadFile(got.Rel)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+	})
+
+	t.Run("own_file_stays_reachable", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := NewConfiner(newTree(t), known).Resolve("servers/alias/sub/inner.txt", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = got.Close() })
+
+		content, err := got.Root.ReadFile(got.Rel)
+		require.NoError(t, err)
+		assert.Equal(t, "inner", string(content))
+	})
+
+	t.Run("the_directory_itself_follows_the_target", func(t *testing.T) {
+		t.Parallel()
+
+		confiner := NewConfiner(newTree(t), known)
+
+		entry, err := confiner.Resolve("servers/alias", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = entry.Close() })
+		assert.Equal(t, ".", entry.Scope)
+
+		tree, err := confiner.Resolve("servers/alias", TargetTree)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = tree.Close() })
+		assert.Equal(t, "servers/alias", tree.Scope)
+		assert.Equal(t, ".", tree.Rel)
+	})
+
+	t.Run("it_is_inside_the_request_root_it_names", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := NewConfiner(newTree(t), WithRoot("servers/a")).Resolve("servers/alias/own.txt", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = got.Close() })
+
+		assert.Equal(t, "servers/alias", got.Scope)
+
+		_, err = got.Root.Stat("servers-link/b/secret.cfg")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+	})
+
+	t.Run("another_directory_stays_outside_the_request_root", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := newTree(t)
+		require.NoError(t, os.Symlink("b", filepath.Join(workDir, "servers", "other")))
+
+		got, err := NewConfiner(workDir, WithRoot("servers/a")).Resolve("servers/other/secret.cfg", TargetEntry)
+
+		require.ErrorIs(t, err, ErrPathOutsideConfinement)
+		assert.Nil(t, got)
+	})
+
+	t.Run("both_names_share_one_root", func(t *testing.T) {
+		t.Parallel()
+
+		confiner := NewConfiner(newTree(t), known)
+
+		byName, err := confiner.Resolve("servers/a/own.txt", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = byName.Close() })
+
+		byAlias, err := confiner.Resolve("servers/alias/sub/inner.txt", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = byAlias.Close() })
+
+		assert.True(t, byName.SameRoot(byAlias))
+	})
+}
+
+// Whether "Servers/a" is the directory "servers/a" depends on the volume, so
+// the daemon asks the disk rather than compare the names: both answers have to
+// come out right. The test takes whichever volume it runs on.
+func TestConfiner_ServerDirSpelledInAnotherCase(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	plantLinks(t, workDir)
+
+	known := WithServerDirs(serverDirs{"servers/a", "servers/b"})
+
+	lower, err := os.Stat(filepath.Join(workDir, "servers"))
+	require.NoError(t, err)
+
+	if upper, statErr := os.Stat(filepath.Join(workDir, "SERVERS")); statErr == nil && os.SameFile(lower, upper) {
+		got, err := NewConfiner(workDir, known).Resolve("SERVERS/A/servers-link/b/secret.cfg", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = got.Close() })
+
+		assert.Equal(t, "SERVERS/A", got.Scope)
+
+		_, err = got.Root.ReadFile(got.Rel)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+
+		rooted, err := NewConfiner(workDir, WithRoot("servers/a")).Resolve("Servers/A/own.txt", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = rooted.Close() })
+
+		assert.Equal(t, "Servers/A", rooted.Scope)
+		assert.True(t, got.SameRoot(rooted))
+
+		return
+	}
+
+	require.NoError(t, os.MkdirAll(filepath.Join(workDir, "SERVERS", "A"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "SERVERS", "A", "own.txt"), []byte("another"), 0o644))
+
+	got, err := NewConfiner(workDir, known).Resolve("SERVERS/A/own.txt", TargetEntry)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = got.Close() })
+
+	assert.Equal(t, ".", got.Scope, "a directory of its own is not the game server directory")
+
+	rooted, err := NewConfiner(workDir, WithRoot("servers/a")).Resolve("SERVERS/A/own.txt", TargetEntry)
+
+	require.ErrorIs(t, err, ErrPathOutsideConfinement)
+	assert.Nil(t, rooted)
+}

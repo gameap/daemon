@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -98,7 +97,6 @@ func decompressReader(r io.Reader, comp compression) (io.ReadCloser, error) {
 // compressor (tar.gz, tar.bz2, tar.xz, tar.zst).
 func createTar(
 	ctx context.Context,
-	root *os.Root,
 	w io.Writer,
 	entries []sourceEntry,
 	p *pb.CreateArchiveParams,
@@ -140,7 +138,7 @@ func createTar(
 
 		var n int64
 		if hdr.Typeflag == tar.TypeReg {
-			n, err = copySource(root, e.rel, tw, acc.bytesLeft())
+			n, err = copySource(e.root, e.rel, tw, acc.bytesLeft())
 			if err != nil {
 				return err
 			}

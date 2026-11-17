@@ -206,6 +206,18 @@ func TestMoveByCopy(t *testing.T) {
 		assert.Equal(t, "own", string(content))
 	})
 
+	t.Run("directory_into_itself", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := confineTree(t)
+		before := treeFiles(t, workDir)
+
+		err := moveByCopy(openTestRoot(t, workDir), "servers", openTestRoot(t, filepath.Join(workDir, "servers", "a")), "moved")
+
+		require.ErrorIs(t, err, ErrCopyIntoItself)
+		assert.Equal(t, before, treeFiles(t, workDir), "neither the source nor a half-made destination is touched")
+	})
+
 	t.Run("missing_source_leaves_no_destination", func(t *testing.T) {
 		t.Parallel()
 

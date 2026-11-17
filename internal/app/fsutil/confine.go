@@ -2,9 +2,9 @@ package fsutil
 
 import (
 	"os"
-	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 )
@@ -82,10 +82,24 @@ func WithRoot(root string) ConfineOption {
 // opened fd-relative like any other component: an absolute or escaping symlink
 // in its own path is refused, including one the tenant of an outer game server
 // puts in place of a directory nested in its own.
+//
+// A boundary is a directory, not a name. A path may spell a game server
+// directory or the request root unlike the daemon does: in another letter case
+// on a case-insensitive volume, by a Windows short name, through a link
+// standing next to it. Such a path is placed by the directory it leads to.
+//
+// Resolve places the path a request names, and nothing below it. An operation
+// that walks a tree from above the game server directories, as a request
+// acting for the node rather than for one server can, crosses into them
+// through the root it started with unless it asks IsServerDir about the
+// directories it enters.
 type Confiner struct {
 	workDir    string
 	serverDirs ServerDirLister
 	root       string
+
+	identify   sync.Once
+	identities []os.FileInfo
 }
 
 // NewConfiner creates a Confiner anchored at workDir.
@@ -114,9 +128,57 @@ func (c *Confined) Close() error {
 }
 
 // SameRoot reports whether both paths live in one root, so that a single-root
-// primitive such as os.Root.Rename can take them together.
+// primitive such as os.Root.Rename can take them together. The roots are
+// compared as directories: Scope is spelled the way each request path spells
+// it, and two spellings can name one directory or two.
 func (c *Confined) SameRoot(other *Confined) bool {
-	return sameDir(c.Scope, other.Scope)
+	own, err := c.Root.Stat(".")
+	if err != nil {
+		return false
+	}
+
+	theirs, err := other.Root.Stat(".")
+	if err != nil {
+		return false
+	}
+
+	return os.SameFile(own, theirs)
+}
+
+// IsServerDir reports whether info describes a game server directory. A walk
+// that starts above the game server directories uses it to notice the ones it
+// enters, which no request path names.
+func (c *Confiner) IsServerDir(info os.FileInfo) bool {
+	if c.serverDirs == nil || !info.IsDir() {
+		return false
+	}
+
+	c.identify.Do(func() {
+		root, err := os.OpenRoot(c.workDir)
+		if err != nil {
+			return
+		}
+		defer root.Close()
+
+		for _, serverDir := range c.serverDirs.ServerDirs() {
+			dir, err := RootRel(serverDir)
+			if err != nil || dir == "." {
+				continue
+			}
+
+			if known, err := root.Stat(dir); err == nil && known.IsDir() {
+				c.identities = append(c.identities, known)
+			}
+		}
+	})
+
+	for _, known := range c.identities {
+		if os.SameFile(info, known) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Resolve places a caller-supplied path. See Confiner for the model.
@@ -172,36 +234,23 @@ func (c *Confiner) boundaries(rel string, target Target) ([]string, error) {
 			return nil, err
 		}
 
-		switch {
-		case root == ".":
-			// The work directory already confines every path.
-		case sameDir(rel, root):
-			lengths = append(lengths, len(rel))
-		case isBelow(rel, root):
-			lengths = append(lengths, len(root))
-		default:
-			return nil, ErrPathOutsideConfinement
+		// The work directory already confines every path.
+		if root != "." {
+			n := leadingLen(rel, root)
+			if n == 0 || !c.sameDir(rel[:n], root) {
+				return nil, ErrPathOutsideConfinement
+			}
+
+			lengths = append(lengths, n)
 		}
 	}
 
 	if c.serverDirs != nil {
-		for _, serverDir := range c.serverDirs.ServerDirs() {
-			dir, err := RootRel(serverDir)
-			if err != nil || dir == "." {
-				continue
-			}
-
-			switch {
-			case isBelow(rel, dir):
-				lengths = append(lengths, len(dir))
-			case target == TargetTree && sameDir(rel, dir):
-				lengths = append(lengths, len(rel))
-			}
-		}
+		lengths = c.serverBoundaries(rel, target, lengths)
 	}
 
-	// Every match is a prefix of rel, so ordering by length puts an enclosing
-	// directory before the one nested in it.
+	// Every match is a leading part of rel, so ordering by length puts an
+	// enclosing directory before the one nested in it.
 	slices.Sort(lengths)
 	lengths = slices.Compact(lengths)
 
@@ -213,17 +262,108 @@ func (c *Confiner) boundaries(rel string, target Target) ([]string, error) {
 	return dirs, nil
 }
 
-// isBelow reports whether rel names something strictly inside dir.
-func isBelow(rel, dir string) bool {
-	if dir == "." {
-		return rel != "."
+// serverBoundaries adds the leading parts of rel that are game server
+// directories to lengths.
+func (c *Confiner) serverBoundaries(rel string, target Target, lengths []int) []int {
+	// Leading parts as deep as a game server directory but spelled unlike it.
+	var loose []int
+
+	for _, serverDir := range c.serverDirs.ServerDirs() {
+		dir, err := RootRel(serverDir)
+		if err != nil || dir == "." {
+			continue
+		}
+
+		n := leadingLen(rel, dir)
+		// An entry named as such belongs to the directory holding it.
+		if n == 0 || (n == len(rel) && target != TargetTree) {
+			continue
+		}
+
+		if rel[:n] == dir {
+			lengths = append(lengths, n)
+		} else {
+			loose = append(loose, n)
+		}
 	}
 
-	if len(rel) <= len(dir) || rel[len(dir)] != '/' {
+	slices.Sort(loose)
+
+	// The usual request spells its game server directory the way the daemon
+	// knows it and is settled above without touching the disk. What is left
+	// may still be one under another spelling, which only the disk can tell.
+	for _, n := range slices.Compact(loose) {
+		if slices.Contains(lengths, n) {
+			continue
+		}
+
+		if info, err := c.stat(rel[:n]); err == nil && c.IsServerDir(info) {
+			lengths = append(lengths, n)
+		}
+	}
+
+	return lengths
+}
+
+// leadingLen returns the length of the leading part of rel that is as deep as
+// dir, or 0 when rel is not that deep.
+func leadingLen(rel, dir string) int {
+	if rel == "." {
+		return 0
+	}
+
+	end := 0
+
+	for range strings.Count(dir, "/") + 1 {
+		if end == len(rel) {
+			return 0
+		}
+
+		if end > 0 {
+			end++
+		}
+
+		next := strings.IndexByte(rel[end:], '/')
+		if next < 0 {
+			end = len(rel)
+		} else {
+			end += next
+		}
+	}
+
+	return end
+}
+
+// sameDir reports whether two names lead to one directory of the work
+// directory. Names spelled alike do without a lookup, which also covers a
+// directory that is not on disk yet.
+func (c *Confiner) sameDir(a, b string) bool {
+	if a == b {
+		return true
+	}
+
+	infoA, err := c.stat(a)
+	if err != nil || !infoA.IsDir() {
 		return false
 	}
 
-	return sameDir(rel[:len(dir)], dir)
+	infoB, err := c.stat(b)
+	if err != nil {
+		return false
+	}
+
+	return os.SameFile(infoA, infoB)
+}
+
+// stat describes what a name relative to the work directory leads to.
+func (c *Confiner) stat(name string) (os.FileInfo, error) {
+	root, err := os.OpenRoot(c.workDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
+	return root.Stat(name)
 }
 
 // relativeTo expresses rel, which is base or lies below it, relative to base.
@@ -237,12 +377,4 @@ func relativeTo(rel, base string) string {
 	}
 
 	return rel[len(base)+1:]
-}
-
-func sameDir(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-
-	return a == b
 }

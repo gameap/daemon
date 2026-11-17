@@ -526,12 +526,12 @@ func givenRemoteInstallationServer(t *testing.T) *domain.Server {
 
 	game := domain.Game{
 		StartCode:        "test",
-		RemoteRepository: "https://files.gameap.ru/test/test.tar.xz",
+		RemoteRepository: "https://cdn.gameap.com/test/test.tar.xz",
 	}
 
 	gameMod := domain.GameMod{
 		Name:             "test",
-		RemoteRepository: "https://files.gameap.ru/mod-game.tar.gz",
+		RemoteRepository: "https://cdn.gameap.com/mod-game.tar.gz",
 	}
 
 	return givenServer(t, game, gameMod)
@@ -569,13 +569,13 @@ func givenLocalInstallationGame(t *testing.T) (domain.Game, domain.GameMod) {
 	game := domain.Game{
 		StartCode:        "test",
 		LocalRepository:  pathToFileZip,
-		RemoteRepository: "https://files.gameap.ru/test/test.tar.xz",
+		RemoteRepository: "https://cdn.gameap.com/test/test.tar.xz",
 	}
 
 	gameMod := domain.GameMod{
 		Name:             "test",
 		LocalRepository:  pathToDirectory,
-		RemoteRepository: "https://files.gameap.ru/mod-game.tar.gz",
+		RemoteRepository: "https://cdn.gameap.com/mod-game.tar.gz",
 	}
 
 	return game, gameMod
@@ -592,7 +592,7 @@ func givenLocalInstallationServerWithAfterInstallScript(t *testing.T) *domain.Se
 	game := domain.Game{
 		StartCode:        "test",
 		LocalRepository:  pathToFileZip,
-		RemoteRepository: "https://files.gameap.ru/test/test.tar.xz",
+		RemoteRepository: "https://cdn.gameap.com/test/test.tar.xz",
 	}
 
 	gameMod := domain.GameMod{

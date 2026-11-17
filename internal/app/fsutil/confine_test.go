@@ -379,3 +379,59 @@ func TestConfined_SameRoot(t *testing.T) {
 	assert.False(t, own.SameRoot(node))
 	assert.True(t, node.SameRoot(resolve("servers/a")))
 }
+
+func TestConfiner_IsServerDir(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+
+	stat := func(name string) os.FileInfo {
+		info, err := os.Stat(filepath.Join(workDir, filepath.FromSlash(name)))
+		require.NoError(t, err)
+
+		return info
+	}
+
+	confiner := NewConfiner(workDir, WithServerDirs(serverDirs{
+		"servers/a", "/servers/b/", "servers/absent", "servers/a/own.txt", ".", "../outside",
+	}))
+
+	assert.True(t, confiner.IsServerDir(stat("servers/a")))
+	assert.True(t, confiner.IsServerDir(stat("servers/b")))
+	assert.False(t, confiner.IsServerDir(stat("servers/ab")))
+	assert.False(t, confiner.IsServerDir(stat("servers")))
+	assert.False(t, confiner.IsServerDir(stat("servers/a/sub")))
+	assert.False(t, confiner.IsServerDir(stat("servers/a/own.txt")), "a file is no directory to confine to")
+	assert.False(t, confiner.IsServerDir(stat(".")), "the work directory is not a boundary of its own")
+
+	assert.False(t, NewConfiner(workDir).IsServerDir(stat("servers/a")))
+	assert.False(t, NewConfiner(workDir, WithRoot("servers/a")).IsServerDir(stat("servers/a")))
+}
+
+func TestLeadingLen(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		rel  string
+		dir  string
+		want string
+	}{
+		{rel: "servers/a/sub/inner.txt", dir: "servers/a", want: "servers/a"},
+		{rel: "servers/a", dir: "servers/a", want: "servers/a"},
+		{rel: "servers/ab/other.txt", dir: "servers/a", want: "servers/ab"},
+		{rel: "SERVERS/A/own.txt", dir: "servers/a", want: "SERVERS/A"},
+		{rel: "servers/a/own.txt", dir: "servers", want: "servers"},
+		{rel: "servers/a/nested/deep.md", dir: "servers/a/nested", want: "servers/a/nested"},
+		{rel: "servers", dir: "servers/a", want: ""},
+		{rel: "servers/a", dir: "servers/a/nested", want: ""},
+		{rel: ".", dir: "servers", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.rel+"_"+tt.dir, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.rel[:leadingLen(tt.rel, tt.dir)])
+		})
+	}
+}

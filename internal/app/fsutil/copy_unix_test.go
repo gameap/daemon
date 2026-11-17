@@ -70,3 +70,40 @@ func TestCopy_SkipsNonRegularFiles(t *testing.T) {
 	_, err = os.Lstat(filepath.Join(dst, "pipe"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the fifo must be skipped, not copied")
 }
+
+// The destination reaches into the source through a link, so no directory the
+// destination is named by is the source. The copy is stopped where it finds
+// its own destination, and what it made until then is removed.
+func TestCopyTree_DirectoryIntoItselfThroughALink(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	require.NoError(t, os.Symlink("servers/a/nested", filepath.Join(workDir, "shortcut")))
+
+	before := treeFiles(t, workDir)
+	root := openTestRoot(t, workDir)
+
+	err := CopyTree(root, "servers", root, "shortcut/clone", CopyOptions{})
+
+	require.ErrorIs(t, err, ErrCopyIntoItself)
+	assert.Equal(t, before, treeFiles(t, workDir))
+
+	_, statErr := os.Lstat(filepath.Join(workDir, "servers", "a", "nested", "clone"))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+func TestCopyTree_FileOntoItselfThroughALink(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	require.NoError(t, os.Symlink("own.txt", filepath.Join(workDir, "servers", "a", "own-link.txt")))
+
+	root := openTestRoot(t, workDir)
+
+	err := CopyTree(root, "servers/a/own.txt", root, "servers/a/own-link.txt", CopyOptions{})
+	require.ErrorIs(t, err, ErrCopySameFile)
+
+	content, err := os.ReadFile(filepath.Join(workDir, "servers", "a", "own.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "own", string(content))
+}

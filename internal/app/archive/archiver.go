@@ -9,6 +9,14 @@
 // lexically when their path is absolute or starts with ".." (zip-slip),
 // because the API contract requires the friendly error.
 //
+// A request acting for the node may start above the game server directories.
+// Create holds to the same boundary there: every source is placed on its own,
+// and a game server directory entered while a larger tree is packed is read
+// through a root opened at it. Extract does not: an archive unpacked above the
+// game server directories is written through the root of its destination
+// alone, so an entry naming a path inside one of them is followed through the
+// links standing there, as far as the destination reaches.
+//
 // Extraction feeds attacker-controlled bytes to third-party format decoders,
 // so the caller is expected to run it under a recover (see the gRPC archive
 // handler). One residual risk cannot be handled here: bodgit/sevenzip sizes

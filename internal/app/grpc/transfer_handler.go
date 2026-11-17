@@ -128,8 +128,12 @@ func (h *GRPCTransferHandler) HandleFileUploadTask(ctx context.Context, requestI
 	}
 	defer h.sem.Release(1)
 
-	// Start download stream.
-	stream, err := h.fileTransfer.DownloadFileStream(ctx, task.TransferId, offset)
+	// The stream lives as long as its context: a return that never drains it
+	// would otherwise leave it open until the connection context ends.
+	streamCtx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
+
+	stream, err := h.fileTransfer.DownloadFileStream(streamCtx, task.TransferId, offset)
 	if err != nil {
 		l.WithError(err).Error("Failed to start download stream")
 		h.sendResponse(requestID, false, errors.Wrap(err, "filetransfer service unavailable").Error())

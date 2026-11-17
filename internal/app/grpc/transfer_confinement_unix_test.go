@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,11 +23,16 @@ type fakeTransferService struct {
 	payload  []byte
 	uploaded []byte
 	uploads  int
+
+	// downloadCtx is the context the last download stream was opened with.
+	downloadCtx context.Context
 }
 
 func (f *fakeTransferService) DownloadFile(
-	_ context.Context, _ *pb.DownloadRequest, _ ...grpc.CallOption,
+	ctx context.Context, _ *pb.DownloadRequest, _ ...grpc.CallOption,
 ) (grpc.ServerStreamingClient[pb.DownloadChunk], error) {
+	f.downloadCtx = ctx
+
 	return &fakeDownloadStream{
 		fakeChunkReceiver: &fakeChunkReceiver{
 			chunks: []*pb.DownloadChunk{{Data: f.payload, IsFinal: true, ChecksumSha256: sha256Hex(f.payload)}},
@@ -278,4 +284,51 @@ func TestGRPCTransferHandler_PathOutsideTheRequestRoot(t *testing.T) {
 		assert.False(t, resp.GetSuccess())
 		assert.Equal(t, "path is outside its confinement root", resp.GetError())
 	})
+}
+
+// A gRPC stream is released by draining it or by ending its context. A task
+// that fails after the stream is opened never drains it, so the handler has to
+// end the context itself rather than leave the stream to the connection.
+func TestGRPCTransferHandler_UploadTask_ReleasesTheDownloadStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		path        string
+		wantSuccess bool
+	}{
+		{name: "after_a_finished_download", path: "servers/a/uploaded.txt", wantSuccess: true},
+		{name: "when_the_parent_directory_cannot_be_inspected", path: "servers/a/servers-link/b/planted.txt"},
+		{name: "when_the_parent_directory_cannot_be_created", path: "servers/a/own.txt/uploaded.txt"},
+		{name: "when_the_temp_file_cannot_be_opened", path: "servers/a/cstrike"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := tenantWorkDir(t)
+			if tt.path == "servers/a/cstrike" {
+				// The temp file name is taken by a directory.
+				require.NoError(t, os.Mkdir(filepath.Join(workDir, "servers", "a", "cstrike.tmp_tid"), 0o755))
+			}
+
+			sender := &fakeSender{}
+			service := &fakeTransferService{payload: []byte("uploaded payload")}
+			h := NewGRPCTransferHandler(
+				workDir, &FileTransferClient{client: service}, sender, 1,
+				fsutil.WithServerDirs(knownServerDirs{"servers/a", "servers/b"}),
+			)
+
+			ctx := t.Context()
+
+			h.HandleFileUploadTask(ctx, "req", &pb.FileUploadTask{TransferId: "tid", Path: tt.path})
+
+			assert.Equal(t, tt.wantSuccess, transferResponse(t, sender).GetSuccess())
+
+			require.NotNil(t, service.downloadCtx, "the task has to get as far as opening the stream")
+			require.ErrorIs(t, service.downloadCtx.Err(), context.Canceled)
+			require.NoError(t, ctx.Err(), "the stream is released on its own, not by the connection going away")
+		})
+	}
 }

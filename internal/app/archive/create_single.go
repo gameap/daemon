@@ -2,7 +2,6 @@ package archive
 
 import (
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
 
@@ -12,7 +11,6 @@ import (
 // createSingle writes the gz/bz2/xz/zstd single-file formats: the archive is
 // the compressed stream of exactly one regular file.
 func createSingle(
-	root *os.Root,
 	archiveFile io.Writer,
 	entries []sourceEntry,
 	p *pb.CreateArchiveParams,
@@ -39,7 +37,7 @@ func createSingle(
 		}
 	}()
 
-	n, err := copySource(root, e.rel, stream, acc.bytesLeft())
+	n, err := copySource(e.root, e.rel, stream, acc.bytesLeft())
 	if err != nil {
 		return err
 	}

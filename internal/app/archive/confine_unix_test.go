@@ -5,6 +5,7 @@ package archive
 import (
 	"archive/zip"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -70,6 +71,34 @@ func zipEntryNames(t *testing.T, path string) []string {
 	}
 
 	return names
+}
+
+// zipContents reads the body of every regular entry of a zip archive.
+func zipContents(t *testing.T, path string) map[string]string {
+	t.Helper()
+
+	r, err := zip.OpenReader(path)
+	require.NoError(t, err)
+	defer r.Close()
+
+	contents := map[string]string{}
+
+	for _, f := range r.File {
+		if !f.Mode().IsRegular() {
+			continue
+		}
+
+		rc, err := f.Open()
+		require.NoError(t, err)
+
+		body, err := io.ReadAll(rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+
+		contents[f.Name] = string(body)
+	}
+
+	return contents
 }
 
 func TestCreate_Confinement(t *testing.T) {
@@ -472,4 +501,195 @@ func TestArchive_NodeLevelAcrossServerDirs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "#!/bin/sh", string(content))
 	})
+}
+
+// A caller acting for the node may start above the game server directories:
+// pack one of them from the work directory, or all of them at once. The tree
+// it reads still belongs to the tenants, so each game server directory it
+// enters confines what is read below it, as if the request had started there.
+func TestCreate_SourcesAboveTheServerDirs(t *testing.T) {
+	t.Parallel()
+
+	opts := []fsutil.ConfineOption{fsutil.WithServerDirs(knownServerDirs{"servers/a", "servers/b"})}
+
+	refused := []struct {
+		name   string
+		params *pb.CreateArchiveParams
+	}{
+		{
+			name: "server_named_as_a_source",
+			params: &pb.CreateArchiveParams{
+				BasePath: ".", Sources: []string{"servers/a"}, FollowSymlinks: true,
+			},
+		},
+		{
+			name: "link_of_a_server_named_as_a_source",
+			params: &pb.CreateArchiveParams{
+				BasePath: ".", Sources: []string{"servers/a/file-link"}, FollowSymlinks: true,
+			},
+		},
+		{
+			name: "source_named_through_a_link_of_a_server",
+			params: &pb.CreateArchiveParams{
+				BasePath: ".", Sources: []string{"servers/a/servers-link/b/cstrike/server.cfg"},
+			},
+		},
+		{
+			name: "directory_holding_the_servers",
+			params: &pb.CreateArchiveParams{
+				BasePath: ".", Sources: []string{"servers"}, FollowSymlinks: true,
+			},
+		},
+		{
+			name: "whole_work_directory",
+			params: &pb.CreateArchiveParams{
+				BasePath: "", Sources: []string{"."}, FollowSymlinks: true,
+			},
+		},
+		{
+			name: "base_path_holding_the_servers",
+			params: &pb.CreateArchiveParams{
+				BasePath: "servers", Sources: []string{"a", "b"}, FollowSymlinks: true,
+			},
+		},
+	}
+
+	for _, tt := range refused {
+		t.Run("refused/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := tenantWorkDir(t)
+			neighbour := readTree(t, filepath.Join(workDir, "servers", "b"))
+
+			tt.params.ArchivePath = "backups/node.zip"
+
+			res, err := Create(context.Background(), workDir, tt.params, nil, opts...)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "path escapes from parent")
+			assert.Nil(t, res)
+			assert.Equal(t, neighbour, readTree(t, filepath.Join(workDir, "servers", "b")))
+
+			_, statErr := os.Lstat(filepath.Join(workDir, "backups", "node.zip"))
+			assert.ErrorIs(t, statErr, os.ErrNotExist, "a refused operation leaves no archive behind")
+		})
+	}
+
+	t.Run("links_are_packed_as_links", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := tenantWorkDir(t)
+
+		_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+			ArchivePath: "backups/node.zip",
+			BasePath:    ".",
+			Sources:     []string{"servers"},
+		}, nil, opts...)
+
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{
+			"servers/",
+			"servers/a/", "servers/a/own.txt", "servers/a/cstrike/", "servers/a/cstrike/server.cfg",
+			"servers/a/servers-link", "servers/a/node-link", "servers/a/file-link", "servers/a/in-link",
+			"servers/b/", "servers/b/victim.txt", "servers/b/cstrike/", "servers/b/cstrike/server.cfg",
+		}, zipEntryNames(t, filepath.Join(workDir, "backups", "node.zip")))
+	})
+
+	t.Run("links_staying_inside_their_server_are_followed", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := tenantWorkDir(t)
+		for _, link := range []string{"servers-link", "node-link", "file-link"} {
+			require.NoError(t, os.Remove(filepath.Join(workDir, "servers", "a", link)))
+		}
+
+		_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+			ArchivePath:    "backups/node.zip",
+			BasePath:       ".",
+			Sources:        []string{"servers", "steamcmd"},
+			FollowSymlinks: true,
+		}, nil, opts...)
+
+		require.NoError(t, err)
+
+		archive := filepath.Join(workDir, "backups", "node.zip")
+
+		assert.ElementsMatch(t, []string{
+			"servers/",
+			"servers/a/", "servers/a/own.txt", "servers/a/cstrike/", "servers/a/cstrike/server.cfg",
+			"servers/a/in-link/", "servers/a/in-link/server.cfg",
+			"servers/b/", "servers/b/victim.txt", "servers/b/cstrike/", "servers/b/cstrike/server.cfg",
+			"steamcmd/", "steamcmd/steamcmd.sh",
+		}, zipEntryNames(t, archive))
+
+		contents := zipContents(t, archive)
+		assert.Equal(t, "hostname a", contents["servers/a/in-link/server.cfg"])
+		assert.Equal(t, "rcon_password secret", contents["servers/b/cstrike/server.cfg"])
+		assert.Equal(t, "#!/bin/sh", contents["steamcmd/steamcmd.sh"])
+	})
+
+	// A node-level link standing outside every game server directory leads
+	// into one: what is read through it is read as that server's tree.
+	t.Run("server_reached_through_a_node_link_is_confined", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := tenantWorkDir(t)
+		writeTree(t, workDir, map[string]string{"shortcuts/.keep": ""})
+		require.NoError(t, os.Symlink("../servers/a", filepath.Join(workDir, "shortcuts", "current")))
+
+		_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+			ArchivePath:    "backups/node.zip",
+			BasePath:       ".",
+			Sources:        []string{"shortcuts"},
+			FollowSymlinks: true,
+		}, nil, opts...)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+	})
+}
+
+// Many sources, and many links to one game server directory, are read through
+// the roots already open: the walk must not hold a descriptor for each.
+func TestSourceWalker_SharesRoots(t *testing.T) {
+	t.Parallel()
+
+	workDir := tenantWorkDir(t)
+	for _, link := range []string{"servers-link", "node-link", "file-link"} {
+		require.NoError(t, os.Remove(filepath.Join(workDir, "servers", "a", link)))
+	}
+
+	writeTree(t, workDir, map[string]string{"shortcuts/.keep": ""})
+	for _, name := range []string{"one", "two", "three"} {
+		require.NoError(t, os.Symlink("../servers/a", filepath.Join(workDir, "shortcuts", name)))
+	}
+
+	confiner := fsutil.NewConfiner(workDir, fsutil.WithServerDirs(knownServerDirs{"servers/a", "servers/b"}))
+
+	base, err := confiner.Resolve(".", fsutil.TargetTree)
+	require.NoError(t, err)
+	defer base.Close()
+
+	w := &sourceWalker{
+		ctx:      context.Background(),
+		confiner: confiner,
+		limits:   &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
+	}
+	defer w.close()
+
+	entries, err := w.collect(base, ".", []string{
+		"servers/a/own.txt", "servers/a/cstrike", "servers/a", "shortcuts", "steamcmd", "servers/b/victim.txt",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, entries)
+
+	assert.Len(t, w.scopes, 3, "the work directory and the two game server directories")
+
+	for _, e := range entries {
+		content, readErr := e.root.ReadFile(e.rel)
+		if e.info.Mode().IsRegular() {
+			require.NoError(t, readErr, e.name)
+			assert.NotNil(t, content)
+		}
+	}
 }

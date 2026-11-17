@@ -1,6 +1,6 @@
 module github.com/gameap/daemon
 
-go 1.27.2
+go 1.27.4
 
 require (
 	github.com/bodgit/sevenzip v1.6.5
@@ -8,12 +8,12 @@ require (
 	github.com/dgraph-io/ristretto/v2 v2.4.2
 	github.com/dsnet/compress v0.0.1
 	github.com/emirpasic/gods v1.18.1
-	github.com/gameap/gameap v0.0.0-20260902160210-6f8f727046bf
+	github.com/gameap/gameap v0.0.0-20261117172108-d6ea2698d6dc
 	github.com/gameap/gameapctl v0.34.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gopherclass/go-shellquote v0.0.0-20200814145606-fab22d094485
 	github.com/hashicorp/go-getter v1.8.9
-	github.com/klauspost/compress v1.20.0
+	github.com/klauspost/compress v1.20.2
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
 	github.com/nwaples/rardecode/v2 v2.4.1
@@ -44,7 +44,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.57.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/andybalholm/brotli v1.2.2 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.44.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.40 // indirect

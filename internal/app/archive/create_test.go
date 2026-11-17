@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/gameap/daemon/internal/app/fsutil"
 	pb "github.com/gameap/gameap/pkg/proto"
 )
 
@@ -553,12 +554,12 @@ func TestWalkSourceSymlinkDepthLimit(t *testing.T) {
 	defer root.Close()
 
 	w := &sourceWalker{
-		ctx:    context.Background(),
-		root:   root,
-		limits: &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
+		ctx:      context.Background(),
+		confiner: fsutil.NewConfiner(workDir),
+		limits:   &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
 	}
 
-	err = w.walk("src/loop", "src/loop", maxFollowDepth)
+	err = w.walk(root, "src/loop", "src/loop", maxFollowDepth)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink nesting too deep")
 }
@@ -615,12 +616,12 @@ func TestSourceWalkerRespectsContext(t *testing.T) {
 	defer root.Close()
 
 	w := &sourceWalker{
-		ctx:    canceledContext(t),
-		root:   root,
-		limits: &walkLimits{maxEntries: defaultMaxFilesLimit()},
+		ctx:      canceledContext(t),
+		confiner: fsutil.NewConfiner(workDir),
+		limits:   &walkLimits{maxEntries: defaultMaxFilesLimit()},
 	}
 
-	err = w.walk("src", "src", 0)
+	err = w.walk(root, "src", "src", 0)
 	require.ErrorIs(t, err, context.Canceled)
 }
 

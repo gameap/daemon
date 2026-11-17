@@ -791,6 +791,26 @@ func TestGRPCFileHandler_NodeLevelOperationsAcrossServerDirs(t *testing.T) {
 		assert.Equal(t, "../..", target)
 	})
 
+	t.Run("copy_the_servers_into_one_of_them_is_refused", func(t *testing.T) {
+		t.Parallel()
+
+		h, workDir := newHandler(t)
+		before := snapshotTree(t, workDir)
+
+		// The source is read through the work directory and the destination
+		// written through the directory of server "a": the two paths share no
+		// root, and still the copy would end up copying itself.
+		resp := fileOp(t, h, "", pb.FileOperationType_FILE_OPERATION_TYPE_COPY, func(r *pb.FileOperationRequest) {
+			r.Parameters = &pb.FileOperationRequest_CopyParams{
+				CopyParams: &pb.CopyParams{Source: "servers", Destination: "servers/a/clone"},
+			}
+		})
+
+		assert.False(t, resp.GetSuccess())
+		assert.Contains(t, resp.GetError(), "cannot copy a directory into itself")
+		assert.Equal(t, before, snapshotTree(t, workDir))
+	})
+
 	t.Run("copy_into_a_server_does_not_follow_a_planted_link", func(t *testing.T) {
 		t.Parallel()
 
@@ -855,4 +875,76 @@ func TestGRPCFileHandler_NodeLevelOperationsAcrossServerDirs(t *testing.T) {
 			assert.Equal(t, "fresh", string(content))
 		}
 	})
+}
+
+// A directory copied into itself would be copied again with every level the
+// copy adds. The request is refused before anything is written.
+func TestGRPCFileHandler_CopyIntoItselfIsRefused(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		source      string
+		destination string
+		wantError   string
+	}{
+		{
+			name:        "directory_into_its_child",
+			source:      "servers/a/cstrike",
+			destination: "servers/a/cstrike/backup",
+			wantError:   "cannot copy a directory into itself",
+		},
+		{
+			name:        "directory_into_its_descendant",
+			source:      "servers/a/cstrike",
+			destination: "servers/a/cstrike/maps/old/backup",
+			wantError:   "cannot copy a directory into itself",
+		},
+		{
+			name:        "directory_into_its_child_named_through_a_link",
+			source:      "servers/a/cstrike",
+			destination: "servers/a/in-link/backup",
+			wantError:   "cannot copy a directory into itself",
+		},
+		{
+			name:        "whole_server_dir_into_its_child",
+			source:      "servers/a",
+			destination: "servers/a/backup",
+			wantError:   "cannot copy a directory into itself",
+		},
+		{
+			name:        "directory_onto_itself",
+			source:      "servers/a/cstrike",
+			destination: "servers/a/cstrike",
+			wantError:   "cannot copy a directory into itself",
+		},
+		{
+			name:        "file_onto_itself",
+			source:      "servers/a/own.txt",
+			destination: "servers/a/own.txt",
+			wantError:   "source and destination are the same file",
+		},
+	}
+
+	for modeName, mode := range confinementModes() {
+		for _, tt := range tests {
+			t.Run(modeName+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				workDir := tenantWorkDir(t)
+				before := snapshotTree(t, workDir)
+				h := NewGRPCFileHandler(workDir, mode.opts...)
+
+				resp := fileOp(t, h, mode.root, pb.FileOperationType_FILE_OPERATION_TYPE_COPY, func(r *pb.FileOperationRequest) {
+					r.Parameters = &pb.FileOperationRequest_CopyParams{
+						CopyParams: &pb.CopyParams{Source: tt.source, Destination: tt.destination},
+					}
+				})
+
+				assert.False(t, resp.GetSuccess())
+				assert.Contains(t, resp.GetError(), tt.wantError)
+				assert.Equal(t, before, snapshotTree(t, workDir))
+			})
+		}
+	}
 }
