@@ -3,6 +3,7 @@
 package fsutil
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -312,7 +313,7 @@ func TestConfiner_ServerDirUnderAnotherName(t *testing.T) {
 
 		assert.Equal(t, "servers/a", got.Scope)
 		assert.Equal(t, "servers-link/b/secret.cfg", got.Rel)
-		assert.True(t, got.InServerDir)
+		assert.True(t, got.Innermost)
 
 		_, err = got.Root.ReadFile(got.Rel)
 		require.Error(t, err)
@@ -474,7 +475,7 @@ func TestConfiner_ServerDirBehindALinkAtAnotherDepth(t *testing.T) {
 
 			assert.Equal(t, "servers/a", escaping.Scope)
 			assert.Equal(t, "servers-link/b/secret.cfg", escaping.Rel)
-			assert.True(t, escaping.InServerDir)
+			assert.True(t, escaping.Innermost)
 
 			_, err = escaping.Root.ReadFile(escaping.Rel)
 			require.Error(t, err)
@@ -507,7 +508,7 @@ func TestConfiner_ServerDirBehindALinkAtAnotherDepth(t *testing.T) {
 
 		assert.Equal(t, ".", entry.Scope)
 		assert.Equal(t, "shortcut", entry.Rel)
-		assert.False(t, entry.InServerDir)
+		assert.False(t, entry.Innermost)
 
 		tree, err := confiner.Resolve("shortcut", TargetTree)
 		require.NoError(t, err)
@@ -515,7 +516,7 @@ func TestConfiner_ServerDirBehindALinkAtAnotherDepth(t *testing.T) {
 
 		assert.Equal(t, "servers/a", tree.Scope)
 		assert.Equal(t, ".", tree.Rel)
-		assert.True(t, tree.InServerDir)
+		assert.True(t, tree.Innermost)
 	})
 
 	t.Run("it_is_inside_the_request_root_it_leads_to", func(t *testing.T) {
@@ -580,7 +581,7 @@ func TestConfiner_LinkIntoTheMiddleOfAServerDir(t *testing.T) {
 
 		assert.Equal(t, "servers/a", got.Scope)
 		assert.Equal(t, "sub/leak", got.Rel)
-		assert.True(t, got.InServerDir)
+		assert.True(t, got.Innermost)
 
 		content, err := got.Root.ReadFile(got.Rel)
 		require.Error(t, err)
@@ -739,7 +740,7 @@ func TestConfiner_LinkAboveTheServerDirs(t *testing.T) {
 
 			assert.Equal(t, ".", got.Scope)
 			assert.Equal(t, tt.wantRel, got.Rel)
-			assert.False(t, got.InServerDir)
+			assert.False(t, got.Innermost)
 		})
 	}
 }
@@ -761,4 +762,246 @@ func TestConfiner_LinkLoop(t *testing.T) {
 
 	_, err = got.Root.Stat(got.Rel)
 	require.Error(t, err)
+}
+
+// A game server directory can hold another, and the outer tenant can link to
+// the nested one. A path through that link is in the nested directory all the
+// same, so a link the nested tenant keeps there does not lead back out into
+// the outer one, although the path spells the outer directory by its name.
+func TestConfiner_NestedServerDirBehindALink(t *testing.T) {
+	t.Parallel()
+
+	newTree := func(t *testing.T) string {
+		t.Helper()
+
+		workDir := confineTree(t)
+		outer := filepath.Join(workDir, "servers", "a")
+
+		require.NoError(t, os.Symlink("nested", filepath.Join(outer, "jump")))
+		require.NoError(t, os.Symlink("../nested", filepath.Join(outer, "sub", "hop")))
+		require.NoError(t, os.Symlink("../own.txt", filepath.Join(outer, "nested", "leak")))
+		require.NoError(t, os.Symlink("deep.md", filepath.Join(outer, "nested", "inside")))
+
+		return workDir
+	}
+
+	known := WithServerDirs(serverDirs{"servers/a", "servers/a/nested", "servers/b"})
+
+	for _, alias := range []string{"servers/a/jump", "servers/a/sub/hop", "servers/a/nested"} {
+		t.Run("link_out_of_the_nested_dir_is_refused/"+alias, func(t *testing.T) {
+			t.Parallel()
+
+			for name, opts := range map[string][]ConfineOption{
+				"known_server_dirs":         {known},
+				"request_root_of_the_outer": {known, WithRoot("servers/a")},
+			} {
+				got, err := NewConfiner(newTree(t), opts...).Resolve(alias+"/leak", TargetEntry)
+				require.NoError(t, err, name)
+				t.Cleanup(func() { _ = got.Close() })
+
+				assert.Equal(t, "servers/a/nested", got.Scope, name)
+				assert.Equal(t, "leak", got.Rel, name)
+
+				content, err := got.Root.ReadFile(got.Rel)
+				require.Error(t, err, name)
+				assert.Contains(t, err.Error(), "path escapes from parent", name)
+				assert.Empty(t, content, name)
+			}
+		})
+
+		t.Run("link_staying_inside_the_nested_dir_is_followed/"+alias, func(t *testing.T) {
+			t.Parallel()
+
+			confiner := NewConfiner(newTree(t), known)
+
+			for _, name := range []string{"deep.md", "inside"} {
+				got, err := confiner.Resolve(alias+"/"+name, TargetEntry)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = got.Close() })
+
+				content, err := got.Root.ReadFile(got.Rel)
+				require.NoError(t, err)
+				assert.Equal(t, "deep", string(content))
+			}
+		})
+	}
+
+	t.Run("the_outer_dir_keeps_its_own_files", func(t *testing.T) {
+		t.Parallel()
+
+		confiner := NewConfiner(newTree(t), known)
+
+		for name, want := range map[string]string{
+			"servers/a/own.txt":       "own",
+			"servers/a/sub/inner.txt": "inner",
+		} {
+			got, err := confiner.Resolve(name, TargetEntry)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = got.Close() })
+
+			assert.Equal(t, "servers/a", got.Scope)
+
+			content, err := got.Root.ReadFile(got.Rel)
+			require.NoError(t, err)
+			assert.Equal(t, want, string(content))
+		}
+	})
+
+	t.Run("the_link_itself_belongs_to_the_outer_dir", func(t *testing.T) {
+		t.Parallel()
+
+		confiner := NewConfiner(newTree(t), known)
+
+		entry, err := confiner.Resolve("servers/a/jump", TargetEntry)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = entry.Close() })
+
+		assert.Equal(t, "servers/a", entry.Scope)
+		assert.Equal(t, "jump", entry.Rel)
+
+		tree, err := confiner.Resolve("servers/a/jump", TargetTree)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = tree.Close() })
+
+		assert.Equal(t, "servers/a/nested", tree.Scope)
+		assert.Equal(t, ".", tree.Rel)
+	})
+}
+
+// A game server directory can be removed and made anew while a path is being
+// placed. The walk tells the boundaries by what their names led to before it
+// began: the directory standing there now is passed like any other, and the
+// link in it is followed through the work directory into another game server.
+// The path is placed again once the names are found to lead elsewhere.
+func TestWalk_ServerDirReplacedWhileThePathIsPlaced(t *testing.T) {
+	t.Parallel()
+
+	// replacing looks the boundaries up and, once it has done so for the first
+	// time, has server "a" replaced by a directory with a link out of it.
+	replacing := func(t *testing.T, workDir string, b bounds, looks *int) func(*os.Root) landmarks {
+		t.Helper()
+
+		return func(work *os.Root) landmarks {
+			seen := b.onDisk(work)
+
+			if *looks++; *looks == 1 {
+				serverDir := filepath.Join(workDir, "servers", "a")
+
+				require.NoError(t, os.Rename(serverDir, filepath.Join(workDir, "removed-a")))
+				require.NoError(t, os.Mkdir(serverDir, 0o755))
+				require.NoError(t, os.Symlink("..", filepath.Join(serverDir, "servers-link")))
+				require.NoError(t, os.WriteFile(filepath.Join(serverDir, "fresh.txt"), []byte("fresh"), 0o644))
+			}
+
+			return seen
+		}
+	}
+
+	modes := map[string]bounds{
+		"known_server_dirs": {servers: []string{"servers/a", "servers/b"}},
+		"request_root":      {root: "servers/a"},
+		"both":              {servers: []string{"servers/a", "servers/b"}, root: "servers/a"},
+	}
+
+	for name, b := range modes {
+		t.Run("link_in_the_new_dir_is_refused/"+name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := confineTree(t)
+
+			work, err := os.OpenRoot(workDir)
+			require.NoError(t, err)
+
+			looks := 0
+
+			placed, err := b.walk(work, "servers/a/servers-link/b/secret.cfg", TargetEntry, replacing(t, workDir, b, &looks))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = placed.Close() })
+
+			assert.Equal(t, 3, looks, "before the walk, after it, and after the walk made anew")
+			assert.Equal(t, "servers/a", placed.Scope)
+
+			content, err := placed.Root.ReadFile(placed.Rel)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "path escapes from parent")
+			assert.Empty(t, content)
+		})
+
+		t.Run("path_is_placed_in_the_new_dir/"+name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := confineTree(t)
+
+			work, err := os.OpenRoot(workDir)
+			require.NoError(t, err)
+
+			looks := 0
+
+			placed, err := b.walk(work, "servers/a/fresh.txt", TargetEntry, replacing(t, workDir, b, &looks))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = placed.Close() })
+
+			assert.Equal(t, 3, looks)
+			assert.Equal(t, "servers/a", placed.Scope)
+			assert.Equal(t, "fresh.txt", placed.Rel)
+
+			content, err := placed.Root.ReadFile(placed.Rel)
+			require.NoError(t, err)
+			assert.Equal(t, "fresh", string(content))
+		})
+	}
+
+	t.Run("boundaries_that_stay_are_looked_up_twice", func(t *testing.T) {
+		t.Parallel()
+
+		b := modes["both"]
+
+		work, err := os.OpenRoot(confineTree(t))
+		require.NoError(t, err)
+
+		looks := 0
+
+		placed, err := b.walk(work, "servers/a/own.txt", TargetEntry, func(work *os.Root) landmarks {
+			looks++
+
+			return b.onDisk(work)
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = placed.Close() })
+
+		assert.Equal(t, 2, looks)
+		assert.Equal(t, "servers/a", placed.Scope)
+	})
+
+	t.Run("boundaries_that_keep_changing_fail_the_request", func(t *testing.T) {
+		t.Parallel()
+
+		b := modes["known_server_dirs"]
+		workDir := confineTree(t)
+
+		work, err := os.OpenRoot(workDir)
+		require.NoError(t, err)
+
+		looks := 0
+
+		placed, err := b.walk(work, "servers/a/own.txt", TargetEntry, func(work *os.Root) landmarks {
+			seen := b.onDisk(work)
+			looks++
+
+			serverDir := filepath.Join(workDir, "servers", "b")
+
+			require.NoError(t, os.Rename(serverDir, filepath.Join(workDir, fmt.Sprintf("removed-b-%d", looks))))
+			require.NoError(t, os.Mkdir(serverDir, 0o755))
+
+			return seen
+		})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "kept changing")
+		assert.Nil(t, placed)
+		assert.Equal(t, maxPlacements+1, looks)
+
+		_, err = work.Stat(".")
+		assert.ErrorIs(t, err, os.ErrClosed, "the work directory is not left open")
+	})
 }

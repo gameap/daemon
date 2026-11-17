@@ -93,23 +93,29 @@ func WithRoot(root string) ConfineOption {
 // name, through a link standing anywhere above it, or through a link that
 // leads into the middle of it. A path that does not spell a game server
 // directory out is therefore walked down from the work directory one component
-// at a time. Every directory on the way is compared with the boundaries as
-// they are on disk at that moment, and every link is replaced by what it leads
-// to, so the path ends up in the directory it really lies in. A boundary found
-// this way is compared as it was opened: the directory the request goes on in
-// is the one that was checked, whatever its name leads to a moment later.
+// at a time. Every directory on the way is compared with what the names of the
+// boundaries lead to, and every link is replaced by what it leads to, so the
+// path ends up in the directory it really lies in. A boundary found this way
+// is compared as it was opened: the directory the request goes on in is the
+// one that was checked, whatever its name leads to a moment later. What the
+// names lead to is looked up before the walk and once more after it. A game
+// server directory removed and made anew in between is a boundary the walk
+// could not tell, so the path is placed again.
 //
 // A path that does spell a game server directory the way the daemon knows it
 // is placed by that spelling alone, without a lookup, and os.Root keeps the
-// rest of it inside. The walk would add nothing there unless game server
-// directories are nested in one another and the path reaches a second one of
-// them under another name.
+// rest of it inside. That is enough as long as no other game server directory
+// lies inside the one the path spells: the tenant of the outer one can lead to
+// it under any name, so such a path is walked like the others. Whether one
+// game server directory lies inside another is taken from the names the daemon
+// knows them by. One it knows only by a name that leads into another through a
+// link is not found to be nested.
 //
 // Resolve places the path a request names, and nothing below it. An operation
-// that walks a tree from above the game server directories, as a request
-// acting for the node rather than for one server can, crosses into them
-// through the root it started with unless it asks IsServerDir about the
-// directories it enters and Resolve about the links it follows.
+// that goes on from there by itself, as packing a tree does, crosses into the
+// game server directories below through the root it started with, unless that
+// root is Innermost, or it asks IsServerDir about the directories it enters
+// and Resolve about the links it follows.
 type Confiner struct {
 	workDir    string
 	serverDirs ServerDirLister
@@ -135,9 +141,12 @@ type Confined struct {
 	// Scope is the directory Root is opened at, relative to the work directory
 	// ("." for the work directory itself).
 	Scope string
-	// InServerDir is set when Root stands at a game server directory or below
-	// one. Whatever is reached through such a root stays in that directory.
-	InServerDir bool
+	// Innermost is set when Root stands in a game server directory that holds
+	// no other one, going by the names the daemon knows them by. Whatever is
+	// reached through such a root stays in the game server directory it
+	// belongs to. Below any other root a game server directory may lie, with a
+	// boundary of its own.
+	Innermost bool
 }
 
 func (c *Confined) Close() error {
@@ -166,10 +175,10 @@ func (c *Confined) SameRoot(other *Confined) bool {
 // that starts above the game server directories uses it to notice the ones it
 // enters, which no request path names.
 //
-// The game server directories are looked up on every call. A walk lasts long
-// enough for one of them to be removed and created again, and the directory
-// found under its name then is not the one that stood there when the walk
-// began.
+// The game server directories are looked up on every call, after info was
+// taken. A walk lasts long enough for one of them to be removed and created
+// again, and the directory found under its name then is not the one that stood
+// there when the walk began.
 func (c *Confiner) IsServerDir(info os.FileInfo) bool {
 	names := c.serverNames()
 	if len(names) == 0 || !info.IsDir() {
@@ -182,7 +191,11 @@ func (c *Confiner) IsServerDir(info os.FileInfo) bool {
 	}
 	defer work.Close()
 
-	return isOneOf(info, onDisk(work, names))
+	return slices.ContainsFunc(names, func(name string) bool {
+		dir := dirAt(work, name)
+
+		return dir != nil && os.SameFile(info, dir)
+	})
 }
 
 // Resolve places a caller-supplied path. See Confiner for the model.
@@ -203,10 +216,10 @@ func (c *Confiner) Resolve(p string, target Target) (*Confined, error) {
 	}
 
 	if named, settled := b.named(rel, target); settled {
-		return openNamed(work, rel, named)
+		return b.openNamed(work, rel, named)
 	}
 
-	return walk(work, b, rel, target)
+	return b.walk(work, rel, target, b.onDisk)
 }
 
 // bounds are the directories one request is confined by, spelled the way the
@@ -262,9 +275,47 @@ type boundary struct {
 	server bool
 }
 
+// holds reports whether the daemon knows a game server directory by a name
+// below dir. Letter case is not told apart, since the volume may not tell it
+// apart either: two directories wrongly taken for nested cost a lookup, two
+// wrongly taken for apart cost the boundary.
+func (b bounds) holds(dir string) bool {
+	if dir == "." {
+		return len(b.servers) > 0
+	}
+
+	return slices.ContainsFunc(b.servers, func(name string) bool {
+		return belowFold(name, dir)
+	})
+}
+
+// belowFold reports whether name lies under dir, going by the names with the
+// letter case folded.
+func belowFold(name, dir string) bool {
+	for {
+		outer, dirRest, dirGoesOn := strings.Cut(dir, "/")
+		inner, nameRest, nameGoesOn := strings.Cut(name, "/")
+
+		if !strings.EqualFold(outer, inner) {
+			return false
+		}
+
+		if !dirGoesOn {
+			return nameGoesOn
+		}
+
+		if !nameGoesOn {
+			return false
+		}
+
+		dir, name = dirRest, nameRest
+	}
+}
+
 // named returns the boundaries rel spells out, outermost first, and whether
 // they settle where rel belongs: it names a game server directory, if the
-// daemon knows any, and lies in the request root, if the request has one.
+// daemon knows any, with no other one inside it, and lies in the request root,
+// if the request has one.
 func (b bounds) named(rel string, target Target) ([]boundary, bool) {
 	var found []boundary
 
@@ -294,13 +345,25 @@ func (b bounds) named(rel string, target Target) ([]boundary, bool) {
 
 	found = slices.CompactFunc(found, func(x, y boundary) bool { return x.end == y.end })
 
-	return found, inRoot && inServer
+	if !inRoot || !inServer {
+		return nil, false
+	}
+
+	// A game server directory inside the innermost one named is reached under
+	// whatever name the tenant of the outer one gives it. The spelling of rel
+	// does not show whether it passes that way.
+	if len(found) > 0 && b.holds(rel[:found[len(found)-1].end]) {
+		return nil, false
+	}
+
+	return found, true
 }
 
 // openNamed opens the boundaries rel spells out, each from inside the one
 // before it.
-func openNamed(work *os.Root, rel string, named []boundary) (*Confined, error) {
+func (b bounds) openNamed(work *os.Root, rel string, named []boundary) (*Confined, error) {
 	placed := &Confined{Root: work, Scope: "."}
+	inServer := false
 
 	for _, bound := range named {
 		dir := rel[:bound.end]
@@ -322,10 +385,13 @@ func openNamed(work *os.Root, rel string, named []boundary) (*Confined, error) {
 		_ = placed.Root.Close()
 
 		placed.Root, placed.Scope = next, dir
-		placed.InServerDir = placed.InServerDir || bound.server
+		inServer = inServer || bound.server
 	}
 
 	placed.Rel = relativeTo(rel, placed.Scope)
+	// The boundary reached is not the innermost one named when that one is
+	// not on disk, and the one enclosing it can hold more.
+	placed.Innermost = inServer && !b.holds(placed.Scope)
 
 	return placed, nil
 }
@@ -335,14 +401,115 @@ func openNamed(work *os.Root, rel string, named []boundary) (*Confined, error) {
 // that keeps changing underneath the walk.
 const maxLinkHops = 64
 
+// maxPlacements bounds how often one path is placed anew because the
+// boundaries changed underneath the walk.
+const maxPlacements = 4
+
+// landmarks are the boundaries as they are on disk at one moment: what the
+// names the daemon knows them by lead to. A name that leads to no directory
+// has nil for it, and confines nothing.
+type landmarks struct {
+	// servers has an entry for every name in bounds.servers, in that order.
+	servers []os.FileInfo
+	root    os.FileInfo
+}
+
+func (b bounds) onDisk(work *os.Root) landmarks {
+	found := landmarks{servers: make([]os.FileInfo, len(b.servers))}
+
+	for i, name := range b.servers {
+		found.servers[i] = dirAt(work, name)
+	}
+
+	if b.root != "" {
+		found.root = dirAt(work, b.root)
+	}
+
+	return found
+}
+
+func (l landmarks) hasServers() bool {
+	return slices.ContainsFunc(l.servers, func(dir os.FileInfo) bool { return dir != nil })
+}
+
+// same reports whether every name leads to the directory it leads to in other.
+func (l landmarks) same(other landmarks) bool {
+	return sameDir(l.root, other.root) && slices.EqualFunc(l.servers, other.servers, sameDir)
+}
+
+func sameDir(x, y os.FileInfo) bool {
+	if x == nil || y == nil {
+		return x == nil && y == nil
+	}
+
+	return os.SameFile(x, y)
+}
+
+func dirAt(work *os.Root, name string) os.FileInfo {
+	if info, err := work.Stat(name); err == nil && info.IsDir() {
+		return info
+	}
+
+	return nil
+}
+
+// walk places a path that does not spell its boundaries out, and takes work
+// over. look describes the boundaries on disk.
+//
+// The walk tells a boundary by what look found before it began. A directory
+// made under the name of a boundary since then is passed like any other, and a
+// link in it is followed through the root enclosing it. The names are therefore
+// looked up again once the path is placed, and the placement stands only if
+// they still lead where they did: every directory the walk passed was then
+// compared with what the names led to after the walk had seen it.
+func (b bounds) walk(work *os.Root, rel string, target Target, look func(*os.Root) landmarks) (*Confined, error) {
+	if rel == "." {
+		placed, err := b.place(work, landmarks{}, rel, target)
+		if err != nil {
+			_ = work.Close()
+		}
+
+		return placed, err
+	}
+
+	seen := look(work)
+
+	for range maxPlacements {
+		placed, err := b.place(work, seen, rel, target)
+
+		now := look(work)
+		if seen.same(now) {
+			if err != nil || placed.Root != work {
+				_ = work.Close()
+			}
+
+			return placed, err
+		}
+
+		if err == nil && placed.Root != work {
+			_ = placed.Root.Close()
+		}
+
+		seen = now
+	}
+
+	_ = work.Close()
+
+	return nil, errors.Errorf(
+		"failed to place %q: the game server directories on its way kept changing, %d attempts made",
+		rel, maxPlacements,
+	)
+}
+
 // placer walks a request path down from the work directory and moves into
 // every boundary the path passes.
 type placer struct {
-	// servers and reqRoot are the boundaries as they are on disk. reqRoot is
-	// nil when the request names no root or the root is not there.
-	servers []os.FileInfo
-	reqRoot os.FileInfo
+	bounds bounds
+	// seen is what the names of the boundaries led to before the walk began.
+	seen landmarks
 
+	// work is the root the walk starts in. It is left open whatever happens.
+	work *os.Root
 	// root is the innermost boundary reached, opened at scope.
 	root  *os.Root
 	scope string
@@ -351,30 +518,26 @@ type placer struct {
 
 	inRoot   bool
 	inServer bool
-	hops     int
+	// nested is set while the daemon knows a game server directory by a name
+	// below the boundary the walk stands in.
+	nested bool
+	hops   int
 }
 
-// walk places a path that does not spell its boundaries out.
-func walk(work *os.Root, b bounds, rel string, target Target) (*Confined, error) {
-	p := &placer{root: work, scope: ".", at: "."}
+// place walks rel down from work, telling the boundaries by seen. The root of
+// what it returns is work or one it opened; nothing else is left open.
+func (b bounds) place(work *os.Root, seen landmarks, rel string, target Target) (*Confined, error) {
+	p := &placer{bounds: b, seen: seen, work: work, root: work, scope: ".", at: ".", nested: b.holds(".")}
 
 	var names []string
-
 	if rel != "." {
 		names = strings.Split(rel, "/")
-		p.servers = onDisk(work, b.servers)
-
-		if b.root != "" {
-			if dirs := onDisk(work, []string{b.root}); len(dirs) > 0 {
-				p.reqRoot = dirs[0]
-			}
-		}
 	}
 
 	for i, name := range names {
 		moved, err := p.step(name, i == len(names)-1, target)
 		if err != nil {
-			_ = p.root.Close()
+			p.leave()
 
 			return nil, err
 		}
@@ -389,12 +552,19 @@ func walk(work *os.Root, b bounds, rel string, target Target) (*Confined, error)
 	// A request root that is spelled out but not on disk yet has nothing in it
 	// to keep the request from, like any other boundary that is not there.
 	if b.root != "" && !p.inRoot && !below(rel, b.root) {
-		_ = p.root.Close()
+		p.leave()
 
 		return nil, ErrPathOutsideConfinement
 	}
 
-	return &Confined{Root: p.root, Rel: p.at, Scope: p.scope, InServerDir: p.inServer}, nil
+	return &Confined{Root: p.root, Rel: p.at, Scope: p.scope, Innermost: p.inServer && !p.nested}, nil
+}
+
+// leave closes the boundary the walk stands in.
+func (p *placer) leave() {
+	if p.root != p.work {
+		_ = p.root.Close()
+	}
 }
 
 // step takes the walk one component of the request path further and reports
@@ -402,7 +572,7 @@ func walk(work *os.Root, b bounds, rel string, target Target) (*Confined, error)
 // the request spells it, for os.Root to resolve from where the walk stands.
 func (p *placer) step(name string, last bool, target Target) (bool, error) {
 	// No boundary is left to be found.
-	if len(p.servers) == 0 && (p.reqRoot == nil || p.inRoot) {
+	if !p.seen.hasServers() && (p.seen.root == nil || p.inRoot) {
 		return false, nil
 	}
 
@@ -535,12 +705,12 @@ func (p *placer) tree(name string) (bool, error) {
 // entry of the directory the walk stands in. Only the request root is moved
 // into: named as an entry, it still is the directory the request is kept in.
 func (p *placer) entry(name string) (bool, error) {
-	if p.reqRoot == nil || p.inRoot {
+	if p.seen.root == nil || p.inRoot {
 		return false, nil
 	}
 
 	info, err := p.root.Stat(path.Join(p.at, name))
-	if err != nil || !os.SameFile(info, p.reqRoot) {
+	if err != nil || !os.SameFile(info, p.seen.root) {
 		return false, nil
 	}
 
@@ -559,11 +729,24 @@ func (p *placer) entry(name string) (bool, error) {
 // cross moves the walk into the directory it stands at when that directory is
 // a boundary. info describes the directory as it was found by name.
 func (p *placer) cross(info os.FileInfo) error {
-	isRoot := p.reqRoot != nil && os.SameFile(info, p.reqRoot)
-	isServer := isOneOf(info, p.servers)
+	// One directory can be known by several names.
+	var known []string
+
+	for i, dir := range p.seen.servers {
+		if dir != nil && os.SameFile(info, dir) {
+			known = append(known, p.bounds.servers[i])
+		}
+	}
+
+	isRoot := p.seen.root != nil && os.SameFile(info, p.seen.root)
+	isServer := len(known) > 0
 
 	if !isRoot && !isServer {
 		return nil
+	}
+
+	if isRoot {
+		known = append(known, p.bounds.root)
 	}
 
 	dir := path.Join(p.scope, p.at)
@@ -589,33 +772,14 @@ func (p *placer) cross(info os.FileInfo) error {
 		return errors.Errorf("confinement directory %q was replaced while it was being opened", dir)
 	}
 
-	_ = p.root.Close()
+	p.leave()
 
 	p.root, p.scope, p.at = inner, dir, "."
 	p.inRoot = p.inRoot || isRoot
 	p.inServer = p.inServer || isServer
+	p.nested = slices.ContainsFunc(known, p.bounds.holds)
 
 	return nil
-}
-
-// onDisk describes the directories the names lead to at this moment. A name
-// that leads to none confines nothing.
-func onDisk(work *os.Root, names []string) []os.FileInfo {
-	var dirs []os.FileInfo
-
-	for _, name := range names {
-		if info, err := work.Stat(name); err == nil && info.IsDir() {
-			dirs = append(dirs, info)
-		}
-	}
-
-	return dirs
-}
-
-func isOneOf(info os.FileInfo, dirs []os.FileInfo) bool {
-	return slices.ContainsFunc(dirs, func(dir os.FileInfo) bool {
-		return os.SameFile(info, dir)
-	})
 }
 
 // below reports whether rel is dir or lies under it, going by the names.

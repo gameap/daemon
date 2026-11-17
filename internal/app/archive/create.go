@@ -215,10 +215,12 @@ type walkLimits struct {
 // Every source is placed by the confiner on its own, and the walk keeps to the
 // same boundary as it goes: a game server directory it enters from above is
 // read through a root opened at it, and a link it follows from above is read
-// where the link ends, in the game server directory that place lies in. A tree
-// packed for the node is thus confined the way a tree packed for one game
-// server is: os.Root refuses a link leading out of the game server directory
-// it stands in, whichever directory the request started from.
+// where the link ends, in the game server directory that place lies in. Above
+// is the work directory as much as a game server directory that holds another
+// one. A tree packed for the node, or for a game server with others inside it,
+// is thus confined the way a tree packed for a single game server is: os.Root
+// refuses a link leading out of the game server directory it stands in,
+// whichever directory the request started from.
 type sourceWalker struct {
 	ctx      context.Context
 	confiner *fsutil.Confiner
@@ -233,9 +235,9 @@ type sourceScope struct {
 	dir  os.FileInfo
 	// path is where root stands, relative to the work directory.
 	path string
-	// confined is set for a root standing in a game server directory. Nothing
-	// read through it leads out of that directory, so the walk looks for no
-	// further boundary below it.
+	// confined is set for a root standing in a game server directory that
+	// holds no other one. Nothing read through it leads out of that directory,
+	// so the walk looks for no further boundary below it.
 	confined bool
 	// owned roots are opened by the walker and closed with it.
 	owned bool
@@ -314,7 +316,7 @@ func (w *sourceWalker) adopt(placed *fsutil.Confined, owned bool) (*sourceScope,
 			_ = placed.Root.Close()
 		}
 
-		known.confined = known.confined || placed.InServerDir
+		known.confined = known.confined || placed.Innermost
 
 		return known, nil
 	}
@@ -323,7 +325,7 @@ func (w *sourceWalker) adopt(placed *fsutil.Confined, owned bool) (*sourceScope,
 		root:     placed.Root,
 		dir:      dir,
 		path:     placed.Scope,
-		confined: placed.InServerDir,
+		confined: placed.Innermost,
 		owned:    owned,
 	}
 
@@ -432,12 +434,12 @@ func (w *sourceWalker) walk(scope *sourceScope, rel, name string, symlinkDepth i
 	}
 }
 
-// cross returns where to go on reading what the followed link rel of scope
-// leads to, when that lies behind a boundary: the scope of the game server
-// directory the link ends in and the path there. A link that crosses no
-// boundary is read through the root it stands in, and nothing is returned.
+// cross returns where to go on reading rel of scope, when that lies behind a
+// boundary: the scope of the game server directory rel is, or the followed
+// link rel ends in, and the path there. What crosses no boundary is read
+// through the root it stands in, and nothing is returned.
 //
-// The root of scope would follow the link wherever it leads below it, into the
+// The root of scope would follow a link wherever it leads below it, into the
 // middle of a game server directory as well, and the links the tenant keeps
 // there would then be followed through that root too, out of the game server
 // directory again.
@@ -506,23 +508,14 @@ func (w *sourceWalker) enter(scope *sourceScope, rel string, info os.FileInfo) (
 		return scope, rel, nil
 	}
 
-	if known := w.scopeOf(info); known != nil {
-		known.confined = true
-
-		return known, ".", nil
-	}
-
-	dir := path.Join(scope.path, rel)
-
-	inner, err := scope.root.OpenRoot(rel)
+	into, intoRel, err := w.cross(scope, rel)
 	if err != nil {
-		return nil, "", errors.Wrapf(err, "failed to open game server directory %q", dir)
+		return nil, "", errors.WithMessagef(err, "failed to enter game server directory %q", path.Join(scope.path, rel))
 	}
 
-	into, err := w.adopt(&fsutil.Confined{Root: inner, Rel: ".", Scope: dir, InServerDir: true}, true)
-	if err != nil {
-		return nil, "", err
+	if into == nil {
+		return scope, rel, nil
 	}
 
-	return into, ".", nil
+	return into, intoRel, nil
 }

@@ -772,6 +772,92 @@ func TestCreate_NodeLinkIntoTheMiddleOfAServer(t *testing.T) {
 	})
 }
 
+// A game server directory can hold another. Each is a boundary of its own for
+// whatever is packed: a link the nested tenant keeps does not reach the files
+// of the outer server, whichever directory the request started from.
+func TestCreate_NestedServerDir(t *testing.T) {
+	t.Parallel()
+
+	opts := []fsutil.ConfineOption{
+		fsutil.WithServerDirs(knownServerDirs{"servers/a", "servers/a/child", "servers/b"}),
+	}
+
+	// newTree leaves server "a" with the link that stays inside it and puts
+	// server "child" into its directory.
+	newTree := func(t *testing.T) string {
+		t.Helper()
+
+		workDir := tenantWorkDir(t)
+		for _, link := range []string{"servers-link", "node-link", "file-link"} {
+			require.NoError(t, os.Remove(filepath.Join(workDir, "servers", "a", link)))
+		}
+
+		writeTree(t, workDir, map[string]string{"servers/a/child/data.txt": "child"})
+		require.NoError(t, os.Symlink("data.txt", filepath.Join(workDir, "servers", "a", "child", "inside")))
+		require.NoError(t, os.Symlink("child", filepath.Join(workDir, "servers", "a", "jump")))
+
+		return workDir
+	}
+
+	requests := map[string]*pb.CreateArchiveParams{
+		"nested_dir_named_from_the_work_dir":  {BasePath: ".", Sources: []string{"servers/a/child"}},
+		"nested_dir_named_from_the_outer_dir": {BasePath: "servers/a", Sources: []string{"child"}},
+		"nested_dir_as_the_base":              {BasePath: "servers/a/child", Sources: []string{"."}},
+		"link_of_the_outer_dir_to_the_nested": {BasePath: "servers/a", Sources: []string{"jump"}},
+		"outer_dir":                           {BasePath: "servers/a", Sources: []string{"."}},
+		"directory_holding_the_servers":       {BasePath: ".", Sources: []string{"servers"}},
+	}
+
+	for name, params := range requests {
+		t.Run("link_into_the_outer_dir_is_refused/"+name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := newTree(t)
+			require.NoError(t, os.Symlink("../own.txt", filepath.Join(workDir, "servers", "a", "child", "leak")))
+
+			res, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+				ArchivePath:    "backups/node.zip",
+				BasePath:       params.GetBasePath(),
+				Sources:        params.GetSources(),
+				FollowSymlinks: true,
+			}, nil, opts...)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "path escapes from parent")
+			assert.Nil(t, res)
+
+			_, statErr := os.Lstat(filepath.Join(workDir, "backups", "node.zip"))
+			assert.ErrorIs(t, statErr, os.ErrNotExist, "a refused operation leaves no archive behind")
+		})
+
+		t.Run("links_staying_inside_the_nested_dir_are_followed/"+name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := newTree(t)
+
+			_, err := Create(context.Background(), workDir, &pb.CreateArchiveParams{
+				ArchivePath:    "backups/node.zip",
+				BasePath:       params.GetBasePath(),
+				Sources:        params.GetSources(),
+				FollowSymlinks: true,
+			}, nil, opts...)
+			require.NoError(t, err)
+
+			contents := zipContents(t, filepath.Join(workDir, "backups", "node.zip"))
+
+			followed := 0
+
+			for _, body := range contents {
+				if body == "child" {
+					followed++
+				}
+			}
+
+			assert.GreaterOrEqual(t, followed, 2, "data.txt and the link to it: %v", contents)
+		})
+	}
+}
+
 // A walk lasts, and a game server directory can be removed and created again
 // while it does. The directory the walk then enters under that name confines
 // what is read below it, however long ago the walk first looked.

@@ -441,10 +441,11 @@ func TestConfiner_IsServerDir_FollowsTheDirectoryOnDisk(t *testing.T) {
 	assert.False(t, confiner.IsServerDir(replacement), "a game server directory that is gone confines nothing")
 }
 
-func TestConfiner_Resolve_InServerDir(t *testing.T) {
+func TestConfiner_Resolve_Innermost(t *testing.T) {
 	t.Parallel()
 
 	known := serverDirs{"servers/a", "servers/b"}
+	nested := serverDirs{"servers/a", "servers/a/nested", "servers/b"}
 
 	tests := []struct {
 		name       string
@@ -475,6 +476,28 @@ func TestConfiner_Resolve_InServerDir(t *testing.T) {
 			name:       "request_root_enclosing_the_server_dirs",
 			serverDirs: known, root: "servers", path: "servers/ab/other.txt",
 		},
+		{name: "server_dir_holding_another", serverDirs: nested, path: "servers/a/own.txt"},
+		{name: "server_dir_holding_another_as_tree", serverDirs: nested, path: "servers/a", target: TargetTree},
+		{name: "server_dir_held_by_another", serverDirs: nested, path: "servers/a/nested/deep.md", want: true},
+		{
+			name:       "server_dir_held_by_another_as_tree",
+			serverDirs: nested, path: "servers/a/nested", target: TargetTree,
+			want: true,
+		},
+		{name: "server_dir_held_by_another_as_entry", serverDirs: nested, path: "servers/a/nested"},
+		{
+			name:       "server_dir_holding_one_known_in_another_letter_case",
+			serverDirs: serverDirs{"servers/a", "Servers/A/nested"}, path: "servers/a/own.txt",
+		},
+		{
+			name:       "request_root_not_on_disk_in_a_server_dir_holding_another",
+			serverDirs: nested, root: "servers/a/new", path: "servers/a/new/server.cfg",
+		},
+		{
+			name:       "request_root_in_a_server_dir_holding_another",
+			serverDirs: nested, root: "servers/a/sub", path: "servers/a/sub/inner.txt",
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -487,7 +510,7 @@ func TestConfiner_Resolve_InServerDir(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = got.Close() })
 
-			assert.Equal(t, tt.want, got.InServerDir)
+			assert.Equal(t, tt.want, got.Innermost)
 		})
 	}
 }
@@ -504,13 +527,23 @@ func TestPlacer_CrossTakesTheDirectoryItCompared(t *testing.T) {
 		work, err := os.OpenRoot(confineTree(t))
 		require.NoError(t, err)
 
-		p := &placer{root: work, scope: ".", at: at}
-		t.Cleanup(func() { _ = p.root.Close() })
-
 		boundary, err := work.Stat("servers/a")
 		require.NoError(t, err)
 
-		p.reqRoot = boundary
+		p := &placer{
+			bounds: bounds{root: "servers/a"},
+			seen:   landmarks{root: boundary},
+			work:   work,
+			root:   work,
+			scope:  ".",
+			at:     at,
+		}
+
+		t.Cleanup(func() {
+			p.leave()
+
+			_ = work.Close()
+		})
 
 		return p, boundary
 	}
@@ -561,4 +594,25 @@ func TestPlacer_CrossTakesTheDirectoryItCompared(t *testing.T) {
 		assert.Same(t, work, p.root)
 		assert.Equal(t, "servers/b", p.at)
 	})
+}
+
+func TestBounds_Holds(t *testing.T) {
+	t.Parallel()
+
+	b := bounds{servers: []string{"servers/a", "servers/a/nested", "Servers/B/inner", "servers/ab"}}
+
+	for dir, want := range map[string]bool{
+		".":                true,
+		"servers":          true,
+		"servers/a":        true,
+		"servers/a/nested": false,
+		"servers/a/sub":    false,
+		"servers/b":        true,
+		"servers/ab":       false,
+		"steamcmd":         false,
+	} {
+		assert.Equal(t, want, b.holds(dir), dir)
+	}
+
+	assert.False(t, bounds{}.holds("."))
 }
