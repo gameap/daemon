@@ -1,10 +1,13 @@
 // Package archive creates and extracts archives (zip, tar family, single-file
 // compression, 7z, rar) on behalf of API requests. Every caller-supplied path
-// is resolved with fsutil.RootRel and accessed through an *os.Root opened at
-// the work directory, so no operation can escape the work directory — os.Root
-// refuses symlink and ".." resolution outside of it. Extracted archive entries
-// are additionally rejected lexically when their path is absolute or starts
-// with ".." (zip-slip), because the API contract requires the friendly error.
+// is placed by an fsutil.Confiner and accessed through the *os.Root it opens:
+// at the game server directory the path belongs to, or at the work directory
+// for a path outside every game server. No operation can leave that directory
+// — os.Root refuses symlink and ".." resolution outside of it — so a link in
+// one game server cannot pull a neighbour's files into an archive or unpack an
+// archive over them. Extracted archive entries are additionally rejected
+// lexically when their path is absolute or starts with ".." (zip-slip),
+// because the API contract requires the friendly error.
 //
 // Extraction feeds attacker-controlled bytes to third-party format decoders,
 // so the caller is expected to run it under a recover (see the gRPC archive

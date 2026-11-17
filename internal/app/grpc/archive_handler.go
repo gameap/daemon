@@ -2,11 +2,13 @@ package grpc
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	daemonarchive "github.com/gameap/daemon/internal/app/archive"
+	"github.com/gameap/daemon/internal/app/fsutil"
 	pb "github.com/gameap/gameap/pkg/proto"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -45,18 +47,25 @@ type archiveProgressState struct {
 
 type GRPCArchiveHandler struct {
 	workDir        string
+	confineOpts    []fsutil.ConfineOption
 	responseSender ResponseSender
 	sem            *semaphore.Weighted
 	activeArchives sync.Map // map[string]*activeArchive
 }
 
-func NewGRPCArchiveHandler(workDir string, responseSender ResponseSender, maxConcurrent int64) *GRPCArchiveHandler {
+func NewGRPCArchiveHandler(
+	workDir string,
+	responseSender ResponseSender,
+	maxConcurrent int64,
+	confineOpts ...fsutil.ConfineOption,
+) *GRPCArchiveHandler {
 	if maxConcurrent <= 0 {
 		maxConcurrent = defaultMaxConcurrentArchives
 	}
 
 	return &GRPCArchiveHandler{
 		workDir:        workDir,
+		confineOpts:    confineOpts,
 		responseSender: responseSender,
 		sem:            semaphore.NewWeighted(maxConcurrent),
 	}
@@ -195,15 +204,17 @@ func (h *GRPCArchiveHandler) run(
 		}
 	}()
 
+	confineOpts := append(slices.Clip(h.confineOpts), fsutil.WithRoot(req.GetRoot()))
+
 	var result *daemonarchive.Result
 	var err error
 	if create := req.GetCreate(); create != nil {
 		l.WithField("archive_path", create.GetArchivePath()).Info("Creating archive")
-		result, err = daemonarchive.Create(ctx, h.workDir, create, progressFn)
+		result, err = daemonarchive.Create(ctx, h.workDir, create, progressFn, confineOpts...)
 	} else {
 		extract := req.GetExtract()
 		l.WithField("archive_path", extract.GetArchivePath()).Info("Extracting archive")
-		result, err = daemonarchive.Extract(ctx, h.workDir, extract, progressFn)
+		result, err = daemonarchive.Extract(ctx, h.workDir, extract, progressFn, confineOpts...)
 	}
 
 	stopProgress()

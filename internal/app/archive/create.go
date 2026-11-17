@@ -29,7 +29,13 @@ func (e sourceEntry) isSymlink() bool {
 
 // Create packs the requested sources into archive_path. See the package doc
 // for the confinement model.
-func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, progress ProgressFunc) (*Result, error) {
+func Create(
+	ctx context.Context,
+	workDir string,
+	p *pb.CreateArchiveParams,
+	progress ProgressFunc,
+	confineOpts ...fsutil.ConfineOption,
+) (*Result, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, errors.Wrap(err, "create archive canceled")
 	}
@@ -38,16 +44,17 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 		return nil, errors.New("no sources given")
 	}
 
-	root, err := os.OpenRoot(workDir)
-	if err != nil {
-		return nil, errors.Wrap(err, "work directory unavailable")
-	}
-	defer root.Close()
+	confiner := fsutil.NewConfiner(workDir, confineOpts...)
 
-	archiveRel, err := fsutil.RootRel(p.GetArchivePath())
+	// The archive file and the tree it is packed from are placed separately:
+	// they need not belong to the same game server directory.
+	archive, err := confiner.Resolve(p.GetArchivePath(), fsutil.TargetEntry)
 	if err != nil {
 		return nil, err
 	}
+	defer archive.Close()
+
+	root, archiveRel := archive.Root, archive.Rel
 
 	// The proto resolves an unset create format from the target file extension.
 	format := p.GetFormat()
@@ -64,10 +71,11 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 		return nil, err
 	}
 
-	baseRel, err := fsutil.RootRel(p.GetBasePath())
+	base, err := confiner.Resolve(p.GetBasePath(), fsutil.TargetTree)
 	if err != nil {
 		return nil, err
 	}
+	defer base.Close()
 
 	if parent := path.Dir(archiveRel); parent != "." && parent != "/" {
 		if err := root.MkdirAll(parent, 0o755); err != nil {
@@ -91,7 +99,7 @@ func Create(ctx context.Context, workDir string, p *pb.CreateArchiveParams, prog
 
 	acc := newAccumulator(p.GetMaxTotalBytes(), p.GetMaxFiles(), progress)
 
-	createErr := createInto(ctx, root, archiveFile, baseRel, p, format, class, acc)
+	createErr := createInto(ctx, base.Root, archiveFile, base.Rel, p, format, class, acc)
 
 	closeErr := archiveFile.Close()
 	if createErr != nil {

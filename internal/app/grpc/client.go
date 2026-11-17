@@ -28,6 +28,13 @@ const (
 	// own work for the same reason. It sits above their caps because the cheap
 	// metadata operations share this one.
 	maxConcurrentFileOperations = 8
+
+	// capabilityFileConfinement tells the panel that file, transfer and archive
+	// requests are confined to the game server directory they belong to, not
+	// just to the work directory, and that a request may name that directory
+	// itself. A panel uses it to tell apart daemons that still let a symlink
+	// lead from one game server into another.
+	capabilityFileConfinement = "file_confinement"
 )
 
 type TaskHandler interface {
@@ -218,6 +225,7 @@ func (c *GatewayClient) register(ctx context.Context) error {
 				Version: build.Version,
 				Capabilities: []string{
 					"grpc", "file_transfer", "server_status", "attach", "http_proxy", "metrics", "archive",
+					capabilityFileConfinement,
 				},
 				InFlightTasks:                inFlightTasks,
 				ServerTaskSnapshotVersion:    0,

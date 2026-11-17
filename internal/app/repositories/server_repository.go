@@ -28,6 +28,21 @@ func (repo *ServerRepository) IDsFromCache() []int {
 	return ids
 }
 
+// ServerDirs returns the directory of every cached server, relative to the
+// work directory. File requests are confined by them, see fsutil.Confiner.
+func (repo *ServerRepository) ServerDirs() []string {
+	var dirs []string
+	repo.servers.Range(func(_, value interface{}) bool {
+		if server, ok := value.(*domain.Server); ok {
+			dirs = append(dirs, server.Dir())
+		}
+
+		return true
+	})
+
+	return dirs
+}
+
 func (repo *ServerRepository) IDs(_ context.Context) ([]int, error) {
 	return repo.IDsFromCache(), nil
 }
