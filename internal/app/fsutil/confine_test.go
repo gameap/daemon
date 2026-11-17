@@ -3,6 +3,7 @@ package fsutil
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -511,6 +512,82 @@ func TestConfiner_Resolve_Innermost(t *testing.T) {
 			t.Cleanup(func() { _ = got.Close() })
 
 			assert.Equal(t, tt.want, got.Innermost)
+		})
+	}
+}
+
+// learnedDirs is the list of a daemon that goes on learning of game servers.
+type learnedDirs struct {
+	dirs []string
+}
+
+func (d *learnedDirs) ServerDirs() []string {
+	return d.dirs
+}
+
+// The daemon learns of game servers after a path was placed. One whose
+// directory lies in the directory the path was placed in ends that directory
+// being the innermost; one that lies anywhere else does not.
+func TestConfiner_StillInnermost(t *testing.T) {
+	t.Parallel()
+
+	known := []string{"servers/a", "servers/b"}
+	nested := []string{"servers/a", "servers/a/nested", "servers/b"}
+
+	tests := []struct {
+		name    string
+		known   []string
+		root    string
+		path    string
+		learned string
+		want    bool
+	}{
+		{name: "nothing_learned", known: known, path: "servers/a/own.txt", want: true},
+		{name: "neighbour_learned", known: known, path: "servers/a/own.txt", learned: "servers/c", want: true},
+		{name: "dir_with_a_longer_name_learned", known: known, path: "servers/a/own.txt", learned: "servers/ab", want: true},
+		{name: "nested_dir_learned", known: known, path: "servers/a/own.txt", learned: "servers/a/nested"},
+		{name: "nested_dir_not_on_disk_learned", known: known, path: "servers/a/own.txt", learned: "servers/a/new"},
+		{
+			name:  "nested_dir_learned_in_another_letter_case",
+			known: known, path: "servers/a/own.txt", learned: "Servers/A/nested",
+		},
+		{name: "never_the_innermost", known: known, path: "steamcmd/steamcmd.sh", learned: "servers/c"},
+		{
+			name:  "server_dir_held_by_another/dir_beside_it_learned",
+			known: nested, path: "servers/a/nested/deep.md", learned: "servers/a/sub",
+			want: true,
+		},
+		{
+			name:  "server_dir_held_by_another/nested_dir_learned",
+			known: nested, path: "servers/a/nested/deep.md", learned: "servers/a/nested/inner",
+		},
+		{
+			name:  "request_root_in_a_server_dir/dir_beside_it_learned",
+			known: known, root: "servers/a/sub", path: "servers/a/sub/inner.txt", learned: "servers/a/nested",
+			want: true,
+		},
+		{
+			name:  "request_root_in_a_server_dir/nested_dir_learned",
+			known: known, root: "servers/a/sub", path: "servers/a/sub/inner.txt", learned: "servers/a/sub/inner",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			lister := &learnedDirs{dirs: slices.Clone(tt.known)}
+			confiner := NewConfiner(confineTree(t), WithServerDirs(lister), WithRoot(tt.root))
+
+			placed, err := confiner.Resolve(tt.path, TargetEntry)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = placed.Close() })
+
+			if tt.learned != "" {
+				lister.dirs = append(lister.dirs, tt.learned)
+			}
+
+			assert.Equal(t, tt.want, confiner.StillInnermost(placed))
 		})
 	}
 }

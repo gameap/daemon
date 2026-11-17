@@ -235,9 +235,13 @@ type sourceScope struct {
 	dir  os.FileInfo
 	// path is where root stands, relative to the work directory.
 	path string
+	// placed is the placement the scope was made of.
+	placed *fsutil.Confined
 	// confined is set for a root standing in a game server directory that
 	// holds no other one. Nothing read through it leads out of that directory,
-	// so the walk looks for no further boundary below it.
+	// so the walk looks for no further boundary below it. That holds for the
+	// game servers known when the root was placed, and the walk outlasts it:
+	// the flag is read through sourceWalker.confined.
 	confined bool
 	// owned roots are opened by the walker and closed with it.
 	owned bool
@@ -316,7 +320,10 @@ func (w *sourceWalker) adopt(placed *fsutil.Confined, owned bool) (*sourceScope,
 			_ = placed.Root.Close()
 		}
 
-		known.confined = known.confined || placed.Innermost
+		// One directory can be placed under several names, and a later
+		// placement knows of game servers an earlier one did not: the scope is
+		// confined only while every placement finds it so.
+		known.confined = known.confined && placed.Innermost
 
 		return known, nil
 	}
@@ -325,6 +332,7 @@ func (w *sourceWalker) adopt(placed *fsutil.Confined, owned bool) (*sourceScope,
 		root:     placed.Root,
 		dir:      dir,
 		path:     placed.Scope,
+		placed:   placed,
 		confined: placed.Innermost,
 		owned:    owned,
 	}
@@ -332,6 +340,19 @@ func (w *sourceWalker) adopt(placed *fsutil.Confined, owned bool) (*sourceScope,
 	w.scopes = append(w.scopes, scope)
 
 	return scope, nil
+}
+
+// confined reports whether scope still stands in a game server directory that
+// holds no other one. The daemon learns of game servers while the walk lasts,
+// so the question is put anew before every directory entered and every link
+// followed. A scope found to hold a game server directory stays unconfined:
+// from then on its directories are asked about one by one.
+func (w *sourceWalker) confined(scope *sourceScope) bool {
+	if scope.confined && !w.confiner.StillInnermost(scope.placed) {
+		scope.confined = false
+	}
+
+	return scope.confined
 }
 
 func (w *sourceWalker) scopeOf(dir os.FileInfo) *sourceScope {
@@ -444,7 +465,7 @@ func (w *sourceWalker) walk(scope *sourceScope, rel, name string, symlinkDepth i
 // there would then be followed through that root too, out of the game server
 // directory again.
 func (w *sourceWalker) cross(scope *sourceScope, rel string) (*sourceScope, string, error) {
-	if scope.confined {
+	if w.confined(scope) {
 		return nil, "", nil
 	}
 
@@ -504,7 +525,7 @@ func (w *sourceWalker) walkDir(scope *sourceScope, rel, name string, info os.Fil
 // directory is read through a root of its own from there on; any other
 // directory stays where it is.
 func (w *sourceWalker) enter(scope *sourceScope, rel string, info os.FileInfo) (*sourceScope, string, error) {
-	if scope.confined || rel == "." || !w.confiner.IsServerDir(info) {
+	if rel == "." || w.confined(scope) || !w.confiner.IsServerDir(info) {
 		return scope, rel, nil
 	}
 

@@ -114,8 +114,8 @@ func WithRoot(root string) ConfineOption {
 // Resolve places the path a request names, and nothing below it. An operation
 // that goes on from there by itself, as packing a tree does, crosses into the
 // game server directories below through the root it started with, unless that
-// root is Innermost, or it asks IsServerDir about the directories it enters
-// and Resolve about the links it follows.
+// root is Innermost and stays so (StillInnermost), or it asks IsServerDir
+// about the directories it enters and Resolve about the links it follows.
 type Confiner struct {
 	workDir    string
 	serverDirs ServerDirLister
@@ -145,8 +145,13 @@ type Confined struct {
 	// no other one, going by the names the daemon knows them by. Whatever is
 	// reached through such a root stays in the game server directory it
 	// belongs to. Below any other root a game server directory may lie, with a
-	// boundary of its own.
+	// boundary of its own. The names are the ones known when the path was
+	// placed: an operation that lasts asks StillInnermost as it goes on.
 	Innermost bool
+
+	// known are the names the daemon knows the directory of Root by, as a
+	// boundary.
+	known []string
 }
 
 func (c *Confined) Close() error {
@@ -196,6 +201,24 @@ func (c *Confiner) IsServerDir(info os.FileInfo) bool {
 
 		return dir != nil && os.SameFile(info, dir)
 	})
+}
+
+// StillInnermost reports whether placed, found Innermost when it was placed,
+// would be found so now. The game servers the daemon knows are learned as the
+// panel names them, also while an operation lasts, and the directory of one
+// can lie in the directory placed stands in. From then on it is a boundary the
+// operation has to look for below placed.
+//
+// Nothing is looked up on disk: the names known now are held against the ones
+// placed was found under, so a walk can ask before every directory it enters.
+func (c *Confiner) StillInnermost(placed *Confined) bool {
+	if !placed.Innermost {
+		return false
+	}
+
+	b := bounds{servers: c.serverNames()}
+
+	return !slices.ContainsFunc(placed.known, b.holds)
 }
 
 // Resolve places a caller-supplied path. See Confiner for the model.
@@ -389,6 +412,7 @@ func (b bounds) openNamed(work *os.Root, rel string, named []boundary) (*Confine
 	}
 
 	placed.Rel = relativeTo(rel, placed.Scope)
+	placed.known = []string{placed.Scope}
 	// The boundary reached is not the innermost one named when that one is
 	// not on disk, and the one enclosing it can hold more.
 	placed.Innermost = inServer && !b.holds(placed.Scope)
@@ -521,7 +545,9 @@ type placer struct {
 	// nested is set while the daemon knows a game server directory by a name
 	// below the boundary the walk stands in.
 	nested bool
-	hops   int
+	// known are the names the daemon knows that boundary by.
+	known []string
+	hops  int
 }
 
 // place walks rel down from work, telling the boundaries by seen. The root of
@@ -557,7 +583,13 @@ func (b bounds) place(work *os.Root, seen landmarks, rel string, target Target) 
 		return nil, ErrPathOutsideConfinement
 	}
 
-	return &Confined{Root: p.root, Rel: p.at, Scope: p.scope, Innermost: p.inServer && !p.nested}, nil
+	return &Confined{
+		Root:      p.root,
+		Rel:       p.at,
+		Scope:     p.scope,
+		Innermost: p.inServer && !p.nested,
+		known:     p.known,
+	}, nil
 }
 
 // leave closes the boundary the walk stands in.
@@ -777,6 +809,7 @@ func (p *placer) cross(info os.FileInfo) error {
 	p.root, p.scope, p.at = inner, dir, "."
 	p.inRoot = p.inRoot || isRoot
 	p.inServer = p.inServer || isServer
+	p.known = known
 	p.nested = slices.ContainsFunc(known, p.bounds.holds)
 
 	return nil

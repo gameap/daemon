@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gameap/daemon/internal/app/fsutil"
@@ -898,6 +899,175 @@ func TestSourceWalker_ServerDirReplacedDuringTheWalk(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "path escapes from parent")
 	assert.Empty(t, entries)
+}
+
+// learnedServerDirs is the list of a daemon that goes on learning of game
+// servers: the ones it knows are a cache, filled as the panel names them.
+type learnedServerDirs struct {
+	dirs []string
+}
+
+func (d *learnedServerDirs) ServerDirs() []string {
+	return d.dirs
+}
+
+// A game server directory is the innermost one only as far as the daemon knew
+// when a path was placed in it. One it learns of afterwards, lying inside, is
+// a boundary for the rest of the walk like any other: a link its tenant keeps
+// does not reach the files of the outer server.
+func TestSourceWalker_ServerDirLearnedDuringTheWalk(t *testing.T) {
+	t.Parallel()
+
+	// newWalker stands in server "a" while it is the innermost game server
+	// directory. "child" is a plain directory of it so far.
+	newWalker := func(t *testing.T) (*sourceWalker, *sourceScope, *fsutil.Confined, *learnedServerDirs) {
+		t.Helper()
+
+		workDir := tenantWorkDir(t)
+		for _, link := range []string{"servers-link", "node-link", "file-link"} {
+			require.NoError(t, os.Remove(filepath.Join(workDir, "servers", "a", link)))
+		}
+
+		writeTree(t, workDir, map[string]string{"servers/a/child/deep/data.txt": "child"})
+		require.NoError(t, os.Symlink("../../own.txt", filepath.Join(workDir, "servers", "a", "child", "deep", "leak")))
+		require.NoError(t, os.Symlink("child/deep", filepath.Join(workDir, "servers", "a", "jump")))
+		require.NoError(t, os.Symlink("child/deep/leak", filepath.Join(workDir, "servers", "a", "file-jump")))
+
+		known := &learnedServerDirs{dirs: []string{"servers/a", "servers/b"}}
+		confiner := fsutil.NewConfiner(workDir, fsutil.WithServerDirs(known))
+
+		base, err := confiner.Resolve("servers/a", fsutil.TargetTree)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = base.Close() })
+
+		w := &sourceWalker{
+			ctx:      context.Background(),
+			confiner: confiner,
+			limits:   &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
+		}
+		t.Cleanup(w.close)
+
+		scope, err := w.adopt(base, false)
+		require.NoError(t, err)
+		require.True(t, w.confined(scope))
+
+		return w, scope, base, known
+	}
+
+	t.Run("server_elsewhere_learned", func(t *testing.T) {
+		t.Parallel()
+
+		w, scope, _, known := newWalker(t)
+
+		known.dirs = append(known.dirs, "servers/c")
+
+		require.NoError(t, w.walk(scope, ".", ".", 0))
+		assert.True(t, w.confined(scope), "a game server elsewhere leaves the scope as it was")
+		assert.Len(t, w.scopes, 1)
+	})
+
+	t.Run("directory_entered_is_read_through_a_root_of_its_own", func(t *testing.T) {
+		t.Parallel()
+
+		w, scope, _, known := newWalker(t)
+
+		// No link is left to follow: the directory has to be noticed as such.
+		for _, link := range []string{"child/deep/leak", "jump", "file-jump", "in-link"} {
+			require.NoError(t, scope.root.Remove(link))
+		}
+
+		known.dirs = append(known.dirs, "servers/a/child")
+
+		require.NoError(t, w.walk(scope, ".", ".", 0))
+		require.NotEmpty(t, w.entries)
+
+		for _, e := range w.entries {
+			inChild := e.name == "child" || strings.HasPrefix(e.name, "child/")
+
+			assert.Equal(t, inChild, e.root != scope.root, e.name)
+		}
+	})
+
+	t.Run("link_kept_in_it_is_refused", func(t *testing.T) {
+		t.Parallel()
+
+		w, scope, _, known := newWalker(t)
+
+		known.dirs = append(known.dirs, "servers/a/child")
+
+		err := w.walk(scope, ".", ".", 0)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+	})
+
+	t.Run("file_link_led_on_by_its_tenant_is_refused", func(t *testing.T) {
+		t.Parallel()
+
+		w, scope, _, known := newWalker(t)
+
+		known.dirs = append(known.dirs, "servers/a/child")
+
+		err := w.walk(scope, "file-jump", "file-jump", 0)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+	})
+
+	t.Run("link_into_its_middle_is_refused_from_the_next_source", func(t *testing.T) {
+		t.Parallel()
+
+		w, _, base, known := newWalker(t)
+
+		_, err := w.collect(base, "servers/a", []string{"cstrike"})
+		require.NoError(t, err)
+
+		known.dirs = append(known.dirs, "servers/a/child")
+
+		_, err = w.collect(base, "servers/a", []string{"jump"})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path escapes from parent")
+	})
+}
+
+// One directory can be placed under two names, and only one of them may show
+// that it holds another game server directory. The scope shared by both
+// placements goes by the one that does.
+func TestSourceWalker_ScopePlacedUnderTwoNames(t *testing.T) {
+	t.Parallel()
+
+	workDir := tenantWorkDir(t)
+	require.NoError(t, os.Symlink("servers", filepath.Join(workDir, "alias")))
+
+	confiner := fsutil.NewConfiner(workDir, fsutil.WithServerDirs(
+		knownServerDirs{"servers/a", "alias/a", "alias/a/cstrike"},
+	))
+
+	w := &sourceWalker{
+		ctx:      context.Background(),
+		confiner: confiner,
+		limits:   &walkLimits{follow: true, maxEntries: defaultMaxFilesLimit()},
+	}
+	defer w.close()
+
+	spelled, err := confiner.Resolve("servers/a/own.txt", fsutil.TargetEntry)
+	require.NoError(t, err)
+	require.True(t, spelled.Innermost)
+
+	aliased, err := confiner.Resolve("alias/a/own.txt", fsutil.TargetEntry)
+	require.NoError(t, err)
+	require.False(t, aliased.Innermost)
+
+	scope, err := w.adopt(spelled, true)
+	require.NoError(t, err)
+	require.True(t, w.confined(scope))
+
+	again, err := w.adopt(aliased, true)
+	require.NoError(t, err)
+
+	require.Same(t, scope, again)
+	assert.False(t, w.confined(scope))
 }
 
 // Many sources, and many links to one game server directory, are read through

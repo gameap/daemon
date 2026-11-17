@@ -286,6 +286,32 @@ func TestConfiner_RequestRootKeepsTheServerDirBoundary(t *testing.T) {
 	}
 }
 
+// A path a link leads into a game server directory is placed by the walk,
+// under the names the daemon knows that directory by. A game server learned
+// afterwards is held against those names, not against the spelling of the path.
+func TestConfiner_StillInnermost_PlacedThroughALink(t *testing.T) {
+	t.Parallel()
+
+	workDir := confineTree(t)
+	require.NoError(t, os.Symlink(filepath.Join("servers", "a"), filepath.Join(workDir, "shortcut")))
+
+	lister := &learnedDirs{dirs: []string{"servers/a", "servers/b"}}
+	confiner := NewConfiner(workDir, WithServerDirs(lister))
+
+	placed, err := confiner.Resolve("shortcut/own.txt", TargetEntry)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = placed.Close() })
+
+	require.Equal(t, "servers/a", placed.Scope)
+	require.True(t, confiner.StillInnermost(placed))
+
+	lister.dirs = append(lister.dirs, "servers/b/inner")
+	assert.True(t, confiner.StillInnermost(placed))
+
+	lister.dirs = append(lister.dirs, "servers/a/nested")
+	assert.False(t, confiner.StillInnermost(placed))
+}
+
 // A game server directory reached under a name the daemon does not know it by
 // is still that directory: the request is confined to it all the same, and
 // placed under the name the link leads to.
