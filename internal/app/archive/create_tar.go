@@ -2,6 +2,7 @@ package archive
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/bzip2"
 	"compress/gzip"
 	"context"
@@ -75,7 +76,10 @@ func decompressReader(r io.Reader, comp compression) (io.ReadCloser, error) {
 		// does not recognize, which is not what should face untrusted input.
 		return io.NopCloser(bzip2.NewReader(r)), nil
 	case compXz:
-		xr, err := xz.NewReader(r)
+		// The decoder takes its input a byte at a time and asks a reader that
+		// cannot hand it over that way for one byte a call. Read straight from
+		// a file, that is a read(2) for every byte of the archive.
+		xr, err := xz.NewReader(bufio.NewReader(r))
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to init xz reader")
 		}

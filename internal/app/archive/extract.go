@@ -22,15 +22,34 @@ const (
 // sink places extracted entries under the destination inside the root,
 // applying the conflict policy, permission rules, ownership and limits.
 type sink struct {
-	root     *os.Root
-	dest     string
-	policy   pb.ArchiveConflictPolicy
-	preserve bool
-	mode     os.FileMode // when != 0 overrides file permissions from the archive
-	owner    osowner.Options
-	acc      *accumulator
-	skipped  []string
-	links    []createdLink
+	root   *os.Root
+	dest   string
+	policy pb.ArchiveConflictPolicy
+	// preserveFiles and preserveDirs take the permission bits of file and of
+	// directory entries from the archive.
+	preserveFiles bool
+	preserveDirs  bool
+	mode          os.FileMode // when != 0 overrides file permissions from the archive
+	owner         osowner.Options
+	acc           *accumulator
+	skipped       []string
+	links         []createdLink
+
+	// mergeLinkedDirs lets a directory entry that meets a symlink go on through
+	// it, as long as the root follows the link to a directory. Without it the
+	// link is an entry in the way like any other and falls to the policy.
+	mergeLinkedDirs bool
+	// skipUnsafeLinks leaves out a symlink entry whose target is not confined
+	// to the destination instead of failing the run, and records it.
+	skipUnsafeLinks bool
+	unsafeLinks     []SkippedLink
+	// keepDirs fails the run where an entry that is not a directory meets a
+	// directory, instead of taking the directory and all below it away.
+	keepDirs bool
+	// destPerm is the permission bits of the entry the archive has for the
+	// destination itself, "./", and 0 where it has none. The sink only notes
+	// them: what becomes of the destination is up to whoever unpacks into it.
+	destPerm os.FileMode
 }
 
 // createdLink records a symlink this run put on disk so its target can be
@@ -67,6 +86,12 @@ func (s *sink) resolveConflict(target string, isDir bool) (skip, existed bool, e
 			return false, false, nil
 		}
 
+		if s.mergeLinkedDirs {
+			if linkErr := s.linkOnTheWay(path.Dir(target)); linkErr != nil {
+				return false, false, linkErr
+			}
+		}
+
 		return false, false, errors.Wrapf(lstatErr, "failed to stat %q", target)
 	}
 
@@ -75,11 +100,21 @@ func (s *sink) resolveConflict(target string, isDir bool) (skip, existed bool, e
 		return false, true, nil
 	}
 
+	if isDir && s.mergeLinkedDirs && existing.Mode()&os.ModeSymlink != 0 {
+		return false, true, s.linkedDir(target)
+	}
+
 	switch s.policy {
 	case pb.ArchiveConflictPolicy_ARCHIVE_CONFLICT_POLICY_SKIP:
 		return true, true, nil
 	case pb.ArchiveConflictPolicy_ARCHIVE_CONFLICT_POLICY_OVERWRITE:
 		if existing.IsDir() {
+			if s.keepDirs {
+				return false, true, errors.Errorf(
+					"%q is a directory, and the archive has an entry under that name that is not one", target,
+				)
+			}
+
 			if err := s.root.RemoveAll(target); err != nil {
 				return false, true, errors.Wrapf(err, "failed to remove %q", target)
 			}
@@ -93,11 +128,52 @@ func (s *sink) resolveConflict(target string, isDir bool) (skip, existed bool, e
 	}
 }
 
+// linkedDir reports why the symlink standing at target cannot take the place
+// of a directory: the root does not follow it, or it leads to something else.
+func (s *sink) linkedDir(target string) error {
+	info, err := s.root.Stat(target)
+	if err != nil {
+		return errors.Wrapf(err, "%q is a symlink that is not followed inside the destination", target)
+	}
+
+	if !info.IsDir() {
+		return errors.Errorf("%q is a symlink that does not lead to a directory", target)
+	}
+
+	return nil
+}
+
+// linkOnTheWay names the first symlink on the way to dir that cannot take the
+// place of a directory. The root refuses such a path as a whole, which does not
+// say where on it the link stands.
+func (s *sink) linkOnTheWay(dir string) error {
+	passed := "."
+
+	for _, name := range strings.Split(dir, "/") {
+		passed = path.Join(passed, name)
+
+		info, err := s.root.Lstat(passed)
+		if err != nil {
+			return nil
+		}
+
+		if info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+
+		if err := s.linkedDir(passed); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s *sink) filePerm(archiveMode os.FileMode) os.FileMode {
 	if s.mode != 0 {
 		return s.mode
 	}
-	if s.preserve && archiveMode.Perm() != 0 {
+	if s.preserveFiles && archiveMode.Perm() != 0 {
 		return archiveMode.Perm()
 	}
 
@@ -105,7 +181,7 @@ func (s *sink) filePerm(archiveMode os.FileMode) os.FileMode {
 }
 
 func (s *sink) dirPerm(archiveMode os.FileMode) os.FileMode {
-	if s.preserve && archiveMode.Perm() != 0 {
+	if s.preserveDirs && archiveMode.Perm() != 0 {
 		return archiveMode.Perm()
 	}
 
@@ -118,6 +194,8 @@ func (s *sink) putDir(name string, archiveMode os.FileMode) error {
 		return err
 	}
 	if !ok {
+		s.destPerm = archiveMode.Perm()
+
 		return nil
 	}
 
@@ -131,14 +209,14 @@ func (s *sink) putDir(name string, archiveMode os.FileMode) error {
 		return nil
 	}
 
-	if err := mkdirAllOwned(s.root, target, s.dirPerm(archiveMode), s.owner); err != nil {
+	if err := s.mkdirAll(target, s.dirPerm(archiveMode)); err != nil {
 		return err
 	}
 
 	// MkdirAll applies umask; chmod for the exact requested permissions. A
 	// pre-existing directory merged into keeps its mode unless permissions
 	// are explicitly preserved from the archive.
-	if !existed || s.preserve {
+	if !existed || s.preserveDirs {
 		if err := s.root.Chmod(target, s.dirPerm(archiveMode)); err != nil {
 			return errors.Wrapf(err, "failed to chmod directory %q", target)
 		}
@@ -383,6 +461,12 @@ func (s *sink) putSymlink(name, linkTarget string) error {
 	}
 
 	if err := s.checkLinkTarget(target, linkTarget); err != nil {
+		if s.skipUnsafeLinks {
+			s.unsafeLinks = append(s.unsafeLinks, SkippedLink{Name: name, Target: linkTarget, Reason: err.Error()})
+
+			return nil
+		}
+
 		return errors.Wrapf(err, "archive entry %q", name)
 	}
 
@@ -419,7 +503,20 @@ func (s *sink) ensureParent(target string) error {
 		return nil
 	}
 
-	return mkdirAllOwned(s.root, parent, defaultDirPerm, s.owner)
+	return s.mkdirAll(parent, defaultDirPerm)
+}
+
+func (s *sink) mkdirAll(dir string, perm os.FileMode) error {
+	err := mkdirAllOwned(s.root, dir, perm, s.owner)
+	if err == nil || !s.mergeLinkedDirs {
+		return err
+	}
+
+	if linkErr := s.linkOnTheWay(dir); linkErr != nil {
+		return linkErr
+	}
+
+	return err
 }
 
 // mkdirAllOwned creates rel and applies the owner to exactly the directories it
@@ -508,13 +605,14 @@ func Extract(
 	}
 
 	s := &sink{
-		root:     root,
-		dest:     destRel,
-		policy:   p.GetConflictPolicy(),
-		preserve: p.GetPreservePermissions(),
-		mode:     os.FileMode(p.GetMode()).Perm(),
-		owner:    ownerOptions(p.GetOwnerUser(), p.GetOwnerUid(), p.GetOwnerGid()),
-		acc:      newAccumulator(p.GetMaxTotalBytes(), p.GetMaxFiles(), progress),
+		root:          root,
+		dest:          destRel,
+		policy:        p.GetConflictPolicy(),
+		preserveFiles: p.GetPreservePermissions(),
+		preserveDirs:  p.GetPreservePermissions(),
+		mode:          os.FileMode(p.GetMode()).Perm(),
+		owner:         ownerOptions(p.GetOwnerUser(), p.GetOwnerUid(), p.GetOwnerGid()),
+		acc:           newAccumulator(p.GetMaxTotalBytes(), p.GetMaxFiles(), progress),
 	}
 
 	extractErr := extractEntries(ctx, archiveFile, archiveRel, class, format, s)

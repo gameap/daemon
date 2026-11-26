@@ -19,6 +19,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 )
@@ -62,9 +63,12 @@ type Podman struct {
 	cfg        *config.Config
 	socketPath string
 	httpClient *http.Client
+	// confineOpts name the boundaries a server directory is opened within, see
+	// fsutil.OpenDir.
+	confineOpts []fsutil.ConfineOption
 }
 
-func NewPodman(cfg *config.Config, _, _ contracts.Executor) *Podman {
+func NewPodman(cfg *config.Config, _, _ contracts.Executor, confineOpts ...fsutil.ConfineOption) *Podman {
 	socketPath := getDefaultPodmanSocket(cfg)
 
 	// Create HTTP client with Unix socket transport
@@ -83,6 +87,7 @@ func NewPodman(cfg *config.Config, _, _ contracts.Executor) *Podman {
 			Transport: transport,
 			Timeout:   5 * time.Minute,
 		},
+		confineOpts: confineOpts,
 	}
 }
 
@@ -158,20 +163,17 @@ func (pm *Podman) runInstallation(
 
 	// 2. Write script to temp file in WorkDir
 	workDir := server.WorkDir(pm.cfg)
-	if err := os.MkdirAll(workDir, 0755); err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to create work directory")
-	}
 
-	scriptPath := filepath.Join(workDir, ".gameap_install.sh")
-	if err := os.WriteFile(scriptPath, []byte(normalizeLineEndings(installScript)), 0600); err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to write installation script")
+	serverDir, err := fsutil.OpenDir(pm.cfg.WorkDir(), server.Dir(), serverDirPerm, pm.confineOpts...)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to open server directory inside the work directory")
 	}
-	if err := os.Chmod(scriptPath, 0755); err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to make installation script executable")
+	defer serverDir.Close()
+
+	if err := writeInstallScript(serverDir, installScript); err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to write installation script")
 	}
-	defer func() {
-		_ = os.Remove(scriptPath)
-	}()
+	defer removeInstallScript(serverDir)
 
 	// 3. Create temp container name
 	tempName := fmt.Sprintf("gameap-install-%s", server.XID())
@@ -237,7 +239,7 @@ func (pm *Podman) runInstallation(
 		return domain.ErrorResult, errors.Wrap(err, "failed to get user IDs for chown")
 	}
 	_, _ = out.Write([]byte(fmt.Sprintf("Changing ownership to %s:%s...\n", uid, gid)))
-	if err := chownRecursive(workDir, uid, gid); err != nil {
+	if err := chownRecursive(serverDir, uid, gid); err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to change ownership of installed files")
 	}
 
@@ -252,7 +254,7 @@ func (pm *Podman) buildInstallSpec(
 		"name":     name,
 		"image":    image,
 		"work_dir": installationContainerWorkDir,
-		"command":  []string{entrypoint, "-e", installationContainerWorkDir + "/.gameap_install.sh"},
+		"command":  []string{entrypoint, "-e", installationContainerWorkDir + "/" + installScriptName},
 		"env":      env,
 		"user":     user,
 		"mounts": []map[string]interface{}{

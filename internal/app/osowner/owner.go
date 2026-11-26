@@ -7,10 +7,16 @@
 // cannot read them. This package wraps user.Lookup + Lchown with the
 // existing isRootUser/Windows no-op build constraints.
 //
-// ApplyGroupSharedRecursive covers a different case: a single directory shared
-// by several su_users (the steamcmd directory, which steamcmd self-updates).
-// It keeps the owner but adds setgid + group rwx so every su_user in the
-// shared group can write there.
+// ApplyGroupSharedRecursiveInRoot covers a different case: a single directory
+// shared by several su_users (the steamcmd directory, which steamcmd
+// self-updates). It keeps the owner but adds setgid + group rwx so every
+// su_user in the shared group can write there.
+//
+// Whatever changes a whole tree takes the *os.Root the caller opened that tree
+// through, never its path. The trees in question are written by the tenants of
+// the game servers, and a path is resolved anew by every call: a symlink put
+// in place of the directory would hand the tree it names to the game server
+// user.
 package osowner
 
 import (
@@ -30,9 +36,10 @@ type Options struct {
 	UID  int32
 	GID  int32
 
-	// Group is an optional group name used only by ApplyGroupSharedRecursive
-	// to override which group a shared tree (e.g. the steamcmd directory) is
-	// shared with. Empty falls back to User's primary group, then GID.
+	// Group is an optional group name used only by
+	// ApplyGroupSharedRecursiveInRoot to override which group a shared tree
+	// (e.g. the steamcmd directory) is shared with. Empty falls back to User's
+	// primary group, then GID.
 	Group string
 }
 
@@ -88,9 +95,10 @@ func ApplyToPath(path string, opts Options) error {
 	return lchown(path, uid, gid)
 }
 
-// ApplyRecursive chowns path and all entries below it. No-op when chown
-// is not applicable (non-root daemon, empty Options, Windows).
-func ApplyRecursive(path string, opts Options) error {
+// ApplyRecursiveInRoot chowns the directory root is opened at and all entries
+// below it (Lchown — a symlink is given the owner, never what it leads to).
+// No-op when chown is not applicable (non-root daemon, empty Options, Windows).
+func ApplyRecursiveInRoot(root *os.Root, opts Options) error {
 	uid, gid, ok, err := Resolve(opts)
 	if err != nil {
 		return err
@@ -99,7 +107,7 @@ func ApplyRecursive(path string, opts Options) error {
 		return nil
 	}
 
-	return chownTree(path, uid, gid)
+	return chownTree(root, uid, gid)
 }
 
 // resolveGroupID converts Options into the numeric gid that a shared tree
@@ -146,12 +154,12 @@ func resolveGroupID(opts Options) (gid int, ok bool, err error) {
 	return 0, false, nil
 }
 
-// ApplyGroupSharedRecursive makes path and everything under it accessible to
-// the resolved group: directories get the setgid bit plus group rwx (so
-// entries created later inherit the group), files get group rw. File owner
-// (user) is preserved — only the group is changed. No-op when not applicable
-// (non-root daemon, no resolvable group, Windows).
-func ApplyGroupSharedRecursive(path string, opts Options) error {
+// ApplyGroupSharedRecursiveInRoot makes the directory root is opened at and
+// everything under it accessible to the resolved group: directories get the
+// setgid bit plus group rwx (so entries created later inherit the group), files
+// get group rw. File owner (user) is preserved — only the group is changed.
+// No-op when not applicable (non-root daemon, no resolvable group, Windows).
+func ApplyGroupSharedRecursiveInRoot(root *os.Root, opts Options) error {
 	gid, ok, err := resolveGroupID(opts)
 	if err != nil {
 		return err
@@ -160,7 +168,7 @@ func ApplyGroupSharedRecursive(path string, opts Options) error {
 		return nil
 	}
 
-	return groupShareTree(path, gid)
+	return groupShareTree(root, gid)
 }
 
 // MissingSegments returns the path prefixes that do not exist on disk yet,

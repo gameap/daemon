@@ -175,3 +175,192 @@ func TestCopyTree_DirectoryOntoItselfThroughAFollowedLink(t *testing.T) {
 	require.ErrorIs(t, err, ErrCopySameFile)
 	assert.Equal(t, before, treeFiles(t, workDir), "no file may be emptied")
 }
+
+// A symlink standing where a file is copied to is, left alone, a way to write
+// somewhere else. With ReplaceSymlinks the link goes and the file takes its
+// place; without it the root decides how far the link is followed.
+func TestCopyTree_SymlinkInPlaceOfAFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts CopyOptions
+		// link returns the target of the symlink standing at dst/game.cfg.
+		link        func(outside string) string
+		wantError   string
+		wantFile    bool
+		wantInside  string
+		wantOutside string
+	}{
+		{
+			name:        "link_out_of_the_root_is_replaced",
+			opts:        CopyOptions{ReplaceSymlinks: true},
+			link:        func(outside string) string { return outside },
+			wantFile:    true,
+			wantInside:  "inside",
+			wantOutside: "outside",
+		},
+		{
+			name:        "link_inside_the_root_is_replaced",
+			opts:        CopyOptions{ReplaceSymlinks: true},
+			link:        func(string) string { return "other.cfg" },
+			wantFile:    true,
+			wantInside:  "inside",
+			wantOutside: "outside",
+		},
+		{
+			name:        "link_to_nowhere_is_replaced",
+			opts:        CopyOptions{ReplaceSymlinks: true},
+			link:        func(outside string) string { return outside + ".absent" },
+			wantFile:    true,
+			wantInside:  "inside",
+			wantOutside: "outside",
+		},
+		{
+			name:        "link_out_of_the_root_stops_the_copy_by_default",
+			link:        func(outside string) string { return outside },
+			wantError:   "path escapes from parent",
+			wantInside:  "inside",
+			wantOutside: "outside",
+		},
+		{
+			name:        "link_inside_the_root_is_written_through_by_default",
+			link:        func(string) string { return "other.cfg" },
+			wantInside:  "from repository",
+			wantOutside: "outside",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			src := t.TempDir()
+			dst := t.TempDir()
+			outside := filepath.Join(t.TempDir(), "passwd")
+
+			require.NoError(t, os.WriteFile(filepath.Join(src, "game.cfg"), []byte("from repository"), 0o640))
+			require.NoError(t, os.WriteFile(filepath.Join(dst, "other.cfg"), []byte("inside"), 0o600))
+			require.NoError(t, os.WriteFile(outside, []byte("outside"), 0o600))
+			require.NoError(t, os.Symlink(tt.link(outside), filepath.Join(dst, "game.cfg")))
+
+			err := CopyTree(openTestRoot(t, src), ".", openTestRoot(t, dst), ".", tt.opts)
+
+			if tt.wantError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantError)
+			} else {
+				require.NoError(t, err)
+			}
+
+			inside, err := os.ReadFile(filepath.Join(dst, "other.cfg"))
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantInside, string(inside))
+
+			outsideContent, err := os.ReadFile(outside)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOutside, string(outsideContent))
+			assert.NoFileExists(t, outside+".absent")
+
+			info, err := os.Lstat(filepath.Join(dst, "game.cfg"))
+			require.NoError(t, err)
+
+			if !tt.wantFile {
+				assert.NotZero(t, info.Mode()&os.ModeSymlink, "the link stays where it stood")
+
+				return
+			}
+
+			require.True(t, info.Mode().IsRegular(), "game.cfg has to be a regular file, it is %s", info.Mode())
+			assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+
+			content, err := os.ReadFile(filepath.Join(dst, "game.cfg"))
+			require.NoError(t, err)
+			assert.Equal(t, "from repository", string(content))
+		})
+	}
+}
+
+// A link in the destination that leads back to the file being copied is taken
+// away like any other: the source keeps its content and the copy is a file of
+// its own.
+func TestCopyTree_ReplaceSymlinks_LinkToTheSourceFile(t *testing.T) {
+	t.Parallel()
+
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	source := filepath.Join(src, "server.jar")
+	require.NoError(t, os.WriteFile(source, []byte("jar"), 0o644))
+	require.NoError(t, os.Symlink(source, filepath.Join(dst, "server.jar")))
+
+	err := CopyTree(openTestRoot(t, src), ".", openTestRoot(t, dst), ".", CopyOptions{ReplaceSymlinks: true})
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(source)
+	require.NoError(t, err)
+	assert.Equal(t, "jar", string(content), "the source must not be emptied")
+
+	info, err := os.Lstat(filepath.Join(dst, "server.jar"))
+	require.NoError(t, err)
+	assert.True(t, info.Mode().IsRegular())
+}
+
+// A directory of the source that meets a symlink is created through it only as
+// far as the root follows: ReplaceSymlinks is about files and takes no tree
+// away.
+func TestCopyTree_ReplaceSymlinks_LinkInPlaceOfADirectory(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		link      func(outside string) string
+		wantError string
+		wantFile  string
+	}{
+		{
+			name:      "link_out_of_the_root_stops_the_copy",
+			link:      func(outside string) string { return outside },
+			wantError: "path escapes from parent",
+		},
+		{
+			name:     "link_inside_the_root_is_merged_through",
+			link:     func(string) string { return "real" },
+			wantFile: "real/plugins.ini",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			src := t.TempDir()
+			dst := t.TempDir()
+			outside := t.TempDir()
+
+			require.NoError(t, os.Mkdir(filepath.Join(src, "addons"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(src, "addons", "plugins.ini"), []byte("plugins"), 0o644))
+			require.NoError(t, os.Mkdir(filepath.Join(dst, "real"), 0o755))
+			require.NoError(t, os.Symlink(tt.link(outside), filepath.Join(dst, "addons")))
+
+			err := CopyTree(openTestRoot(t, src), ".", openTestRoot(t, dst), ".", CopyOptions{ReplaceSymlinks: true})
+
+			entries, readErr := os.ReadDir(outside)
+			require.NoError(t, readErr)
+			assert.Empty(t, entries, "nothing may be created outside of the destination")
+
+			if tt.wantError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantError)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			content, err := os.ReadFile(filepath.Join(dst, filepath.FromSlash(tt.wantFile)))
+			require.NoError(t, err)
+			assert.Equal(t, "plugins", string(content))
+		})
+	}
+}
