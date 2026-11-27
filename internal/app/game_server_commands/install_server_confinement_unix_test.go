@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -727,8 +728,144 @@ func TestInstallator_PlainFile(t *testing.T) {
 				require.NoError(t, err)
 				assertInstalledFile(t, filepath.Join(stand.serverDir, "server.jar"), "PK jar content", tt.wantPerm)
 				assertInstalledFile(t, source, "PK jar content", tt.mode)
+				assert.Equal(t, []string{"server.jar"}, entryNames(t, stand.serverDir), "the file is all the installation leaves")
 			})
 		}
+	}
+}
+
+func entryNames(t *testing.T, dir string) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+
+	return names
+}
+
+// A directory under the name of the file is not taken away to make room for
+// it, as with an archive entry.
+func TestInstallator_PlainFileMeetsADirectory(t *testing.T) {
+	t.Parallel()
+
+	source := filepath.Join(t.TempDir(), "server.jar")
+	require.NoError(t, os.WriteFile(source, []byte("PK jar content"), 0o644))
+
+	for deliveryName, delivery := range deliveries {
+		t.Run(deliveryName, func(t *testing.T) {
+			t.Parallel()
+
+			stand := givenInstallStand(t)
+
+			kept := filepath.Join(stand.serverDir, "server.jar", "world", "level.dat")
+			require.NoError(t, os.MkdirAll(filepath.Dir(kept), 0o755))
+			require.NoError(t, os.WriteFile(kept, []byte("level"), 0o600))
+
+			err := stand.install("installer", delivery(t, source))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `failed to store "server.jar"`)
+			assertInstalledFile(t, kept, "level", 0o600)
+			assert.Equal(t, []string{"server.jar"}, entryNames(t, stand.serverDir), "nothing half-written is left behind")
+		})
+	}
+}
+
+var errSourceGaveOut = errors.New("the source gave out")
+
+// brokenSource serves the beginning of a file and fails then, the way a disk
+// or a network share gives out halfway.
+type brokenSource struct {
+	served bool
+}
+
+func (s *brokenSource) Read(p []byte) (int, error) {
+	if s.served {
+		return 0, errSourceGaveOut
+	}
+
+	s.served = true
+
+	return copy(p, "PK the beginning of"), nil
+}
+
+func (s *brokenSource) Seek(int64, int) (int64, error) {
+	return 0, nil
+}
+
+// An update replaces the jar the server runs. When writing the new one fails,
+// the server keeps the one it had: there is no other copy of it on the node.
+func TestStoreFile_FailedWriteKeepsWhatStoodUnderTheName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		plant func(t *testing.T, s *installStand)
+		check func(t *testing.T, s *installStand)
+	}{
+		{
+			name:  "nothing_stood_there",
+			plant: func(*testing.T, *installStand) {},
+			check: func(t *testing.T, s *installStand) {
+				t.Helper()
+
+				assert.Empty(t, entryNames(t, s.serverDir))
+			},
+		},
+		{
+			name: "jar_of_the_previous_version",
+			plant: func(t *testing.T, s *installStand) {
+				t.Helper()
+
+				old := filepath.Join(s.serverDir, "server.jar")
+				require.NoError(t, os.WriteFile(old, []byte("the jar of the previous version"), 0o600))
+			},
+			check: func(t *testing.T, s *installStand) {
+				t.Helper()
+
+				assertInstalledFile(t, filepath.Join(s.serverDir, "server.jar"), "the jar of the previous version", 0o600)
+				assert.Equal(t, []string{"server.jar"}, entryNames(t, s.serverDir))
+			},
+		},
+		{
+			name: "link_to_a_file_outside",
+			plant: func(t *testing.T, s *installStand) {
+				t.Helper()
+
+				require.NoError(t, os.Symlink(s.secret, filepath.Join(s.serverDir, "server.jar")))
+			},
+			check: func(t *testing.T, s *installStand) {
+				t.Helper()
+
+				assertInstalledSymlink(t, filepath.Join(s.serverDir, "server.jar"), s.secret)
+				assert.Equal(t, []string{"server.jar"}, entryNames(t, s.serverDir))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stand := givenInstallStand(t)
+			tt.plant(t, stand)
+
+			root, err := os.OpenRoot(stand.serverDir)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = root.Close() })
+
+			err = storeFile(root, "server.jar", &brokenSource{}, 0o644)
+
+			require.ErrorIs(t, err, errSourceGaveOut)
+			assert.Contains(t, err.Error(), "failed to write the file")
+			stand.assertOutsideUntouched(t)
+			tt.check(t, stand)
+		})
 	}
 }
 
@@ -813,6 +950,45 @@ func TestInstallator_BrokenArchive(t *testing.T) {
 			require.NoError(t, err)
 			assert.Empty(t, entries)
 		})
+	}
+}
+
+// The sources of a game are tried one after another, and an archive may give
+// out after some of its entries are in. The source that installs the game in
+// its place does not find them among its own files.
+func TestInstallator_FailedArchiveLeavesNothingForTheNextSource(t *testing.T) {
+	t.Parallel()
+
+	broken := givenTarGz(t, "game.tar.gz",
+		archiveEntry{name: "cstrike/"},
+		archiveEntry{name: "cstrike/only_in_the_broken_archive.cfg", body: "broken"},
+		archiveEntry{name: "hlds_run", body: "#!/bin/sh broken", mode: 0o755},
+		archiveEntry{name: "../passwd", body: "root:x:0:0"},
+	)
+
+	intact := givenTarGz(t, "game.tar.gz",
+		archiveEntry{name: "hlds_run", body: "#!/bin/sh", mode: 0o755},
+		archiveEntry{name: "valve/"},
+		archiveEntry{name: "valve/server.cfg", body: "hostname"},
+	)
+
+	for deliveryName, delivery := range deliveries {
+		for kind := range installatorKinds {
+			t.Run(deliveryName+"/"+kind, func(t *testing.T) {
+				t.Parallel()
+
+				stand := givenInstallStand(t)
+
+				err := stand.install(kind, delivery(t, broken), delivery(t, intact))
+
+				require.NoError(t, err)
+				stand.assertOutsideUntouched(t)
+				assert.Contains(t, stand.output.String(), `archive entry "../passwd" escapes the destination`)
+				assert.Equal(t, []string{"hlds_run", "valve"}, entryNames(t, stand.serverDir))
+				assertInstalledFile(t, filepath.Join(stand.serverDir, "hlds_run"), "#!/bin/sh", 0o755)
+				assertInstalledFile(t, filepath.Join(stand.serverDir, "valve", "server.cfg"), "hostname", 0o644)
+			})
+		}
 	}
 }
 
@@ -921,6 +1097,27 @@ func TestInstallator_ReportsSymlinksLeftOut(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An archive that holds nothing but links left out is turned away as empty.
+// The output names the links all the same: they are why it is.
+func TestInstallator_ReportsSymlinksLeftOutOfAnArchiveThatHoldsNothingElse(t *testing.T) {
+	t.Parallel()
+
+	stand := givenInstallStand(t)
+
+	err := stand.install("installer", localArchiveRule(givenTarGz(t, "game.tar.gz",
+		archiveEntry{name: "libsteam.so", linkname: "/usr/lib/libsteam.so"},
+	)))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to unpack "game.tar.gz": the archive holds no files`)
+	assert.Contains(
+		t,
+		stand.output.String(),
+		`Warning: symlink "libsteam.so" -> "/usr/lib/libsteam.so" was not created: absolute symlink target`,
+	)
+	assert.Empty(t, entryNames(t, stand.serverDir))
 }
 
 // The server directory is created by the installation that finds none.
@@ -1405,4 +1602,50 @@ func TestInstallatorAsRoot_SteamCMDDirIsSharedWithTheGameServerGroup(t *testing.
 	assert.Equal(t, uid, server.uid, "steamcmd installs as the game server user into a directory of its own")
 	assert.Equal(t, strconv.Itoa(uid), stand.executor.options.UID)
 	assert.Equal(t, strconv.Itoa(gid), stand.executor.options.GID)
+}
+
+// The steamcmd tree is shared with the group of the game servers, and a
+// steamcmd directory that is the work directory, or lies above it, has every
+// game server of the node in its tree. Those are not shared along with it.
+func TestInstallatorAsRoot_SteamCMDDirHoldingTheWorkDirIsNotShared(t *testing.T) {
+	t.Parallel()
+
+	steamCMDPaths := map[string]func(s *installStand) string{
+		"work_directory_itself": func(s *installStand) string {
+			return s.cfg.WorkPath
+		},
+		"directory_above_the_work_directory": func(s *installStand) string {
+			return filepath.Dir(s.cfg.WorkPath)
+		},
+	}
+
+	for name, steamCMDPath := range steamCMDPaths {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			stand := givenInstallStand(t)
+			uid, _ := requireRootAndTenant(t, stand)
+
+			stand.cfg.SteamCMDPath = steamCMDPath(stand)
+
+			neighbour := filepath.Join(stand.cfg.WorkPath, "another-server")
+			config := filepath.Join(neighbour, "server.cfg")
+			require.NoError(t, os.Mkdir(neighbour, 0o700))
+			require.NoError(t, os.WriteFile(config, []byte("rcon_password secret"), 0o600))
+
+			dirBefore := ownershipOf(t, neighbour)
+			fileBefore := ownershipOf(t, config)
+			workDirBefore := ownershipOf(t, stand.cfg.WorkPath)
+
+			err := stand.install("installer", steamRule())
+
+			require.NoError(t, err)
+			assert.Equal(t, dirBefore, ownershipOf(t, neighbour), "the directory of another server keeps its group and mode")
+			assert.Equal(t, fileBefore, ownershipOf(t, config), "the file of another server keeps its group and mode")
+			assert.Equal(t, workDirBefore, ownershipOf(t, stand.cfg.WorkPath), "the work directory keeps its group and mode")
+			assert.Contains(t, stand.output.String(), "is not shared with the game server group")
+			assert.Contains(t, stand.executor.command, "+app_update 90", "steamcmd is started all the same")
+			assert.Equal(t, uid, ownershipOf(t, stand.serverDir).uid)
+		})
+	}
 }

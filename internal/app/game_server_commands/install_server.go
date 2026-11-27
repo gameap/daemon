@@ -2,6 +2,7 @@ package gameservercommands
 
 import (
 	"context"
+	"crypto/rand"
 	"io"
 	"net/url"
 	"os"
@@ -60,6 +61,12 @@ const (
 	// maxReportedSkippedLinks bounds the lines one archive adds to the
 	// installation output for the symlinks it was not allowed to create.
 	maxReportedSkippedLinks = 20
+
+	// A repository file that is kept as it is, is written under a name made
+	// of these and a random part between them until it is complete, see
+	// storeFile.
+	stagedFilePrefix = ".gameap-install-"
+	stagedFileSuffix = ".part"
 )
 
 var repeatableSteamCMDInstallResults = hashset.New(7, 8)
@@ -654,11 +661,13 @@ func (in *installator) installFile(
 		return errors.WithMessagef(err, "[game_server_commands.installator] failed to unpack %q", name)
 	}
 
+	// Before the archive is turned away as empty: the links left out are the
+	// likely reason it holds nothing else.
+	in.reportSkippedLinks(ctx, result.SkippedLinks)
+
 	if result.FilesProcessed == 0 {
 		return errors.WithMessagef(errEmptyArchive, "[game_server_commands.installator] failed to unpack %q", name)
 	}
-
-	in.reportSkippedLinks(ctx, result.SkippedLinks)
 
 	return nil
 }
@@ -683,18 +692,23 @@ func (in *installator) reportSkippedLinks(ctx context.Context, skipped []archive
 }
 
 // storeFile writes src into the directory root is opened at, under name and in
-// place of what stands there: the file is created anew, so that a symlink
-// under that name is replaced and not written through.
+// place of what stands there.
+//
+// The file is written next to its destination and renamed onto it once it is
+// complete. What stood under the name stays until then, so a write that fails
+// leaves the server with the file it had. The rename takes the place of a
+// symlink under that name and does not write through it. A directory there is
+// not replaced, as with an archive entry: the file is not stored then.
 func storeFile(root *os.Root, name string, src io.ReadSeeker, perm os.FileMode) error {
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "failed to rewind the source")
 	}
 
-	if err := root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return errors.Wrap(err, "failed to remove what stands in its place")
-	}
+	// A name nobody can know beforehand, created anew: a symlink put under it
+	// would otherwise be written through.
+	staged := stagedFilePrefix + rand.Text() + stagedFileSuffix
 
-	out, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	out, err := root.OpenFile(staged, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		return errors.Wrap(err, "failed to create the file")
 	}
@@ -713,10 +727,12 @@ func storeFile(root *os.Root, name string, src io.ReadSeeker, perm os.FileMode) 
 		err = errors.Wrap(chmodErr, "failed to set the file mode")
 	case closeErr != nil:
 		err = errors.Wrap(closeErr, "failed to close the file")
+	default:
+		err = errors.Wrap(root.Rename(staged, name), "failed to put the file in place of what stands under its name")
 	}
 
 	if err != nil {
-		_ = root.Remove(name)
+		_ = root.Remove(staged)
 	}
 
 	return err
@@ -772,10 +788,7 @@ func (in *installator) installFromSteam(
 		return err
 	}
 
-	err = osowner.ApplyGroupSharedRecursiveInRoot(steamCMDDir, osowner.Options{
-		User:  server.User(),
-		Group: cfg.SteamConfig.Group,
-	})
+	err = in.shareSteamCMDDir(ctx, steamCMDDir, server)
 	_ = steamCMDDir.Close()
 
 	if err != nil {
@@ -848,6 +861,77 @@ func (in *installator) installFromSteam(
 	return nil
 }
 
+// shareSteamCMDDir makes the steamcmd tree writable for the group of the game
+// servers, see osowner.ApplyGroupSharedRecursiveInRoot.
+//
+// The tree is all there is below the directory, and below a directory that is
+// the work directory or holds it there are the game servers of the node.
+// Sharing it would let every user of that group write to the files of every
+// server. Such a directory is left as it is, and the installation output says
+// so: steamcmd is given a directory of its own.
+func (in *installator) shareSteamCMDDir(ctx context.Context, steamCMDDir *os.Root, server *domain.Server) error {
+	holdsWorkDir, err := holdsDir(steamCMDDir, in.cfg.WorkDir())
+	if err != nil {
+		return errors.WithMessage(err, "failed to tell whether it holds the work directory")
+	}
+
+	if holdsWorkDir {
+		// A daemon that is not root shares nothing, and neither does one on
+		// Windows: there is nothing to say then.
+		if isRootUser() && runtime.GOOS != "windows" {
+			in.writeOutput(
+				ctx,
+				"Warning: steamcmd directory "+in.cfg.SteamCMDPath+" holds the work directory "+in.cfg.WorkDir()+
+					" and is not shared with the game server group: the game servers would be shared along with it. "+
+					"Point steamcmd_path to a directory of its own",
+			)
+		}
+
+		return nil
+	}
+
+	return osowner.ApplyGroupSharedRecursiveInRoot(steamCMDDir, osowner.Options{
+		User:  server.User(),
+		Group: in.cfg.SteamConfig.Group,
+	})
+}
+
+// holdsDir reports whether dir is the directory root is opened at or lies
+// below it. They are compared as directories and not by name: a directory can
+// be spelled in more than one way.
+func holdsDir(root *os.Root, dir string) (bool, error) {
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return false, errors.Wrap(err, "failed to stat the directory")
+	}
+
+	// The directories dir lies in are the ones its name leads through once the
+	// links in it are resolved. A directory that is not there yet has only the
+	// name it is configured by.
+	current := dir
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		current = resolved
+	}
+
+	current, err = filepath.Abs(current)
+	if err != nil {
+		return false, errors.Wrapf(err, "failed to make %q absolute", dir)
+	}
+
+	for {
+		if info, err := os.Stat(current); err == nil && os.SameFile(rootInfo, info) {
+			return true, nil
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false, nil
+		}
+
+		current = parent
+	}
+}
+
 func (in *installator) makeSteamCMDCommand(appID string, server *domain.Server) string {
 	execCmd := strings.Builder{}
 
@@ -918,7 +1002,22 @@ func (in *installator) openSteamCMDDir() (*os.Root, error) {
 //
 // The last element of dir is never resolved. What stands under that name is
 // what the caller is about to open.
+//
+// A relative name is compared as the directory it names for whoever opens it:
+// from the directory the daemon runs in, which may well be the work directory.
 func relativeToWorkDir(workDir, dir string) (string, bool) {
+	if dir == "" {
+		return "", false
+	}
+
+	if abs, err := filepath.Abs(workDir); err == nil {
+		workDir = abs
+	}
+
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+
 	bases := []string{workDir}
 	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
 		bases = append(bases, resolved)

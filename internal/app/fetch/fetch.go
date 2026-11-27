@@ -119,7 +119,7 @@ func Download(ctx context.Context, rawURL string, dst io.Writer, tracker Progres
 func parseSource(rawURL string) (*url.URL, error) {
 	source, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to parse the source")
+		return nil, parseError(err)
 	}
 
 	if (source.Scheme != "http" && source.Scheme != "https") || source.Host == "" {
@@ -127,4 +127,27 @@ func parseSource(rawURL string) (*url.URL, error) {
 	}
 
 	return source, nil
+}
+
+// parseError tells why a source could not be parsed without repeating any of
+// it. The source may carry credentials, and it cannot be redacted the way a
+// parsed one is: the error of url.Parse quotes it as a whole, and the reason
+// inside that error quotes the part that is wrong, which a password with a
+// slash or a percent sign in it turns out to be.
+func parseError(err error) error {
+	var (
+		escapeErr url.EscapeError
+		hostErr   url.InvalidHostError
+	)
+
+	reason := "it is not a valid URL"
+
+	switch {
+	case errors.As(err, &escapeErr):
+		reason = "it has a percent sign that is not followed by two hex digits, a literal one is written %25"
+	case errors.As(err, &hostErr):
+		reason = "its host is not valid"
+	}
+
+	return errors.New("failed to parse the source: " + reason)
 }

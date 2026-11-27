@@ -71,10 +71,25 @@ func IsArchiveName(name string) bool {
 // archive keeps closed to the other users of the node stays closed, whatever
 // the files in it allow.
 //
+// A directory the archive keeps its owner from writing into (0555) takes that
+// mode once the archive is through, and stays open to its owner until then:
+// its entries come after its own, and a daemon that is not root could not
+// create them otherwise.
+//
 // Every other directory is created with 0755, and one that was there keeps its
 // mode. That is a directory the archive only implies, and any directory of the
 // other formats: those may record no permissions, and their readers make them
-// up then (0777 for a directory of a zip made on Windows).
+// up then (0777 for a directory of a zip made on Windows). An entry without
+// any permission bits is taken to record none either, as the archives written
+// without them have it: a file is then created with 0644, a directory with
+// 0755, and the destination keeps its mode.
+//
+// A run that fails takes away what it had put where nothing stood before: the
+// files, links and directories that are new to the destination. Whoever tries
+// another source next does not find the leftovers of this one among its files.
+// What the run had replaced by then is not brought back and stays as the
+// archive has it, and a directory that stays is given its mode as after a run
+// that went through.
 //
 // The limits Extract applies to the request of a panel user are not applied.
 func ExtractTree(
@@ -118,13 +133,23 @@ func ExtractTree(
 		mergeLinkedDirs: true,
 		skipUnsafeLinks: true,
 		keepDirs:        true,
+		applyDestMode:   true,
+		undoCreated:     true,
 	}
 
 	extractErr := extractEntries(ctx, archiveFile, name, class, format, s)
 
-	// As in Extract: the links are settled against the finished tree, also
-	// after a run that failed.
+	// As in Extract: the links are settled against the finished tree and the
+	// directory modes after them, also after a run that failed.
 	linkErr := s.revalidateLinks()
+
+	// Before the modes: an entry is taken out of a directory that can still be
+	// written to.
+	if extractErr != nil || linkErr != nil {
+		s.removeCreated()
+	}
+
+	modeErr := s.applyDirModes(".")
 
 	if extractErr != nil {
 		return nil, extractErr
@@ -132,15 +157,8 @@ func ExtractTree(
 	if linkErr != nil {
 		return nil, linkErr
 	}
-
-	// Last, as the entries below it are in by now: a destination its owner may
-	// not write to would not have taken them from a daemon that is not root.
-	if s.preserveDirs && s.destPerm != 0 {
-		if err := root.Chmod(".", s.destPerm); err != nil {
-			return nil, errors.Wrapf(
-				err, "failed to give the destination the mode %#o archive %q has for it", s.destPerm, name,
-			)
-		}
+	if modeErr != nil {
+		return nil, errors.WithMessagef(modeErr, "failed to settle the directory modes of archive %q", name)
 	}
 
 	return &Result{

@@ -27,6 +27,11 @@ const (
 // root the directory was opened with. Whatever stands under its name goes
 // first: a symlink left there is taken away, not written through, and the mode
 // is set on the file that was created, not on what its name leads to.
+//
+// The name is the daemon's own, and no game installs anything under it. A
+// directory found there is therefore removed like a file, with all it holds:
+// an installation is not held up by what an earlier one, or the tenant, left
+// under that name.
 func writeInstallScript(serverDir *os.Root, script string) error {
 	err := serverDir.RemoveAll(installScriptName)
 	if err != nil {

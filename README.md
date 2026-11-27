@@ -127,6 +127,13 @@ Before running steamcmd the daemon applies, recursively, the setgid bit plus gro
 group is taken from `steam_config.group`, falling back to the `su_user` primary group
 when empty.
 
+Keep steamcmd in a directory of its own, for example `<work_path>/steamcmd`. Everything
+below `steamcmd_path` is shared with that group, so when `steamcmd_path` is the
+`work_path` itself or a directory above it the daemon leaves the permissions as they
+are: sharing would make the files of every game server on the node writable for the
+group. The installation output carries a warning then, and steamcmd runs with whatever
+access its directory already gives the `su_user`.
+
 On a node with several different `su_user`s, set `steam_config.group` to a shared
 group and add every `su_user` to it (e.g. `usermod -aG <group> <su_user>`). The
 daemon then keeps the steamcmd directory consistently group-shared so self-updates

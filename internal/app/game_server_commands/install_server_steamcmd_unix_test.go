@@ -142,3 +142,106 @@ func TestRelativeToWorkDir(t *testing.T) {
 		})
 	}
 }
+
+// A relative steamcmd_path names a directory from wherever the daemon runs,
+// and the daemon may well run in the work directory. The directory is in the
+// work directory then, whatever its name looks like.
+//
+// Not parallel: the test changes the directory of the process.
+func TestRelativeToWorkDir_RelativeDirectoryOfADaemonRunningInTheWorkDir(t *testing.T) {
+	workDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+
+	t.Chdir(workDir)
+
+	for _, dir := range []string{"steamcmd", "./steamcmd", filepath.Join("tools", "..", "steamcmd")} {
+		rel, ok := relativeToWorkDir(workDir, dir)
+
+		assert.True(t, ok, dir)
+		assert.Equal(t, "steamcmd", rel, dir)
+	}
+
+	_, ok := relativeToWorkDir(workDir, filepath.Join("..", "steamcmd"))
+	assert.False(t, ok, "a relative name that leaves the work directory is out of it")
+
+	_, ok = relativeToWorkDir(workDir, "")
+	assert.False(t, ok, "a directory that is not configured is not the one the daemon runs in")
+}
+
+// A symlink in place of a steamcmd directory that is configured by a relative
+// name is refused like any other, instead of being followed by its path.
+//
+// Not parallel: the test changes the directory of the process.
+func TestInstallator_RelativeSteamCMDDirReplacedByASymlink(t *testing.T) {
+	stand := givenInstallStand(t)
+	stand.cfg.SteamCMDPath = "steamcmd"
+
+	require.NoError(t, os.Symlink(stand.outside, filepath.Join(stand.cfg.WorkPath, "steamcmd")))
+
+	t.Chdir(stand.cfg.WorkPath)
+
+	err := stand.install("installer", steamRule())
+
+	stand.assertOutsideUntouched(t)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "symlinks that lead out of it are not followed")
+	assert.Empty(t, stand.executor.command, "steamcmd is not started")
+}
+
+// Whether the steamcmd directory holds the work directory decides whether its
+// tree is shared with the group of the game servers. The two are compared as
+// directories: a name need not be the only one a directory has.
+func TestHoldsDir(t *testing.T) {
+	t.Parallel()
+
+	// The layout:
+	//
+	//	real/node                  the directory the root is opened at
+	//	real/node/gameap           a directory in it
+	//	real/node-old/gameap       a directory next to it with a name that starts the same
+	//	real/elsewhere             a directory out of it
+	//	real/elsewhere/into        a symlink to real/node/gameap
+	//	alias                      a symlink to real
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	alias := filepath.Join(base, "alias")
+
+	for _, dir := range []string{"node/gameap", "node-old/gameap", "elsewhere"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(real, filepath.FromSlash(dir)), 0o755))
+	}
+
+	require.NoError(t, os.Symlink("../node/gameap", filepath.Join(real, "elsewhere", "into")))
+	require.NoError(t, os.Symlink("real", alias))
+
+	root, err := os.OpenRoot(filepath.Join(real, "node"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
+
+	tests := []struct {
+		name string
+		dir  string
+		want bool
+	}{
+		{name: "directory_itself", dir: filepath.Join(real, "node"), want: true},
+		{name: "directory_in_it", dir: filepath.Join(real, "node", "gameap"), want: true},
+		{name: "directory_itself_named_through_a_symlink", dir: filepath.Join(alias, "node"), want: true},
+		{name: "directory_in_it_named_through_a_symlink", dir: filepath.Join(alias, "node", "gameap"), want: true},
+		{name: "symlink_elsewhere_that_leads_into_it", dir: filepath.Join(real, "elsewhere", "into"), want: true},
+		{name: "directory_in_it_that_is_not_there_yet", dir: filepath.Join(real, "node", "servers", "new"), want: true},
+		{name: "directory_above_it", dir: real},
+		{name: "directory_out_of_it", dir: filepath.Join(real, "elsewhere")},
+		{name: "directory_next_to_it_with_a_name_that_starts_the_same", dir: filepath.Join(real, "node-old", "gameap")},
+		{name: "directory_out_of_it_that_is_not_there_yet", dir: filepath.Join(real, "elsewhere", "new")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := holdsDir(root, tt.dir)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

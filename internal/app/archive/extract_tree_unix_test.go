@@ -6,12 +6,15 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	pb "github.com/gameap/gameap/pkg/proto"
 )
 
 // tarEntry is one entry for buildTarGz. The zero typeflag is a regular file
@@ -22,6 +25,9 @@ type tarEntry struct {
 	mode     int64
 	body     string
 	linkname string
+	// noMode stores the entry without any permission bits, the way a program
+	// that never sets them writes its archives.
+	noMode bool
 }
 
 // buildTarGz writes a tar.gz with the entries in the order given, the way a
@@ -48,7 +54,7 @@ func buildTarGz(t *testing.T, entries []tarEntry) string {
 		if hdr.Typeflag == 0 {
 			hdr.Typeflag = tar.TypeReg
 		}
-		if hdr.Mode == 0 {
+		if hdr.Mode == 0 && !e.noMode {
 			hdr.Mode = 0o644
 		}
 
@@ -63,6 +69,23 @@ func buildTarGz(t *testing.T, entries []tarEntry) string {
 	require.NoError(t, f.Close())
 
 	return archivePath
+}
+
+// keepRemovable gives the directories below dir back to their owner once the
+// test is over. The temporary directory of a test is removed as the user the
+// test runs as, who cannot empty a directory that is closed to its owner.
+func keepRemovable(t *testing.T, dir string) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				_ = os.Chmod(path, 0o755)
+			}
+
+			return nil
+		})
+	})
 }
 
 // outsideFile creates a file that stands for something of the node no archive
@@ -670,6 +693,41 @@ func TestExtractTree_DirectoryModes(t *testing.T) {
 			},
 		},
 		{
+			name: "tar_directory_below_one_only_implied_leaves_that_one_at_0755",
+			archive: tarOf(
+				tarEntry{name: "implied/closed/", typeflag: tar.TypeDir, mode: 0o700},
+				tarEntry{name: "implied/closed/users.ini", body: "admin", mode: 0o664},
+			),
+			wantModes: map[string]os.FileMode{
+				"implied":        0o755,
+				"implied/closed": 0o700,
+			},
+		},
+		{
+			name: "tar_directory_without_permission_bits_is_created_with_0755",
+			archive: tarOf(
+				tarEntry{name: "generated/", typeflag: tar.TypeDir, noMode: true},
+				tarEntry{name: "generated/file.txt", body: "file", noMode: true},
+			),
+			wantModes: map[string]os.FileMode{
+				"generated": 0o755,
+			},
+		},
+		{
+			name: "tar_entry_for_the_destination_without_permission_bits_leaves_it_as_it_is",
+			setup: func(t *testing.T, dir string) {
+				t.Helper()
+				require.NoError(t, os.Chmod(dir, 0o750))
+			},
+			archive: tarOf(
+				tarEntry{name: "./", typeflag: tar.TypeDir, noMode: true},
+				tarEntry{name: "./hlds_run", body: "#!/bin/sh", mode: 0o755},
+			),
+			wantModes: map[string]os.FileMode{
+				destination: 0o750,
+			},
+		},
+		{
 			name: "zip_directory_is_created_with_0755_whatever_the_archive_has",
 			setup: func(t *testing.T, dir string) {
 				t.Helper()
@@ -722,6 +780,329 @@ func TestExtractTree_DirectoryModes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An archive can keep a directory from being written to by its own owner:
+// 0555 is how some games ship theirs. The entries of such a directory come
+// after its own, and a daemon that is not root creates them only as long as
+// the directory can still be written to. It takes its mode once they are in.
+func TestExtractTree_DirectoryClosedToItsOwner(t *testing.T) {
+	t.Parallel()
+
+	const destination = "."
+
+	tests := []struct {
+		name string
+		// setup prepares the destination before the archive is unpacked.
+		setup     func(t *testing.T, dir string)
+		entries   []tarEntry
+		wantModes map[string]os.FileMode
+		wantFiles map[string]string
+	}{
+		{
+			name: "directory_takes_its_entries_first",
+			entries: []tarEntry{
+				{name: "assets/", typeflag: tar.TypeDir, mode: 0o555},
+				{name: "assets/models/", typeflag: tar.TypeDir, mode: 0o555},
+				{name: "assets/models/player.mdl", body: "mdl", mode: 0o444},
+				{name: "assets/readme.txt", body: "readme"},
+			},
+			wantModes: map[string]os.FileMode{
+				"assets":        0o555,
+				"assets/models": 0o555,
+			},
+			wantFiles: map[string]string{
+				"assets/models/player.mdl": "mdl",
+				"assets/readme.txt":        "readme",
+			},
+		},
+		{
+			name: "directory_that_was_there_takes_the_entries_of_an_update",
+			setup: func(t *testing.T, dir string) {
+				t.Helper()
+
+				assets := filepath.Join(dir, "assets")
+				require.NoError(t, os.Mkdir(assets, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(assets, "readme.txt"), []byte("the previous version"), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(assets, "kept.txt"), []byte("kept"), 0o644))
+				require.NoError(t, os.Chmod(assets, 0o555))
+			},
+			entries: []tarEntry{
+				{name: "assets/", typeflag: tar.TypeDir, mode: 0o555},
+				{name: "assets/readme.txt", body: "readme"},
+				{name: "assets/added.txt", body: "added"},
+			},
+			wantModes: map[string]os.FileMode{
+				"assets": 0o555,
+			},
+			wantFiles: map[string]string{
+				"assets/readme.txt": "readme",
+				"assets/added.txt":  "added",
+				"assets/kept.txt":   "kept",
+			},
+		},
+		{
+			name: "directory_listed_twice_ends_up_with_the_later_mode",
+			entries: []tarEntry{
+				{name: "assets/", typeflag: tar.TypeDir, mode: 0o555},
+				{name: "assets/readme.txt", body: "readme"},
+				{name: "assets/", typeflag: tar.TypeDir, mode: 0o750},
+			},
+			wantModes: map[string]os.FileMode{
+				"assets": 0o750,
+			},
+			wantFiles: map[string]string{
+				"assets/readme.txt": "readme",
+			},
+		},
+		{
+			name: "directory_below_one_only_implied",
+			entries: []tarEntry{
+				{name: "implied/assets/", typeflag: tar.TypeDir, mode: 0o555},
+				{name: "implied/assets/readme.txt", body: "readme"},
+			},
+			wantModes: map[string]os.FileMode{
+				"implied":        0o755,
+				"implied/assets": 0o555,
+			},
+			wantFiles: map[string]string{
+				"implied/assets/readme.txt": "readme",
+			},
+		},
+		{
+			name: "destination_takes_its_entries_first",
+			entries: []tarEntry{
+				{name: "./", typeflag: tar.TypeDir, mode: 0o555},
+				{name: "./hlds_run", body: "#!/bin/sh", mode: 0o755},
+				{name: "./cstrike/", typeflag: tar.TypeDir, mode: 0o755},
+				{name: "./cstrike/server.cfg", body: "hostname"},
+			},
+			wantModes: map[string]os.FileMode{
+				destination: 0o555,
+				"cstrike":   0o755,
+			},
+			wantFiles: map[string]string{
+				"hlds_run":           "#!/bin/sh",
+				"cstrike/server.cfg": "hostname",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root, dir := treeDestination(t)
+			require.NoError(t, os.Chmod(dir, 0o755))
+			keepRemovable(t, dir)
+
+			if tt.setup != nil {
+				tt.setup(t, dir)
+			}
+
+			archive := buildTarGz(t, tt.entries)
+
+			_, err := ExtractTree(context.Background(), openArchive(t, archive), "game.tar.gz", root, TreeOptions{})
+			require.NoError(t, err)
+
+			for name, want := range tt.wantModes {
+				info, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(name)))
+				require.NoError(t, err, name)
+				require.True(t, info.IsDir(), name)
+				assert.Equal(t, want, info.Mode().Perm(), name)
+			}
+
+			for name, want := range tt.wantFiles {
+				content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
+				require.NoError(t, err, name)
+				assert.Equal(t, want, string(content), name)
+			}
+		})
+	}
+}
+
+// The modes held back are applied from the deepest directory up. A directory
+// is reached through the ones above it, and the archive may take the search
+// permission from one of those.
+func TestExtractTree_DirectoryThatCannotBeSearchedIsClosedLast(t *testing.T) {
+	t.Parallel()
+
+	root, dir := treeDestination(t)
+	keepRemovable(t, dir)
+
+	archive := buildTarGz(t, []tarEntry{
+		{name: "vault/", typeflag: tar.TypeDir, mode: 0o600},
+		{name: "vault/inner/", typeflag: tar.TypeDir, mode: 0o500},
+		{name: "vault/inner/key", body: "key", mode: 0o400},
+	})
+
+	_, err := ExtractTree(context.Background(), openArchive(t, archive), "game.tar.gz", root, TreeOptions{})
+	require.NoError(t, err)
+
+	vault := filepath.Join(dir, "vault")
+
+	info, err := os.Lstat(vault)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	// What is below can only be looked at once the directory lets it.
+	require.NoError(t, os.Chmod(vault, 0o700))
+
+	info, err = os.Lstat(filepath.Join(vault, "inner"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o500), info.Mode().Perm())
+	assertRegularFile(t, filepath.Join(vault, "inner", "key"), "key", 0o400)
+}
+
+// A run that fails takes away what it had put where nothing stood, so that the
+// next source of the installation does not find it among its own files. What
+// was there before stays: a file the run had replaced, as the archive has it,
+// and a directory it had merged into, no more open to its owner than the
+// archive has it.
+func TestExtractTree_FailedRun(t *testing.T) {
+	t.Parallel()
+
+	root, dir := treeDestination(t)
+	keepRemovable(t, dir)
+
+	assets := filepath.Join(dir, "assets")
+	require.NoError(t, os.Mkdir(assets, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(assets, "readme.txt"), []byte("the previous version"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "server.cfg"), []byte("hostname"), 0o600))
+	require.NoError(t, os.Symlink("server.cfg", filepath.Join(dir, "kept_link")))
+
+	archive := buildTarGz(t, []tarEntry{
+		{name: "assets/", typeflag: tar.TypeDir, mode: 0o555},
+		{name: "assets/readme.txt", body: "readme"},
+		{name: "assets/added.txt", body: "added"},
+		{name: "assets/models/", typeflag: tar.TypeDir, mode: 0o555},
+		{name: "assets/models/player.mdl", body: "mdl", mode: 0o444},
+		{name: "implied/by/file.txt", body: "file"},
+		{name: "hlds_run", body: "#!/bin/sh", mode: 0o755},
+		{name: "libSDL2.so", typeflag: tar.TypeSymlink, linkname: "libSDL2-2.0.so.0"},
+		{name: "../passwd", body: "root:x:0:0"},
+	})
+
+	res, err := ExtractTree(context.Background(), openArchive(t, archive), "game.tar.gz", root, TreeOptions{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `archive entry "../passwd" escapes the destination`)
+	assert.Nil(t, res)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+
+	assert.Equal(t, []string{"assets", "kept_link", "server.cfg"}, names, "nothing new is left in the destination")
+
+	info, err := os.Lstat(assets)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o555), info.Mode().Perm())
+
+	entries, err = os.ReadDir(assets)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "nothing new is left in a directory that was there")
+
+	assertRegularFile(t, filepath.Join(assets, "readme.txt"), "readme", 0o644)
+	assertRegularFile(t, filepath.Join(dir, "server.cfg"), "hostname", 0o600)
+	assertSymlink(t, filepath.Join(dir, "kept_link"), "server.cfg")
+}
+
+// A run that is canceled is a run that failed.
+func TestExtractTree_CanceledRunLeavesNothingNew(t *testing.T) {
+	t.Parallel()
+
+	root, dir := treeDestination(t)
+
+	archive := buildTarGz(t, []tarEntry{
+		{name: "cstrike/", typeflag: tar.TypeDir, mode: 0o755},
+		{name: "cstrike/server.cfg", body: "hostname"},
+		{name: "hlds_run", body: "#!/bin/sh", mode: 0o755},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// The progress of the first entry is the last thing the run gets to report.
+	_, err := ExtractTree(ctx, openArchive(t, archive), "game.tar.gz", root, TreeOptions{
+		Progress: func(int64, int64, string) { cancel() },
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+// A symlink the root follows to a directory takes directory entries, and a
+// later entry may take the link away. The directories reached through it stay
+// where they are and get their modes before the name stops leading to them.
+func TestExtractTree_ModesOfDirectoriesBehindALinkThatIsReplaced(t *testing.T) {
+	t.Parallel()
+
+	root, dir := treeDestination(t)
+	keepRemovable(t, dir)
+
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "real"), 0o755))
+	require.NoError(t, os.Symlink("real", filepath.Join(dir, "link")))
+
+	archive := buildTarGz(t, []tarEntry{
+		{name: "link/sub/", typeflag: tar.TypeDir, mode: 0o555},
+		{name: "link/sub/readme.txt", body: "readme"},
+		{name: "link", body: "a file now", mode: 0o600},
+	})
+
+	_, err := ExtractTree(context.Background(), openArchive(t, archive), "game.tar.gz", root, TreeOptions{})
+	require.NoError(t, err)
+
+	assertRegularFile(t, filepath.Join(dir, "link"), "a file now", 0o600)
+
+	info, err := os.Lstat(filepath.Join(dir, "real", "sub"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o555), info.Mode().Perm())
+	assertRegularFile(t, filepath.Join(dir, "real", "sub", "readme.txt"), "readme", 0o644)
+}
+
+// Extract takes the modes of directories from the archive when the request
+// asks for them, and holds them back the same way.
+func TestExtract_PreservedDirectoryClosedToItsOwner(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	keepRemovable(t, workDir)
+
+	archive, err := os.ReadFile(buildTarGz(t, []tarEntry{
+		{name: "assets/", typeflag: tar.TypeDir, mode: 0o555},
+		{name: "assets/models/", typeflag: tar.TypeDir, mode: 0o555},
+		{name: "assets/models/player.mdl", body: "mdl", mode: 0o444},
+		{name: "replaced/", typeflag: tar.TypeDir, mode: 0o555},
+		{name: "replaced/inner/", typeflag: tar.TypeDir, mode: 0o555},
+		{name: "replaced", body: "a file now", mode: 0o640},
+	}))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "game.tar.gz"), archive, 0o644))
+
+	_, err = Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:         "game.tar.gz",
+		Destination:         "dst",
+		CreateDestination:   true,
+		PreservePermissions: true,
+		ConflictPolicy:      pb.ArchiveConflictPolicy_ARCHIVE_CONFLICT_POLICY_OVERWRITE,
+	}, nil)
+	require.NoError(t, err)
+
+	for _, name := range []string{"assets", "assets/models"} {
+		info, err := os.Lstat(filepath.Join(workDir, "dst", filepath.FromSlash(name)))
+		require.NoError(t, err, name)
+		assert.Equal(t, os.FileMode(0o555), info.Mode().Perm(), name)
+	}
+
+	assertRegularFile(t, filepath.Join(workDir, "dst", "assets", "models", "player.mdl"), "mdl", 0o444)
+	assertRegularFile(t, filepath.Join(workDir, "dst", "replaced"), "a file now", 0o640)
 }
 
 // A hardlink of the archive is stored as a copy, and what it copies is read

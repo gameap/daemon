@@ -180,7 +180,27 @@ func TestFileName(t *testing.T) {
 		{
 			name:      "unparsable_source",
 			source:    "https://exa mple.com/game.zip",
-			wantError: "failed to parse the source",
+			wantError: "failed to parse the source: its host is not valid",
+		},
+		{
+			name:      "unparsable_source_is_not_repeated_in_the_error",
+			source:    "https://user:secret@example.com:port/game.zip",
+			wantError: "failed to parse the source: it is not a valid URL",
+		},
+		{
+			name:      "wrong_escape_in_the_password_is_not_repeated_in_the_error",
+			source:    "https://user:secret%zz@example.com/game.zip",
+			wantError: "failed to parse the source: it has a percent sign that is not followed by two hex digits, a literal one is written %25",
+		},
+		{
+			name:      "password_with_a_slash_is_not_repeated_in_the_error",
+			source:    "https://user:secret/tail@example.com/game.zip",
+			wantError: "failed to parse the source: it is not a valid URL",
+		},
+		{
+			name:      "wrong_escape_in_the_path_of_a_source_with_a_password",
+			source:    "https://user:secret@example.com/game%zz.zip",
+			wantError: "failed to parse the source: it has a percent sign that is not followed by two hex digits, a literal one is written %25",
 		},
 	}
 
