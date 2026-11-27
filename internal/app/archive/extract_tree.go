@@ -17,6 +17,10 @@ type TreeOptions struct {
 	// Owner is given to every entry the archive creates.
 	Owner    osowner.Options
 	Progress ProgressFunc
+	// Format is what the archive is unpacked as when the caller was told. Left
+	// unspecified, it is taken from the content and, failing that, from the
+	// name.
+	Format pb.ArchiveFormat
 }
 
 // SkippedLink is a symlink entry ExtractTree left out.
@@ -42,7 +46,7 @@ func IsArchiveName(name string) bool {
 // entry is written through. Nothing is resolved by a path here, so what the
 // entries can reach is decided by how the caller opened root. name is what the
 // archive is called; its format is taken from the content and, failing that,
-// from the name.
+// from the name, unless the options give one.
 //
 // The archive is an installation source the operator configured, and the tree
 // it lands in may hold what a tenant put there. The entries are therefore
@@ -112,9 +116,11 @@ func ExtractTree(
 		return nil, errors.Wrapf(err, "failed to rewind archive %q", name)
 	}
 
-	format, err := detectFormat(archiveFile, name)
-	if err != nil {
-		return nil, err
+	format := opts.Format
+	if format == pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED {
+		if format, err = detectFormat(archiveFile, name); err != nil {
+			return nil, err
+		}
 	}
 
 	class, err := classify(format)

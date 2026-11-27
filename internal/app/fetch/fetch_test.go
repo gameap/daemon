@@ -64,6 +64,16 @@ func (s *recordedStream) Close() error {
 	return s.ReadCloser.Close()
 }
 
+// download takes a source apart and downloads it, the way a caller does.
+func download(ctx context.Context, rawURL string, dst io.Writer, tracker ProgressTracker) (int64, error) {
+	source, err := Parse(rawURL)
+	if err != nil {
+		return 0, err
+	}
+
+	return source.Download(ctx, dst, tracker)
+}
+
 func newServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 
@@ -73,7 +83,7 @@ func newServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	return server
 }
 
-func TestFileName(t *testing.T) {
+func TestParse_Name(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -208,28 +218,28 @@ func TestFileName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := FileName(tt.source)
+			got, err := Parse(tt.source)
 
 			if tt.wantError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantError)
 				assert.NotContains(t, err.Error(), "secret")
-				assert.Empty(t, got)
+				assert.Nil(t, got)
 
 				return
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.want, got.Name())
 		})
 	}
 }
 
-func TestFileName_UnsupportedSourceIsRecognizable(t *testing.T) {
+func TestParse_UnsupportedSourceIsRecognizable(t *testing.T) {
 	t.Parallel()
 
 	for _, source := range []string{"ftp://example.com/game.zip", "https://example.com/files/", "game.zip"} {
-		_, err := FileName(source)
+		_, err := Parse(source)
 
 		require.ErrorIs(t, err, ErrUnsupportedSource, source)
 	}
@@ -256,7 +266,7 @@ func TestDownload_StoresWhatTheSourceServes(t *testing.T) {
 	tracker := &recordingTracker{}
 	source := server.URL + "/repo/game.tar.gz?token=abc"
 
-	written, err := Download(context.Background(), source, &dst, tracker)
+	written, err := download(context.Background(), source, &dst, tracker)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(len(content)), written)
@@ -284,7 +294,7 @@ func TestDownload_WithoutATracker(t *testing.T) {
 
 	var dst bytes.Buffer
 
-	written, err := Download(context.Background(), server.URL+"/tool", &dst, nil)
+	written, err := download(context.Background(), server.URL+"/tool", &dst, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), written)
@@ -311,7 +321,7 @@ func TestDownload_UnknownLength(t *testing.T) {
 	var dst bytes.Buffer
 	tracker := &recordingTracker{}
 
-	written, err := Download(context.Background(), server.URL+"/stream.bin", &dst, tracker)
+	written, err := download(context.Background(), server.URL+"/stream.bin", &dst, tracker)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(18), written)
@@ -338,7 +348,7 @@ func TestDownload_FollowsRedirects(t *testing.T) {
 
 	var dst bytes.Buffer
 
-	written, err := Download(context.Background(), origin.URL+"/game.zip", &dst, nil)
+	written, err := download(context.Background(), origin.URL+"/game.zip", &dst, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(15), written)
@@ -365,7 +375,7 @@ func TestDownload_KeepsAnEncodedBodyAsItIsSent(t *testing.T) {
 
 	var dst bytes.Buffer
 
-	written, err := Download(context.Background(), server.URL+"/game.tar.gz", &dst, nil)
+	written, err := download(context.Background(), server.URL+"/game.tar.gz", &dst, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(packed.Len()), written)
@@ -388,7 +398,7 @@ func TestDownload_SendsTheCredentialsOfTheSource(t *testing.T) {
 	var dst bytes.Buffer
 	tracker := &recordingTracker{}
 
-	_, err := Download(context.Background(), source, &dst, tracker)
+	_, err := download(context.Background(), source, &dst, tracker)
 
 	require.NoError(t, err)
 	assert.Equal(t, "repo", gotUser)
@@ -448,7 +458,7 @@ func TestDownload_ServerRefuses(t *testing.T) {
 			var dst bytes.Buffer
 			tracker := &recordingTracker{}
 
-			written, err := Download(context.Background(), source, &dst, tracker)
+			written, err := download(context.Background(), source, &dst, tracker)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantError)
@@ -472,7 +482,7 @@ func TestDownload_ConnectionBreaksBeforeTheBodyIsComplete(t *testing.T) {
 	var dst bytes.Buffer
 	tracker := &recordingTracker{}
 
-	written, err := Download(context.Background(), server.URL+"/game.zip", &dst, tracker)
+	written, err := download(context.Background(), server.URL+"/game.zip", &dst, tracker)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to download")
@@ -490,7 +500,7 @@ func TestDownload_ServerIsNotThere(t *testing.T) {
 
 	var dst bytes.Buffer
 
-	written, err := Download(context.Background(), source, &dst, nil)
+	written, err := download(context.Background(), source, &dst, nil)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to download")
@@ -542,7 +552,7 @@ func TestDownload_CanceledWhileTheBodyArrives(t *testing.T) {
 	dst := &cancelingWriter{cancel: cancel}
 	tracker := &recordingTracker{}
 
-	written, err := Download(ctx, server.URL+"/game.zip", dst, tracker)
+	written, err := download(ctx, server.URL+"/game.zip", dst, tracker)
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, int64(11), written)
@@ -566,7 +576,7 @@ func TestDownload_CanceledBeforeItStarts(t *testing.T) {
 
 	var dst bytes.Buffer
 
-	written, err := Download(ctx, server.URL+"/game.zip", &dst, nil)
+	written, err := download(ctx, server.URL+"/game.zip", &dst, nil)
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Zero(t, written)
@@ -590,7 +600,7 @@ func TestDownload_DestinationRefusesTheBytes(t *testing.T) {
 
 	tracker := &recordingTracker{}
 
-	written, err := Download(context.Background(), server.URL+"/game.zip", fullDisk{}, tracker)
+	written, err := download(context.Background(), server.URL+"/game.zip", fullDisk{}, tracker)
 
 	require.ErrorIs(t, err, errDiskFull)
 	assert.Contains(t, err.Error(), "failed to download")
@@ -620,7 +630,7 @@ func TestDownload_UnsupportedSource(t *testing.T) {
 			var dst bytes.Buffer
 			tracker := &recordingTracker{}
 
-			written, err := Download(context.Background(), tt.source, &dst, tracker)
+			written, err := download(context.Background(), tt.source, &dst, tracker)
 
 			require.ErrorIs(t, err, ErrUnsupportedSource)
 			assert.Zero(t, written)

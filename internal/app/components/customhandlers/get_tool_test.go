@@ -3,6 +3,8 @@ package customhandlers_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +20,12 @@ import (
 )
 
 const toolName = "install-tool.sh"
+
+func sha256Of(content []byte) string {
+	sum := sha256.Sum256(content)
+
+	return hex.EncodeToString(sum[:])
+}
 
 // A tool that is already there, whatever its size, and the leftover of an
 // interrupted download are both replaced by what the source serves: nothing is
@@ -141,8 +149,63 @@ func Test_GetTool_BrokenDownloadKeepsThePreviousTool(t *testing.T) {
 	assert.NoFileExists(t, destination+".part")
 }
 
+// A source may say what its tool hashes to. A file that does not is complete
+// and still not the tool: it does not take the place of the previous one.
+func Test_GetTool_ToolThatDoesNotMatchItsChecksumKeepsThePreviousOne(t *testing.T) {
+	previous := []byte("previous tool\n")
+	expected := []byte("#!/bin/sh\n# the tool the link was written for\n")
+	served := []byte("#!/bin/sh\n# what the server has under its name by now\n")
+
+	srcDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, toolName), served, 0o644))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(srcDir, "SHA256SUMS"), []byte(sha256Of(expected)+"  "+toolName+"\n"), 0o644,
+	))
+	server := httptest.NewServer(http.FileServer(http.Dir(srcDir)))
+	defer server.Close()
+
+	tests := []struct {
+		name     string
+		checksum string
+	}{
+		{name: "sum", checksum: sha256Of(expected)},
+		{name: "sum with its type", checksum: "sha256:" + sha256Of(expected)},
+		{name: "checksum file", checksum: "file:" + server.URL + "/SHA256SUMS"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			toolsDir := t.TempDir()
+			destination := filepath.Join(toolsDir, toolName)
+			require.NoError(t, os.WriteFile(destination, previous, 0o600))
+			handler := customhandlers.NewGetTool(&config.Config{ToolsPath: toolsDir})
+			out := &bytes.Buffer{}
+
+			code, err := handler.Handle(
+				context.Background(),
+				[]string{server.URL + "/" + toolName + "?checksum=" + tt.checksum},
+				out,
+				contracts.ExecutorOptions{},
+			)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "failed to get tool")
+			assert.Contains(t, err.Error(), "checksum mismatch")
+			assert.Contains(
+				t, err.Error(),
+				"sha256 "+sha256Of(expected)+" is expected and the file has "+sha256Of(served),
+			)
+			assert.Equal(t, int(domain.ErrorResult), code)
+			got, err := os.ReadFile(destination)
+			require.NoError(t, err)
+			assert.Equal(t, previous, got, "a tool that is not the expected one must not take the place of the previous one")
+			assert.NoFileExists(t, destination+".part")
+		})
+	}
+}
+
 // A tool is a file the source serves, stored as it is served. Nothing but a
-// link to a file is understood, and nothing is unpacked.
+// link to a file is understood, and nothing is unpacked: a source can say what
+// its file hashes to, and cannot ask for it to be unpacked.
 func Test_GetTool_Source(t *testing.T) {
 	archive := []byte("\x1f\x8b\x08 not unpacked")
 
@@ -166,6 +229,31 @@ func Test_GetTool_Source(t *testing.T) {
 			name:     "query is not part of the name",
 			source:   server.URL + "/tool.tar.gz?version=2",
 			wantTool: "tool.tar.gz",
+		},
+		{
+			name:     "checksum the tool has",
+			source:   server.URL + "/tool.tar.gz?checksum=sha256:" + sha256Of(archive),
+			wantTool: "tool.tar.gz",
+		},
+		{
+			name:     "source that says its file is not unpacked",
+			source:   server.URL + "/tool.tar.gz?archive=false&version=2",
+			wantTool: "tool.tar.gz",
+		},
+		{
+			name:      "source that asks for its file to be unpacked",
+			source:    server.URL + "/tool.tar.gz?archive=tar.gz",
+			wantError: `archive parameter "tar.gz" of the source is not supported, a tool is stored as it is served`,
+		},
+		{
+			name:      "source that asks for its file to be unpacked as whatever it is",
+			source:    server.URL + "/tool.tar.gz?archive=true",
+			wantError: `archive parameter "true" of the source is not supported`,
+		},
+		{
+			name:      "checksum that cannot be one",
+			source:    server.URL + "/tool.tar.gz?checksum=sha256:abcdef",
+			wantError: "invalid checksum parameter of the source: a sha256 checksum has 64 hex digits, 6 are given",
 		},
 		{
 			name:      "ftp",

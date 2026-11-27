@@ -26,6 +26,7 @@ import (
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/pkg/errors"
 
+	pb "github.com/gameap/gameap/pkg/proto"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -559,22 +560,72 @@ func (in *installator) install(ctx context.Context, server *domain.Server, rule 
 	return nil
 }
 
+// unpacking says what becomes of a repository file once it is at hand: an
+// archive is unpacked, anything else is stored under its own name.
+type unpacking struct {
+	archive bool
+	// format is what an archive is unpacked as. Left unspecified, the archive
+	// tells by its content and its name.
+	format pb.ArchiveFormat
+}
+
+// unpackingByName reads off the name of a file whether it is an archive. The
+// content does not tell a game distributed as an archive from one distributed
+// as a jar, which is an archive only to whatever looks inside.
+func unpackingByName(name string) unpacking {
+	return unpacking{archive: archive.IsArchiveName(name)}
+}
+
+// unpackingOf reads off a source what becomes of its file. The name decides
+// unless the source says otherwise with its archive parameter: false keeps a
+// file with the name of an archive as it is, true unpacks one whose name does
+// not tell, and the name of a format unpacks it as that format, whatever the
+// file is called and looks like.
+func unpackingOf(source *fetch.Source) (unpacking, error) {
+	value := source.Archive()
+	if value == "" {
+		return unpackingByName(source.Name()), nil
+	}
+
+	if unpack, err := strconv.ParseBool(value); err == nil {
+		return unpacking{archive: unpack}, nil
+	}
+
+	format, ok := archive.FormatByName(value)
+	if !ok {
+		return unpacking{}, errors.Errorf(
+			"unsupported archive parameter %q of the source: true, false or a format is expected, one of %s",
+			value, strings.Join(archive.FormatNames(), ", "),
+		)
+	}
+
+	return unpacking{archive: true, format: format}, nil
+}
+
 // downloadAndUnpackFiles fetches a remote repository file and installs it. The
 // download is kept in the temporary directory, where no tenant can reach it,
-// until it is complete: the server directory sees a finished file or none.
+// until it is complete and, for a source with a checksum, verified: the server
+// directory sees a finished file or none.
 func (in *installator) downloadAndUnpackFiles(
 	ctx context.Context,
 	root *os.Root,
 	dst string,
-	source string,
+	rawSource string,
 	userName string,
 ) error {
-	name, err := fetch.FileName(source)
+	source, err := fetch.Parse(rawSource)
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.installator] failed to download files")
 	}
 
-	in.writeOutput(ctx, "Downloading and unpacking from "+source+" to "+dst+" ...")
+	// Before the download: a file is not fetched to find out that the source
+	// asks for what cannot be done with it.
+	how, err := unpackingOf(source)
+	if err != nil {
+		return errors.WithMessage(err, "[game_server_commands.installator] failed to download files")
+	}
+
+	in.writeOutput(ctx, "Downloading and unpacking from "+rawSource+" to "+dst+" ...")
 
 	downloaded, err := os.CreateTemp("", "gameap-install-*")
 	if err != nil {
@@ -587,12 +638,12 @@ func (in *installator) downloadAndUnpackFiles(
 
 	progressTracker := components.NewDownloadProgressTracker(in.output, 5*time.Second)
 
-	_, err = fetch.Download(ctx, source, downloaded, progressTracker)
+	_, err = source.Download(ctx, downloaded, progressTracker)
 	if err != nil {
 		return errors.WithMessage(err, "[game_server_commands.installator] failed to download files")
 	}
 
-	err = in.installFile(ctx, root, downloaded, name, downloadedFilePerm, userName)
+	err = in.installFile(ctx, root, downloaded, source.Name(), how, downloadedFilePerm, userName)
 	if err != nil {
 		return err
 	}
@@ -622,7 +673,9 @@ func (in *installator) unpackLocalFile(
 		return errors.Wrap(err, "[game_server_commands.installator] failed to stat the local repository file")
 	}
 
-	err = in.installFile(ctx, root, file, filepath.Base(source), info.Mode().Perm(), userName)
+	name := filepath.Base(source)
+
+	err = in.installFile(ctx, root, file, name, unpackingByName(name), info.Mode().Perm(), userName)
 	if err != nil {
 		return err
 	}
@@ -633,19 +686,17 @@ func (in *installator) unpackLocalFile(
 }
 
 // installFile puts a repository file into the server directory: an archive is
-// unpacked, anything else is stored under its own name with perm. Which of the
-// two a file is, is read off its name. The content does not tell a game
-// distributed as an archive from one distributed as a jar, which is an archive
-// only to whatever looks inside.
+// unpacked, anything else is stored under its own name with perm.
 func (in *installator) installFile(
 	ctx context.Context,
 	root *os.Root,
 	file *os.File,
 	name string,
+	how unpacking,
 	perm os.FileMode,
 	userName string,
 ) error {
-	if !archive.IsArchiveName(name) {
+	if !how.archive {
 		err := storeFile(root, name, file, perm)
 		if err != nil {
 			return errors.WithMessagef(err, "[game_server_commands.installator] failed to store %q", name)
@@ -655,7 +706,8 @@ func (in *installator) installFile(
 	}
 
 	result, err := archive.ExtractTree(ctx, file, name, root, archive.TreeOptions{
-		Owner: osowner.Options{User: userName},
+		Owner:  osowner.Options{User: userName},
+		Format: how.format,
 	})
 	if err != nil {
 		return errors.WithMessagef(err, "[game_server_commands.installator] failed to unpack %q", name)

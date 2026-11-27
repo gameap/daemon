@@ -74,6 +74,66 @@ func TestIsArchiveName(t *testing.T) {
 	}
 }
 
+func TestFormatByName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want pb.ArchiveFormat
+		ok   bool
+	}{
+		{name: "zip", want: pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP, ok: true},
+		{name: "tar", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR, ok: true},
+		{name: "tar.gz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_GZ, ok: true},
+		{name: "tgz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_GZ, ok: true},
+		{name: "tar.bz2", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_BZ2, ok: true},
+		{name: "tbz2", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_BZ2, ok: true},
+		{name: "tar.xz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_XZ, ok: true},
+		{name: "txz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_XZ, ok: true},
+		{name: "tar.zst", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_ZSTD, ok: true},
+		{name: "tzst", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_ZSTD, ok: true},
+		{name: "7z", want: pb.ArchiveFormat_ARCHIVE_FORMAT_7Z, ok: true},
+		{name: "rar", want: pb.ArchiveFormat_ARCHIVE_FORMAT_RAR, ok: true},
+		{name: "gz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_GZ, ok: true},
+		{name: "bz2", want: pb.ArchiveFormat_ARCHIVE_FORMAT_BZ2, ok: true},
+		{name: "xz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_XZ, ok: true},
+		{name: "zst", want: pb.ArchiveFormat_ARCHIVE_FORMAT_ZSTD, ok: true},
+		{name: "TAR.GZ", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_GZ, ok: true},
+		{name: ".zip"},
+		{name: "game.zip"},
+		{name: "jar"},
+		{name: "true"},
+		{name: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run("name_"+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := FormatByName(tt.name)
+
+			assert.Equal(t, tt.ok, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFormatNames(t *testing.T) {
+	t.Parallel()
+
+	names := FormatNames()
+
+	assert.Contains(t, names, "zip")
+	assert.Contains(t, names, "tar.gz")
+	assert.Contains(t, names, "7z")
+
+	for _, name := range names {
+		_, ok := FormatByName(name)
+
+		assert.True(t, ok, name)
+	}
+}
+
 func TestExtractTree_Formats(t *testing.T) {
 	t.Parallel()
 
@@ -162,6 +222,106 @@ func TestExtractTree_FormatIsReadOffTheContent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_XZ, res.Format)
 	assert.Equal(t, map[string]string{"game_file_from_tar_xz": "game_file_from_tar_xz\n"}, readTree(t, dir))
+}
+
+// A caller that was told what the archive is has it unpacked as that: neither
+// the content nor the name is asked, and a format the archive is not of fails
+// the run.
+func TestExtractTree_FormatGivenByTheCaller(t *testing.T) {
+	t.Parallel()
+
+	gzipped := filepath.Join(t.TempDir(), "download")
+
+	f, err := os.Create(gzipped)
+	require.NoError(t, err)
+
+	zw := gzip.NewWriter(f)
+	_, err = zw.Write([]byte("jar content"))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	require.NoError(t, f.Close())
+
+	tests := []struct {
+		name      string
+		archive   string
+		calledAs  string
+		format    pb.ArchiveFormat
+		wantNames []string
+		wantError string
+	}{
+		{
+			name:      "zip_under_a_name_that_is_not_an_archive_s",
+			archive:   fixturePath("local_repository", "game.zip"),
+			calledAs:  "server.jar",
+			format:    pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+			wantNames: []string{"game_file_from_zip"},
+		},
+		{
+			name:      "tar_gz_under_a_name_that_tells_nothing",
+			archive:   fixturePath("local_repository", "game.tar.gz"),
+			calledAs:  "download",
+			format:    pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_GZ,
+			wantNames: []string{"game_file_from_tar_gz"},
+		},
+		{
+			name:      "tar_gz_unpacked_as_the_gz_it_also_is",
+			archive:   fixturePath("local_repository", "game.tar.gz"),
+			calledAs:  "game.tar.gz",
+			format:    pb.ArchiveFormat_ARCHIVE_FORMAT_GZ,
+			wantNames: []string{"game.tar"},
+		},
+		{
+			name:      "compressed_file_under_a_name_without_the_suffix_of_the_format",
+			archive:   gzipped,
+			calledAs:  "download",
+			format:    pb.ArchiveFormat_ARCHIVE_FORMAT_GZ,
+			wantNames: []string{"download.out"},
+		},
+		{
+			name:      "format_the_archive_is_not_of",
+			archive:   fixturePath("local_repository", "game.tar.gz"),
+			calledAs:  "game.tar.gz",
+			format:    pb.ArchiveFormat_ARCHIVE_FORMAT_ZIP,
+			wantError: "failed to read zip archive",
+		},
+		{
+			name:      "format_the_content_is_not_of_under_the_name_of_another",
+			archive:   fixturePath("local_repository", "game.zip"),
+			calledAs:  "game.zip",
+			format:    pb.ArchiveFormat_ARCHIVE_FORMAT_7Z,
+			wantError: "7z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root, dir := treeDestination(t)
+
+			res, err := ExtractTree(
+				context.Background(), openArchive(t, tt.archive), tt.calledAs, root, TreeOptions{Format: tt.format},
+			)
+
+			if tt.wantError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantError)
+				assert.Empty(t, readTree(t, dir))
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.format, res.Format)
+
+			names := make([]string, 0, len(tt.wantNames))
+			for name := range readTree(t, dir) {
+				names = append(names, name)
+			}
+
+			assert.ElementsMatch(t, tt.wantNames, names)
+		})
+	}
 }
 
 func TestExtractTree_ArchiveIsReadFromItsStart(t *testing.T) {
