@@ -94,12 +94,14 @@ func IsArchiveName(name string) bool {
 // The umask of the daemon has no part in any of these modes.
 //
 // A run that fails takes away what it had put where nothing stood before: the
-// files, links and directories that are new to the destination. Whoever tries
-// another source next does not find the leftovers of this one among its files.
-// They are taken away where they were put, also when the archive has since
-// replaced the symlink they came through. What the run had replaced by then is
-// not brought back and stays as the archive has it, and a directory that stays
-// is given its mode as after a run that went through.
+// files, links and directories that are new to the destination. A run that
+// cannot give its directories their modes in the end is one that fails as well.
+// Whoever tries another source next does not find the leftovers of this one
+// among its files. They are taken away where they were put, also when the
+// archive has since replaced the symlink they came through. What the run had
+// replaced by then, a file replaced by a directory among it, is not brought
+// back and stays as the archive has it, and a directory that stays is given its
+// mode as after a run that went through.
 //
 // The limits Extract applies to the request of a panel user are not applied.
 func ExtractTree(
@@ -157,11 +159,23 @@ func ExtractTree(
 
 	// Before the modes: an entry is taken out of a directory that can still be
 	// written to.
-	if extractErr != nil || linkErr != nil {
+	failed := extractErr != nil || linkErr != nil
+	if failed {
 		s.removeCreated()
 	}
 
 	modeErr := s.applyDirModes()
+
+	// The modes are the last thing the run does, and a run that fails over them
+	// is taken back like any other. The directories that have taken their modes
+	// by then are opened to their owner again for it, and those that stay are
+	// given their modes once more.
+	if modeErr != nil && !failed {
+		s.openDirModes()
+		s.removeCreated()
+
+		_ = s.applyDirModes()
+	}
 
 	if extractErr != nil {
 		return nil, extractErr

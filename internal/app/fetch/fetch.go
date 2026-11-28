@@ -231,16 +231,31 @@ func get(ctx context.Context, link *url.URL) (*http.Response, error) {
 	return resp, nil
 }
 
-// withoutLink returns what went wrong with a request without the link the
-// client names the request by. That is the link as it was requested, query and
-// all, or the one a redirect led to, which is as likely a signed one.
+// locationParseFailure starts the error the client gives for a redirect to a
+// Location it cannot parse. That error quotes the Location as the server sent
+// it, and the reason it gives quotes it once more.
+const locationParseFailure = "failed to parse Location header"
+
+// errInvalidRedirect stands for the error of the client about a Location it
+// could not parse.
+var errInvalidRedirect = errors.New("the server redirected to a Location that is not a valid link")
+
+// withoutLink returns what went wrong with a request without the links the
+// client puts into its error. It names the request by the link as it was
+// requested, query and all, or by the one a redirect led to, which is as likely
+// a signed one. A redirect to a link it cannot parse it tells of with that link
+// as the server sent it, credentials and query included.
 func withoutLink(err error) error {
 	var requestErr *url.Error
-	if errors.As(err, &requestErr) {
-		return requestErr.Err
+	if !errors.As(err, &requestErr) {
+		return err
 	}
 
-	return err
+	if strings.HasPrefix(requestErr.Err.Error(), locationParseFailure) {
+		return errInvalidRedirect
+	}
+
+	return requestErr.Err
 }
 
 // display returns link the way it is written into an error, the progress of a
@@ -259,9 +274,20 @@ func display(link *url.URL) string {
 }
 
 // requireHTTP turns away a link the daemon does not request.
+//
+// What follows the scheme of a link without a host is not taken apart into a
+// user, a password and a path, as in "https:repo:secret@example.com/game.zip",
+// and display cannot leave the password out of it. Such a link is repeated only
+// where it cannot hold one: a user and a password are followed by "@".
 func requireHTTP(link *url.URL) error {
 	if (link.Scheme != "http" && link.Scheme != "https") || link.Host == "" {
-		return errors.WithMessagef(ErrUnsupportedSource, "%q", display(link))
+		shown := display(link)
+
+		if link.Host == "" && strings.Contains(shown, "@") {
+			return errors.WithMessage(ErrUnsupportedSource, "the link names no host")
+		}
+
+		return errors.WithMessagef(ErrUnsupportedSource, "%q", shown)
 	}
 
 	return nil

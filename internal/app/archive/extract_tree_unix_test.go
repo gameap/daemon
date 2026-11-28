@@ -1260,6 +1260,76 @@ func TestExtractTree_FailedRunTakesAwayWhatCameThroughItsOwnLink(t *testing.T) {
 	assert.Empty(t, entryNames(t, dir), "nothing new is left in the destination")
 }
 
+// The links a run created are taken away where they were stored. The name one
+// of them came under may lead to a link of the server by then, one the run
+// never touched: the archive may have pointed a symlink on the way elsewhere.
+func TestExtractTree_FailedRunLeavesTheLinksOfTheServer(t *testing.T) {
+	t.Parallel()
+
+	root, dir := treeDestination(t)
+
+	first := filepath.Join(dir, "first")
+	second := filepath.Join(dir, "second")
+
+	require.NoError(t, os.Mkdir(first, 0o755))
+	require.NoError(t, os.Mkdir(second, 0o755))
+	require.NoError(t, os.Symlink("libSDL2-2.0.so.0", filepath.Join(second, "libSDL2.so")))
+	require.NoError(t, os.Symlink("first", filepath.Join(dir, "current")))
+
+	// The last two links stay inside the destination each on its own, and lead
+	// out of it together.
+	archive := buildTarGz(t, []tarEntry{
+		{name: "current/libSDL2.so", typeflag: tar.TypeSymlink, linkname: "libSDL2-2.0.so.0"},
+		{name: "current", typeflag: tar.TypeSymlink, linkname: "second"},
+		{name: "sub/deep/out", typeflag: tar.TypeSymlink, linkname: "../up/../../passwd"},
+		{name: "sub/up", typeflag: tar.TypeSymlink, linkname: ".."},
+	})
+
+	_, err := ExtractTree(context.Background(), openArchive(t, archive), "game.tar.gz", root, TreeOptions{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `symlink "sub/deep/out"`)
+
+	assert.Empty(t, entryNames(t, first), "the link the run created is taken away from where it was created")
+	assertSymlink(t, filepath.Join(second, "libSDL2.so"), "libSDL2-2.0.so.0")
+
+	// The link that took the place of current goes with the other links of the
+	// run, and the one it replaced is not brought back.
+	assert.Equal(t, []string{"first", "second"}, entryNames(t, dir))
+}
+
+// A directory that takes the place of a file is what the run replaced, the way
+// a file that takes the place of another is. It stays after a run that fails,
+// with the mode of the archive, and only what is new in it goes.
+func TestExtractTree_FailedRunKeepsADirectoryThatReplacedAFile(t *testing.T) {
+	t.Parallel()
+
+	root, dir := treeDestination(t)
+
+	assets := filepath.Join(dir, "assets")
+	require.NoError(t, os.WriteFile(assets, []byte("a file of the server"), 0o644))
+
+	archive := buildTarGz(t, []tarEntry{
+		{name: "assets/", typeflag: tar.TypeDir, mode: 0o750},
+		{name: "assets/readme.txt", body: "readme"},
+		{name: "assets/models/player.mdl", body: "mdl"},
+		{name: "../passwd", body: "root:x:0:0"},
+	})
+
+	_, err := ExtractTree(context.Background(), openArchive(t, archive), "game.tar.gz", root, TreeOptions{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `archive entry "../passwd" escapes the destination`)
+
+	info, err := os.Lstat(assets)
+	require.NoError(t, err)
+	require.True(t, info.IsDir(), "the directory that replaced the file stays, it is %s", info.Mode())
+	assert.Equal(t, os.FileMode(0o750), info.Mode().Perm())
+
+	assert.Empty(t, entryNames(t, assets), "what is new in it goes")
+	assert.Equal(t, []string{"assets"}, entryNames(t, dir))
+}
+
 // entryNames lists what dir holds.
 func entryNames(t *testing.T, dir string) []string {
 	t.Helper()
@@ -1275,15 +1345,23 @@ func entryNames(t *testing.T, dir string) []string {
 	return names
 }
 
+// withUmask runs fn with the umask of the process set to umask.
+//
+// The umask is that of the process. A test that is not parallel runs while the
+// parallel ones wait, so none of them sees it. It is set for fn alone: one that
+// keeps the owner from writing would keep the test from preparing its files.
+func withUmask(umask int, fn func()) {
+	previous := syscall.Umask(umask)
+	defer syscall.Umask(previous)
+
+	fn()
+}
+
 // The modes of what is unpacked are the ones the package documents, whatever
 // umask the daemon was started with. A directory an entry only implies is
-// created with 0755 like any other.
+// created with 0755 like any other, also where the umask would keep the daemon
+// from creating the next one in it.
 func TestExtract_ModesDoNotDependOnTheUmask(t *testing.T) {
-	// The umask is that of the process. A test that is not parallel runs while
-	// the parallel ones wait, so none of them sees it.
-	previous := syscall.Umask(0o077)
-	t.Cleanup(func() { syscall.Umask(previous) })
-
 	entries := []tarEntry{
 		{name: "implied/by/file.txt", body: "file", mode: 0o664},
 		{name: "listed/", typeflag: tar.TypeDir, mode: 0o775},
@@ -1310,39 +1388,57 @@ func TestExtract_ModesDoNotDependOnTheUmask(t *testing.T) {
 		assertRegularFile(t, filepath.Join(dir, "implied", "by", "file.txt"), "file", 0o664)
 	}
 
-	t.Run("installation", func(t *testing.T) {
-		root, dir := treeDestination(t)
-		archive := buildTarGz(t, entries)
+	tests := []struct {
+		name  string
+		umask int
+	}{
+		{name: "closed_to_everybody_but_the_owner", umask: 0o077},
+		{name: "closed_to_writes_of_the_owner", umask: 0o200},
+	}
 
-		_, err := ExtractTree(context.Background(), openArchive(t, archive), "game.tar.gz", root, TreeOptions{})
-		require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("installation", func(t *testing.T) {
+				root, dir := treeDestination(t)
+				archiveFile := openArchive(t, buildTarGz(t, entries))
 
-		assertModes(t, dir)
-	})
+				var err error
 
-	t.Run("request", func(t *testing.T) {
-		workDir := t.TempDir()
+				withUmask(tt.umask, func() {
+					_, err = ExtractTree(context.Background(), archiveFile, "game.tar.gz", root, TreeOptions{})
+				})
+				require.NoError(t, err)
 
-		archive, err := os.ReadFile(buildTarGz(t, entries))
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(workDir, "game.tar.gz"), archive, 0o644))
+				assertModes(t, dir)
+			})
 
-		_, err = Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
-			ArchivePath:         "game.tar.gz",
-			Destination:         "servers/dst",
-			CreateDestination:   true,
-			PreservePermissions: true,
-		}, nil)
-		require.NoError(t, err)
+			t.Run("request", func(t *testing.T) {
+				workDir := t.TempDir()
 
-		for _, created := range []string{"servers", "servers/dst"} {
-			info, err := os.Lstat(filepath.Join(workDir, filepath.FromSlash(created)))
-			require.NoError(t, err, created)
-			assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), created)
-		}
+				archive, err := os.ReadFile(buildTarGz(t, entries))
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(filepath.Join(workDir, "game.tar.gz"), archive, 0o644))
 
-		assertModes(t, filepath.Join(workDir, "servers", "dst"))
-	})
+				withUmask(tt.umask, func() {
+					_, err = Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+						ArchivePath:         "game.tar.gz",
+						Destination:         "servers/dst",
+						CreateDestination:   true,
+						PreservePermissions: true,
+					}, nil)
+				})
+				require.NoError(t, err)
+
+				for _, created := range []string{"servers", "servers/dst"} {
+					info, err := os.Lstat(filepath.Join(workDir, filepath.FromSlash(created)))
+					require.NoError(t, err, created)
+					assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), created)
+				}
+
+				assertModes(t, filepath.Join(workDir, "servers", "dst"))
+			})
+		})
+	}
 }
 
 // Extract takes the modes of directories from the archive when the request

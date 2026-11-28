@@ -168,6 +168,11 @@ func TestParse_InvalidParameters(t *testing.T) {
 			wantError: `"ftp://user:xxxxx@example.com/SHA256SUMS": unsupported source`,
 		},
 		{
+			name:      "password_of_a_checksum_file_link_without_slashes",
+			source:    "https://example.com/game.zip?checksum=file:https:sums:secret@example.com/SHA256SUMS",
+			wantError: "invalid checksum parameter of the source: the link names no host: unsupported source",
+		},
+		{
 			name:      "link_to_the_checksum_file_cannot_be_parsed",
 			source:    "https://example.com/game.zip?checksum=file:https://user:secret@example.com:port/SHA256SUMS",
 			wantError: "invalid checksum parameter of the source: failed to parse the link to the checksum file: it is not a valid URL",

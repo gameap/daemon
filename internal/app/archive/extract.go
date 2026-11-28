@@ -79,9 +79,15 @@ type entryDir struct {
 
 // createdLink records a symlink this run put on disk so its target can be
 // checked again once the archive can no longer move anything.
+//
+// The link is found again by where it was stored, not by the name it came
+// under: a later entry may point a symlink on the way elsewhere, and the name
+// then leads to a link of the server.
 type createdLink struct {
-	path   string // where the link was stored, relative to the root
-	target string // literal target as it came out of the archive
+	name   string      // the name it came under, relative to the root
+	path   string      // the physical path it was stored at
+	target string      // literal target as it came out of the archive
+	info   os.FileInfo // the link itself, to tell it from what takes its place
 }
 
 // safeEntryName validates an archive entry name and returns its path relative
@@ -242,6 +248,10 @@ func (s *sink) putDir(name string, archiveMode os.FileMode) error {
 		return nil
 	}
 
+	// Looked at before the conflict is resolved: a directory that replaces a
+	// file is no more new to the destination than a file that does.
+	fresh := s.undoCreated && s.absent(target)
+
 	skip, existed, err := s.resolveConflict(target, true)
 	if err != nil {
 		return err
@@ -260,7 +270,7 @@ func (s *sink) putDir(name string, archiveMode os.FileMode) error {
 		return err
 	}
 
-	if err := s.mkdirAll(target, perm|ownerDirAccess); err != nil {
+	if err := s.mkdirAll(target, perm|ownerDirAccess, fresh); err != nil {
 		return err
 	}
 
@@ -363,7 +373,7 @@ func below(dir, name string) bool {
 // those may be about to become impassable.
 //
 // It goes through all of them whatever becomes of one, and returns the first
-// error.
+// error. The modes stay noted: see openDirModes.
 func (s *sink) applyDirModes() error {
 	dirs := slices.SortedFunc(maps.Keys(s.dirModes), func(a, b string) int {
 		return cmp.Or(cmp.Compare(dirDepth(b), dirDepth(a)), cmp.Compare(a, b))
@@ -372,11 +382,7 @@ func (s *sink) applyDirModes() error {
 	var firstErr error
 
 	for _, dir := range dirs {
-		// What stands there by now need not be the directory the mode was noted
-		// for: a run that failed has taken away what it created, and the owner
-		// of the tree may have put something else in its place.
-		info, err := s.root.Lstat(dir)
-		if err != nil || !info.IsDir() {
+		if !s.heldDir(dir) {
 			continue
 		}
 
@@ -385,9 +391,32 @@ func (s *sink) applyDirModes() error {
 		}
 	}
 
-	s.dirModes = nil
-
 	return firstErr
+}
+
+// openDirModes takes back what applyDirModes did, the shallowest directory
+// first: each is opened to its owner again the way setDirMode leaves it, for
+// what is in it to be taken away.
+func (s *sink) openDirModes() {
+	dirs := slices.SortedFunc(maps.Keys(s.dirModes), func(a, b string) int {
+		return cmp.Or(cmp.Compare(dirDepth(a), dirDepth(b)), cmp.Compare(a, b))
+	})
+
+	for _, dir := range dirs {
+		if s.heldDir(dir) {
+			_ = s.root.Chmod(dir, s.dirModes[dir]|ownerDirAccess)
+		}
+	}
+}
+
+// heldDir reports whether a directory stands where a mode was noted for one.
+// What stands there by now need not be the directory the mode was noted for: a
+// run that failed has taken away what it created, and the owner of the tree may
+// have put something else in its place.
+func (s *sink) heldDir(dir string) bool {
+	info, err := s.root.Lstat(dir)
+
+	return err == nil && info.IsDir()
 }
 
 // forgetDirModes drops the modes held back for the directory with the physical
@@ -610,18 +639,14 @@ func (s *sink) checkLinkTarget(linkPath, linkTarget string) error {
 // underneath.
 func (s *sink) revalidateLinks() error {
 	for _, l := range s.links {
-		// A later entry may have taken the link away again (an overwritten
-		// directory takes its whole subtree with it); whatever sits there now
-		// belongs to that entry, not to this one.
-		info, err := s.root.Lstat(l.path)
-		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		if !s.linkStays(l) {
 			continue
 		}
 
 		if err := s.checkLinkTarget(l.path, l.target); err != nil {
 			s.removeCreatedLinks()
 
-			return errors.Wrapf(err, "symlink %q", l.path)
+			return errors.Wrapf(err, "symlink %q", l.name)
 		}
 	}
 
@@ -630,12 +655,20 @@ func (s *sink) revalidateLinks() error {
 
 func (s *sink) removeCreatedLinks() {
 	for _, l := range s.links {
-		if info, err := s.root.Lstat(l.path); err != nil || info.Mode()&os.ModeSymlink == 0 {
-			continue
+		if s.linkStays(l) {
+			_ = s.root.Remove(l.path)
 		}
-
-		_ = s.root.Remove(l.path)
 	}
+}
+
+// linkStays reports whether the link l is still where it was stored. A later
+// entry may have taken it away again (an overwritten directory takes its whole
+// subtree with it), and whatever sits there now belongs to that entry, not to
+// this one.
+func (s *sink) linkStays(l createdLink) bool {
+	info, err := s.root.Lstat(l.path)
+
+	return err == nil && info.Mode()&os.ModeSymlink != 0 && os.SameFile(info, l.info)
 }
 
 func (s *sink) putSymlink(name, linkTarget string) error {
@@ -677,11 +710,22 @@ func (s *sink) putSymlink(name, linkTarget string) error {
 		return errors.Wrapf(err, "failed to create symlink %q", target)
 	}
 
-	s.links = append(s.links, createdLink{path: target, target: linkTarget})
+	stored := s.physicalEntry(target)
 
 	if fresh {
-		s.created = append(s.created, s.physicalEntry(target))
+		s.created = append(s.created, stored)
 	}
+
+	// A link that cannot be told apart later is not checked again either, and
+	// does not stay.
+	info, err := s.root.Lstat(stored)
+	if err != nil {
+		_ = s.root.Remove(stored)
+
+		return errors.Wrapf(err, "failed to stat symlink %q", target)
+	}
+
+	s.links = append(s.links, createdLink{name: target, path: stored, target: linkTarget, info: info})
 
 	if err := osowner.ApplyToPathInRoot(s.root, target, s.owner); err != nil {
 		return errors.Wrapf(err, "failed to apply owner to %q", target)
@@ -696,12 +740,14 @@ func (s *sink) ensureParent(target string) error {
 		return nil
 	}
 
-	return s.mkdirAll(parent, defaultDirPerm)
+	return s.mkdirAll(parent, defaultDirPerm, s.undoCreated)
 }
 
-func (s *sink) mkdirAll(dir string, perm os.FileMode) error {
+// mkdirAll creates dir and the directories on the way to it. With undo, the
+// ones that were not there are noted for removeCreated.
+func (s *sink) mkdirAll(dir string, perm os.FileMode, undo bool) error {
 	created, err := mkdirAllOwned(s.root, dir, perm, s.owner)
-	if s.undoCreated {
+	if undo {
 		for _, segment := range created {
 			s.created = append(s.created, s.physical(segment))
 		}
@@ -721,24 +767,31 @@ func (s *sink) mkdirAll(dir string, perm os.FileMode) error {
 // mkdirAllOwned creates rel and applies perm and the owner to exactly the
 // directories it had to create, leaving pre-existing (often shared) parents
 // alone. Without the owner, a game server running as an unprivileged su_user
-// cannot traverse into the tree the daemon just unpacked for it. The mode is
-// set once more because creating a directory is subject to the umask of the
-// daemon, which would otherwise decide who gets into a directory an entry
-// only implies.
+// cannot traverse into the tree the daemon just unpacked for it.
+//
+// The directories are created one at a time, and each takes its mode before
+// the next is created in it. Creating a directory is subject to the umask of
+// the daemon, which would otherwise decide who gets into a directory an entry
+// only implies, and one that keeps the owner from writing (0200) would leave
+// the daemon unable to create the next directory on the way.
 //
 // It returns the directories that were not there before, the shallowest first,
 // also when it fails: some of them may have been created by then.
 func mkdirAllOwned(root *os.Root, rel string, perm os.FileMode, owner osowner.Options) ([]string, error) {
-	created, err := osowner.MissingSegmentsInRoot(root, rel)
+	missing, err := osowner.MissingSegmentsInRoot(root, rel)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to inspect directory %q", rel)
 	}
 
-	if err := root.MkdirAll(rel, perm); err != nil {
-		return created, errors.Wrapf(err, "failed to create directory %q", rel)
-	}
+	created := make([]string, 0, len(missing))
 
-	for _, segment := range created {
+	for _, segment := range missing {
+		if err := root.Mkdir(segment, perm); err != nil {
+			return created, errors.Wrapf(err, "failed to create directory %q", segment)
+		}
+
+		created = append(created, segment)
+
 		if err := root.Chmod(segment, perm); err != nil {
 			return created, errors.Wrapf(err, "failed to chmod directory %q", segment)
 		}
@@ -746,6 +799,12 @@ func mkdirAllOwned(root *os.Root, rel string, perm os.FileMode, owner osowner.Op
 		if err := osowner.ApplyToPathInRoot(root, segment, owner); err != nil {
 			return created, errors.Wrapf(err, "failed to apply owner to %q", segment)
 		}
+	}
+
+	// What was there is not looked into above: a file, or a symlink the root
+	// does not follow, where a directory is wanted still fails here.
+	if err := root.MkdirAll(rel, perm); err != nil {
+		return created, errors.Wrapf(err, "failed to create directory %q", rel)
 	}
 
 	return created, nil

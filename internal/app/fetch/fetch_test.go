@@ -181,7 +181,22 @@ func TestParse_Name(t *testing.T) {
 		{
 			name:      "scheme_without_a_host",
 			source:    "https:///game.zip",
-			wantError: `unsupported source, a direct http or https link to a file is expected`,
+			wantError: `"https:///game.zip": unsupported source, a direct http or https link to a file is expected`,
+		},
+		{
+			name:      "password_of_a_link_without_slashes_is_not_repeated_in_the_error",
+			source:    "https:repo:secret@example.com/game.zip",
+			wantError: `the link names no host: unsupported source, a direct http or https link to a file is expected`,
+		},
+		{
+			name:      "password_of_a_link_with_one_slash_is_not_repeated_in_the_error",
+			source:    "https:/repo:secret@example.com/game.zip",
+			wantError: `the link names no host: unsupported source, a direct http or https link to a file is expected`,
+		},
+		{
+			name:      "password_of_a_link_without_a_scheme_is_not_repeated_in_the_error",
+			source:    "repo:secret@example.com/game.zip",
+			wantError: `the link names no host: unsupported source, a direct http or https link to a file is expected`,
 		},
 		{
 			name:      "empty_source",
@@ -607,6 +622,29 @@ func TestDownload_RedirectLeadsToAServerThatIsNotThere(t *testing.T) {
 	assert.Contains(t, err.Error(), `failed to download "`+server.URL+`/game.zip": `)
 	assert.NotContains(t, err.Error(), "secret")
 	assert.NotContains(t, err.Error(), "signature")
+	assert.Zero(t, written)
+	assert.Zero(t, dst.Len())
+}
+
+// A Location the client cannot parse is quoted in its error as the server sent
+// it, credentials and query included. It is not repeated.
+func TestDownload_RedirectToALinkThatIsNotValid(t *testing.T) {
+	t.Parallel()
+
+	server := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://repo:secret@storage.example/game%zz.zip?signature=secret")
+		w.WriteHeader(http.StatusFound)
+	})
+
+	var dst bytes.Buffer
+
+	written, err := download(context.Background(), server.URL+"/game.zip", &dst, nil)
+
+	require.ErrorIs(t, err, errInvalidRedirect)
+	assert.Contains(t, err.Error(), `failed to download "`+server.URL+`/game.zip": `)
+	assert.NotContains(t, err.Error(), "secret")
+	assert.NotContains(t, err.Error(), "signature")
+	assert.NotContains(t, err.Error(), "storage.example")
 	assert.Zero(t, written)
 	assert.Zero(t, dst.Len())
 }
