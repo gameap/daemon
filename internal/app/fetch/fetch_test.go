@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -278,7 +279,7 @@ func TestDownload_StoresWhatTheSourceServes(t *testing.T) {
 	assert.Equal(t, "token=abc", gotQuery, "the query belongs to the source and is sent as it is")
 
 	assert.Equal(t, 1, tracker.calls)
-	assert.Equal(t, source, tracker.src)
+	assert.Equal(t, server.URL+"/repo/game.tar.gz", tracker.src, "the query does not go into the progress output")
 	assert.Zero(t, tracker.current)
 	assert.Equal(t, int64(len(content)), tracker.total)
 	assert.Equal(t, int64(len(content)), tracker.bytesRead)
@@ -382,6 +383,78 @@ func TestDownload_KeepsAnEncodedBodyAsItIsSent(t *testing.T) {
 	assert.Equal(t, packed.Bytes(), dst.Bytes())
 }
 
+// What a source is shown as, in the output of a task and in every error and
+// progress line of this package, gives nobody access to the file: the password
+// is left out, and so is the query, where a signed link keeps its token.
+func TestSource_String(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name:   "link_without_anything_to_hide",
+			source: "https://example.com:8443/files/game.zip",
+			want:   "https://example.com:8443/files/game.zip",
+		},
+		{
+			name:   "password",
+			source: "https://repo:secret@example.com/files/game.zip",
+			want:   "https://repo:xxxxx@example.com/files/game.zip",
+		},
+		{
+			name:   "user_without_a_password",
+			source: "https://repo@example.com/files/game.zip",
+			want:   "https://repo@example.com/files/game.zip",
+		},
+		{
+			name:   "signed_link",
+			source: "https://example.com/files/game.zip?X-Signature=secret&X-Expires=60",
+			want:   "https://example.com/files/game.zip",
+		},
+		{
+			name:   "query_that_is_a_token",
+			source: "https://example.com/files/game.zip?secret",
+			want:   "https://example.com/files/game.zip",
+		},
+		{
+			name:   "empty_query",
+			source: "https://example.com/files/game.zip?",
+			want:   "https://example.com/files/game.zip",
+		},
+		{
+			name:   "fragment",
+			source: "https://example.com/files/game.zip#secret",
+			want:   "https://example.com/files/game.zip",
+		},
+		{
+			name: "parameters_of_the_daemon",
+			source: "https://repo:secret@example.com/files/game.zip" +
+				"?archive=zip&checksum=file:https://sums:secret@example.com/SHA256SUMS?key=secret",
+			want: "https://repo:xxxxx@example.com/files/game.zip",
+		},
+		{
+			name:   "escaped_path",
+			source: "https://example.com/my%20files/game%231.zip",
+			want:   "https://example.com/my%20files/game%231.zip",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			source, err := Parse(tt.source)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, source.String())
+			assert.Equal(t, tt.want, fmt.Sprint(source), "a source is printed the same way")
+		})
+	}
+}
+
 func TestDownload_SendsTheCredentialsOfTheSource(t *testing.T) {
 	t.Parallel()
 
@@ -453,7 +526,7 @@ func TestDownload_ServerRefuses(t *testing.T) {
 				}
 			})
 
-			source := strings.Replace(server.URL, "http://", "http://repo:secret@", 1) + "/game.zip"
+			source := strings.Replace(server.URL, "http://", "http://repo:secret@", 1) + "/game.zip?token=secret"
 
 			var dst bytes.Buffer
 			tracker := &recordingTracker{}
@@ -462,8 +535,8 @@ func TestDownload_ServerRefuses(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantError)
-			assert.Contains(t, err.Error(), "/game.zip")
-			assert.NotContains(t, err.Error(), "secret")
+			assert.Contains(t, err.Error(), `/game.zip"`)
+			assert.NotContains(t, err.Error(), "secret", "neither the password nor the query is repeated")
 			assert.Zero(t, written)
 			assert.Zero(t, dst.Len(), "the error page is not stored as the file")
 			assert.Zero(t, tracker.calls)
@@ -495,15 +568,45 @@ func TestDownload_ServerIsNotThere(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.NotFoundHandler())
-	source := server.URL + "/game.zip"
+	address := server.URL
 	server.Close()
+
+	source := strings.Replace(address, "http://", "http://repo:secret@", 1) + "/game.zip?token=secret"
 
 	var dst bytes.Buffer
 
 	written, err := download(context.Background(), source, &dst, nil)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to download")
+	assert.Contains(t, err.Error(), `failed to download "`+strings.Replace(address, "http://", "http://repo:xxxxx@", 1)+`/game.zip": `)
+	assert.NotContains(t, err.Error(), "secret", "the client names a request it failed by its link, query and all")
+	assert.NotContains(t, err.Error(), "token")
+	assert.Zero(t, written)
+	assert.Zero(t, dst.Len())
+}
+
+// A redirect leads to wherever the server says, which is often a signed link
+// of a storage. A request that fails there is told of by the link of the
+// source, and the one it was redirected to is not repeated.
+func TestDownload_RedirectLeadsToAServerThatIsNotThere(t *testing.T) {
+	t.Parallel()
+
+	storage := httptest.NewServer(http.NotFoundHandler())
+	signed := storage.URL + "/storage/game.zip?signature=secret"
+	storage.Close()
+
+	server := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, signed, http.StatusFound)
+	})
+
+	var dst bytes.Buffer
+
+	written, err := download(context.Background(), server.URL+"/game.zip", &dst, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to download "`+server.URL+`/game.zip": `)
+	assert.NotContains(t, err.Error(), "secret")
+	assert.NotContains(t, err.Error(), "signature")
 	assert.Zero(t, written)
 	assert.Zero(t, dst.Len())
 }

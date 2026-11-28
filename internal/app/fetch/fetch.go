@@ -16,6 +16,10 @@
 //   - archive says whether the file is to be unpacked, and as what. The
 //     package does not unpack and only hands the value over: see
 //     Source.Archive.
+//
+// A link is what gives access to the file, and it is not repeated as it is
+// written: the errors, the progress of a download and Source.String name it
+// without its password and without its query.
 package fetch
 
 import (
@@ -94,10 +98,10 @@ func Parse(rawURL string) (*Source, error) {
 		return nil, parseError("the source", err)
 	}
 
-	// Before anything is said about the link: the parameters are not repeated
-	// in an error, the link to a checksum file may carry a password.
 	params, paramsErr := takeParams(link)
 
+	// A link the daemon does not request is turned away as one, whatever its
+	// parameters say.
 	if err = requireHTTP(link); err != nil {
 		return nil, err
 	}
@@ -109,7 +113,7 @@ func Parse(rawURL string) (*Source, error) {
 	name := path.Base(link.Path)
 
 	if strings.HasSuffix(link.Path, "/") || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00") {
-		return nil, errors.WithMessagef(ErrUnsupportedSource, "%q names no file", link.Redacted())
+		return nil, errors.WithMessagef(ErrUnsupportedSource, "%q names no file", display(link))
 	}
 
 	expected, err := parseExpectation(params[checksumParam])
@@ -123,6 +127,11 @@ func Parse(rawURL string) (*Source, error) {
 		archive:  params[archiveParam],
 		expected: expected,
 	}, nil
+}
+
+// String returns the link of the source the way it may be shown, see display.
+func (s *Source) String() string {
+	return display(s.link)
 }
 
 // Name returns what the file the source serves is called: the last element of
@@ -159,7 +168,7 @@ func (s *Source) Download(ctx context.Context, dst io.Writer, tracker ProgressTr
 
 	body := resp.Body
 	if tracker != nil {
-		body = tracker.TrackProgress(s.link.Redacted(), 0, max(resp.ContentLength, 0), resp.Body)
+		body = tracker.TrackProgress(display(s.link), 0, max(resp.ContentLength, 0), resp.Body)
 	}
 
 	var hasher hash.Hash
@@ -174,10 +183,10 @@ func (s *Source) Download(ctx context.Context, dst io.Writer, tracker ProgressTr
 	closeErr := body.Close()
 
 	if copyErr != nil {
-		return written, errors.Wrapf(copyErr, "failed to download %q", s.link.Redacted())
+		return written, errors.Wrapf(copyErr, "failed to download %q", display(s.link))
 	}
 	if closeErr != nil {
-		return written, errors.Wrapf(closeErr, "failed to finish the download of %q", s.link.Redacted())
+		return written, errors.Wrapf(closeErr, "failed to finish the download of %q", display(s.link))
 	}
 
 	if want == nil {
@@ -188,7 +197,7 @@ func (s *Source) Download(ctx context.Context, dst io.Writer, tracker ProgressTr
 		return written, errors.WithMessagef(
 			ErrChecksumMismatch,
 			"failed to verify %q: %s %s is expected and the file has %s",
-			s.link.Redacted(), want.algorithm.name, hex.EncodeToString(want.sum), hex.EncodeToString(got),
+			display(s.link), want.algorithm.name, hex.EncodeToString(want.sum), hex.EncodeToString(got),
 		)
 	}
 
@@ -200,7 +209,7 @@ func (s *Source) Download(ctx context.Context, dst io.Writer, tracker ProgressTr
 func get(ctx context.Context, link *url.URL) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link.String(), nil)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to build a request for %q", link.Redacted())
+		return nil, errors.Wrapf(err, "failed to build a request for %q", display(link))
 	}
 
 	// The file is stored as it is served. Left to itself the transport asks for
@@ -210,22 +219,49 @@ func get(ctx context.Context, link *url.URL) (*http.Response, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to download")
+		return nil, errors.Wrapf(withoutLink(err), "failed to download %q", display(link))
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
 
-		return nil, errors.Errorf("failed to download %q: the server answered %q", link.Redacted(), resp.Status)
+		return nil, errors.Errorf("failed to download %q: the server answered %q", display(link), resp.Status)
 	}
 
 	return resp, nil
 }
 
+// withoutLink returns what went wrong with a request without the link the
+// client names the request by. That is the link as it was requested, query and
+// all, or the one a redirect led to, which is as likely a signed one.
+func withoutLink(err error) error {
+	var requestErr *url.Error
+	if errors.As(err, &requestErr) {
+		return requestErr.Err
+	}
+
+	return err
+}
+
+// display returns link the way it is written into an error, the progress of a
+// download and the output of a task: without its password and without its
+// query. Either may be all it takes to get the file, a signed link keeps its
+// token in the query, and the output of a task is read by more people than the
+// configuration the link comes from.
+func display(link *url.URL) string {
+	shown := *link
+	shown.RawQuery = ""
+	shown.ForceQuery = false
+	shown.Fragment = ""
+	shown.RawFragment = ""
+
+	return shown.Redacted()
+}
+
 // requireHTTP turns away a link the daemon does not request.
 func requireHTTP(link *url.URL) error {
 	if (link.Scheme != "http" && link.Scheme != "https") || link.Host == "" {
-		return errors.WithMessagef(ErrUnsupportedSource, "%q", link.Redacted())
+		return errors.WithMessagef(ErrUnsupportedSource, "%q", display(link))
 	}
 
 	return nil

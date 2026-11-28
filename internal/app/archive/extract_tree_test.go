@@ -88,6 +88,7 @@ func TestFormatByName(t *testing.T) {
 		{name: "tgz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_GZ, ok: true},
 		{name: "tar.bz2", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_BZ2, ok: true},
 		{name: "tbz2", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_BZ2, ok: true},
+		{name: "tbz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_BZ2, ok: true},
 		{name: "tar.xz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_XZ, ok: true},
 		{name: "txz", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_XZ, ok: true},
 		{name: "tar.zst", want: pb.ArchiveFormat_ARCHIVE_FORMAT_TAR_ZSTD, ok: true},

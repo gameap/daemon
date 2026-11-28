@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gameap/daemon/internal/app/components/customhandlers"
@@ -303,6 +304,80 @@ func Test_GetTool_Source(t *testing.T) {
 			entries, err := os.ReadDir(toolsDir)
 			require.NoError(t, err)
 			require.Len(t, entries, 1)
+		})
+	}
+}
+
+// The output of the task names the source without what gives access to it: the
+// password of the link and its query.
+func Test_GetTool_OutputShowsTheSourceWithoutWhatGivesAccessToIt(t *testing.T) {
+	published := []byte("#!/bin/sh\n")
+
+	srcDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, toolName), published, 0o644))
+	server := httptest.NewServer(http.FileServer(http.Dir(srcDir)))
+	defer server.Close()
+
+	withCredentials := strings.Replace(server.URL, "http://", "http://repo:secret@", 1)
+	shown := strings.Replace(server.URL, "http://", "http://repo:xxxxx@", 1)
+
+	tests := []struct {
+		name     string
+		file     string
+		checksum string
+		wantCode domain.Result
+	}{
+		{
+			name:     "tool that is stored",
+			file:     toolName,
+			checksum: sha256Of(published),
+			wantCode: domain.SuccessResult,
+		},
+		{
+			name:     "tool that is not there",
+			file:     "missing-tool.sh",
+			checksum: sha256Of(published),
+			wantCode: domain.ErrorResult,
+		},
+		{
+			name:     "tool that does not match its checksum",
+			file:     toolName,
+			checksum: sha256Of([]byte("another tool")),
+			wantCode: domain.ErrorResult,
+		},
+		{
+			name:     "checksum file that is not there",
+			file:     toolName,
+			checksum: "file:" + withCredentials + "/SHA256SUMS?key=secret-key",
+			wantCode: domain.ErrorResult,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			toolsDir := t.TempDir()
+			handler := customhandlers.NewGetTool(&config.Config{ToolsPath: toolsDir})
+			out := &bytes.Buffer{}
+
+			code, err := handler.Handle(
+				context.Background(),
+				[]string{withCredentials + "/" + tt.file + "?token=secret-token&checksum=" + tt.checksum},
+				out,
+				contracts.ExecutorOptions{},
+			)
+
+			assert.Equal(t, int(tt.wantCode), code)
+			assert.Contains(t, out.String(), "Getting tool from "+shown+"/"+tt.file+" to ")
+			assert.NotContains(t, out.String(), "secret")
+			assert.NotContains(t, out.String(), "token")
+
+			if tt.wantCode == domain.SuccessResult {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "secret")
 		})
 	}
 }

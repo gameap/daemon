@@ -78,7 +78,9 @@ func IsArchiveName(name string) bool {
 // A directory the archive keeps its owner from writing into (0555) takes that
 // mode once the archive is through, and stays open to its owner until then:
 // its entries come after its own, and a daemon that is not root could not
-// create them otherwise.
+// create them otherwise. A directory the archive lists more than once, under
+// one name or under two that a symlink makes of it, takes the mode it is
+// listed with last.
 //
 // Every other directory is created with 0755, and one that was there keeps its
 // mode. That is a directory the archive only implies, and any directory of the
@@ -86,14 +88,18 @@ func IsArchiveName(name string) bool {
 // up then (0777 for a directory of a zip made on Windows). An entry without
 // any permission bits is taken to record none either, as the archives written
 // without them have it: a file is then created with 0644, a directory with
-// 0755, and the destination keeps its mode.
+// 0755, and a directory that was there keeps its mode, the destination among
+// them.
+//
+// The umask of the daemon has no part in any of these modes.
 //
 // A run that fails takes away what it had put where nothing stood before: the
 // files, links and directories that are new to the destination. Whoever tries
 // another source next does not find the leftovers of this one among its files.
-// What the run had replaced by then is not brought back and stays as the
-// archive has it, and a directory that stays is given its mode as after a run
-// that went through.
+// They are taken away where they were put, also when the archive has since
+// replaced the symlink they came through. What the run had replaced by then is
+// not brought back and stays as the archive has it, and a directory that stays
+// is given its mode as after a run that went through.
 //
 // The limits Extract applies to the request of a panel user are not applied.
 func ExtractTree(
@@ -155,7 +161,7 @@ func ExtractTree(
 		s.removeCreated()
 	}
 
-	modeErr := s.applyDirModes(".")
+	modeErr := s.applyDirModes()
 
 	if extractErr != nil {
 		return nil, extractErr

@@ -201,6 +201,10 @@ A checksum file is what `sha256sum`, `md5sum` and their kin write
 its name, or by its path from the directory of the checksum file. A checksum file
 larger than 4 MiB is refused.
 
+The output of an installation and the errors of a download name a link without
+its password and without its query: either may be all it takes to get the file,
+and a signed link keeps its token in the query.
+
 The formats `archive` knows are `zip`, `tar`, `tar.gz` (`tgz`), `tar.bz2` (`tbz2`,
 `tbz`), `tar.xz` (`txz`), `tar.zst` (`tzst`), `7z`, `rar`, and `gz`, `bz2`, `xz`,
 `zst` for a single compressed file. Any other value fails the source before

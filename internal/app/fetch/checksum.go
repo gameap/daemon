@@ -147,18 +147,18 @@ func (s *Source) expectedChecksum(ctx context.Context) (*checksum, error) {
 
 	content, err := io.ReadAll(io.LimitReader(resp.Body, maxChecksumFileSize+1))
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to download the checksum file %q", list.Redacted())
+		return nil, errors.Wrapf(err, "failed to download the checksum file %q", display(list))
 	}
 
 	if len(content) > maxChecksumFileSize {
 		return nil, errors.Errorf(
-			"checksum file %q is larger than the %d bytes that are read of one", list.Redacted(), maxChecksumFileSize,
+			"checksum file %q is larger than the %d bytes that are read of one", display(list), maxChecksumFileSize,
 		)
 	}
 
 	sum, ok := findListed(content, listedNames(s.link, list))
 	if !ok {
-		return nil, errors.Errorf("checksum file %q has no checksum for %q", list.Redacted(), s.name)
+		return nil, errors.Errorf("checksum file %q has no checksum for %q", display(list), s.name)
 	}
 
 	return sum, nil

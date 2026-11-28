@@ -190,7 +190,7 @@ func TestParse_InvalidParameters(t *testing.T) {
 		{
 			name:      "parameters_of_an_unsupported_source_are_not_repeated",
 			source:    "ftp://example.com/game.zip?checksum=file:https://user:secret@example.com/SHA256SUMS&token=abc",
-			wantError: `"ftp://example.com/game.zip?token=abc": unsupported source`,
+			wantError: `"ftp://example.com/game.zip": unsupported source`,
 		},
 		{
 			name:      "parameters_of_a_source_that_names_no_file_are_not_repeated",
@@ -260,7 +260,7 @@ func TestDownload_ParametersOfTheDaemonAreNotSent(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, fileContent, dst.String())
 			assert.Equal(t, []string{"/repo/game.zip" + tt.wantQuery}, repo.requested())
-			assert.Equal(t, address+"/repo/game.zip"+tt.wantQuery, tracker.src)
+			assert.Equal(t, address+"/repo/game.zip", tracker.src, "no query goes into the progress output")
 		})
 	}
 }

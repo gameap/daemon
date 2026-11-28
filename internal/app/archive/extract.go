@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -55,14 +56,25 @@ type sink struct {
 	// applyDestMode gives the destination the mode of the entry the archive has
 	// for it, "./". Without it that entry is passed over.
 	applyDestMode bool
-	// dirModes holds, by their path, the directories whose owner the archive
-	// keeps from writing into them, and the mode each of them is to end up
-	// with. See setDirMode.
+	// dirModes holds the directories whose owner the archive keeps from writing
+	// into them, and the mode each of them is to end up with. They are noted
+	// by their physical path: an archive can name a directory in more than one
+	// way. See setDirMode and physical.
 	dirModes map[string]os.FileMode
 	// undoCreated notes in created, in the order they come, the entries the
-	// run puts where nothing stood, for removeCreated to take away again.
+	// run puts where nothing stood, for removeCreated to take away again. They
+	// are noted by their physical path as well.
 	undoCreated bool
 	created     []string
+	// entryDir is the directory physicalEntry was asked about last, and what
+	// it resolved to: the entries of an archive come directory by directory.
+	entryDir entryDir
+}
+
+type entryDir struct {
+	known    bool
+	name     string
+	physical string
 }
 
 // createdLink records a symlink this run put on disk so its target can be
@@ -121,6 +133,10 @@ func (s *sink) resolveConflict(target string, isDir bool) (skip, existed bool, e
 	case pb.ArchiveConflictPolicy_ARCHIVE_CONFLICT_POLICY_SKIP:
 		return true, true, nil
 	case pb.ArchiveConflictPolicy_ARCHIVE_CONFLICT_POLICY_OVERWRITE:
+		// What makes room may be a link the directory resolved last was
+		// reached through.
+		s.entryDir = entryDir{}
+
 		if existing.IsDir() {
 			if s.keepDirs {
 				return false, true, errors.Errorf(
@@ -128,24 +144,18 @@ func (s *sink) resolveConflict(target string, isDir bool) (skip, existed bool, e
 				)
 			}
 
-			// The directories below go with it, and so do the modes noted
-			// for them.
-			s.forgetDirModes(target)
+			removed := s.physical(target)
 
 			if err := s.root.RemoveAll(target); err != nil {
 				return false, true, errors.Wrapf(err, "failed to remove %q", target)
 			}
 
-			return false, false, nil
-		}
+			// The directories below went with it, and so do the modes noted
+			// for them. Where the removal fails the notes stay: what is left
+			// of the directories still gets its modes.
+			s.forgetDirModes(removed)
 
-		// The directories a link led to stay where they are, out of reach under
-		// this name from now on: their modes are settled while it still leads
-		// there.
-		if existing.Mode()&os.ModeSymlink != 0 {
-			if err := s.applyDirModes(target); err != nil {
-				return false, true, err
-			}
+			return false, false, nil
 		}
 
 		if err := s.root.Remove(target); err != nil {
@@ -254,10 +264,10 @@ func (s *sink) putDir(name string, archiveMode os.FileMode) error {
 		return err
 	}
 
-	// MkdirAll applies umask; chmod for the exact requested permissions. A
-	// pre-existing directory merged into keeps its mode unless permissions
-	// are explicitly preserved from the archive.
-	if !existed || s.preserveDirs {
+	// A directory that was there keeps its mode unless the permissions of the
+	// archive are asked for and the entry has some: the default is for a
+	// directory that is created.
+	if !existed || (s.preserveDirs && archiveMode.Perm() != 0) {
 		if err := s.setDirMode(target, perm); err != nil {
 			return err
 		}
@@ -277,14 +287,26 @@ func (s *sink) putDir(name string, archiveMode os.FileMode) error {
 // daemon that is not root could no longer create them: the directory stays
 // open to its owner, and to nobody the mode does not name, until applyDirModes
 // settles it.
+//
+// The mode an archive has for a directory last is the one it ends up with,
+// under whichever of its names the entries come.
 func (s *sink) setDirMode(target string, perm os.FileMode) error {
-	delete(s.dirModes, target)
+	held := perm&ownerDirAccess != ownerDirAccess
+
+	// The path is resolved only where there is a note to take or to drop: the
+	// directories of an archive that closes none of them cost nothing more.
+	var dir string
+
+	if held || len(s.dirModes) > 0 {
+		dir = s.physical(target)
+		delete(s.dirModes, dir)
+	}
 
 	if err := s.root.Chmod(target, perm|ownerDirAccess); err != nil {
 		return errors.Wrapf(err, "failed to chmod directory %q", target)
 	}
 
-	if perm&ownerDirAccess == ownerDirAccess {
+	if !held {
 		return nil
 	}
 
@@ -292,9 +314,42 @@ func (s *sink) setDirMode(target string, perm os.FileMode) error {
 		s.dirModes = make(map[string]os.FileMode)
 	}
 
-	s.dirModes[target] = perm
+	s.dirModes[dir] = perm
 
 	return nil
+}
+
+// physical returns the path of what target names with every symlink on the
+// way to it, and the one it may end in, resolved.
+//
+// The notes the sink keeps for later go by it. An entry reaches a directory
+// through whatever links stand in the tree, and a later entry may take such a
+// link away or point it elsewhere: the name the first entry came under then
+// leads to nothing, or to another directory. The physical path goes on naming
+// the same one. It is also one for all the names of a directory, which is how
+// two entries about the same directory are found to be.
+//
+// A path that does not resolve is returned as it is: what it leads to is for
+// the root to say.
+func (s *sink) physical(target string) string {
+	resolved, err := s.resolveLinkTarget(".", target)
+	if err != nil {
+		return target
+	}
+
+	return resolved
+}
+
+// physicalEntry is physical for an entry that is not followed itself: a file,
+// or a symlink the archive stores.
+func (s *sink) physicalEntry(target string) string {
+	dir := path.Dir(target)
+
+	if !s.entryDir.known || s.entryDir.name != dir {
+		s.entryDir = entryDir{known: true, name: dir, physical: s.physical(dir)}
+	}
+
+	return path.Join(s.entryDir.physical, path.Base(target))
 }
 
 // below reports whether name is dir or lies inside it. Both are paths relative
@@ -303,65 +358,46 @@ func below(dir, name string) bool {
 	return dir == "." || name == dir || strings.HasPrefix(name, dir+"/")
 }
 
-// applyDirModes gives the directories at dir and below the modes setDirMode
-// held back, the deepest first: a directory is reached through the ones above
-// it, and one of those may be about to become impassable.
+// applyDirModes gives the directories the modes setDirMode held back, the
+// deepest first: a directory is reached through the ones above it, and one of
+// those may be about to become impassable.
 //
 // It goes through all of them whatever becomes of one, and returns the first
 // error.
-func (s *sink) applyDirModes(dir string) error {
-	var targets []string
-
-	for target := range s.dirModes {
-		if below(dir, target) {
-			targets = append(targets, target)
-		}
-	}
-
-	slices.SortFunc(targets, func(a, b string) int {
+func (s *sink) applyDirModes() error {
+	dirs := slices.SortedFunc(maps.Keys(s.dirModes), func(a, b string) int {
 		return cmp.Or(cmp.Compare(dirDepth(b), dirDepth(a)), cmp.Compare(a, b))
 	})
 
 	var firstErr error
 
-	for _, target := range targets {
-		perm := s.dirModes[target]
-		delete(s.dirModes, target)
-
+	for _, dir := range dirs {
 		// What stands there by now need not be the directory the mode was noted
-		// for: a later entry, or the owner of the tree, may have put something
-		// else in its place.
-		if !s.standsAsDir(target) {
+		// for: a run that failed has taken away what it created, and the owner
+		// of the tree may have put something else in its place.
+		info, err := s.root.Lstat(dir)
+		if err != nil || !info.IsDir() {
 			continue
 		}
 
-		if err := s.root.Chmod(target, perm); err != nil && firstErr == nil {
-			firstErr = errors.Wrapf(err, "failed to chmod directory %q", target)
+		if err := s.root.Chmod(dir, s.dirModes[dir]); err != nil && firstErr == nil {
+			firstErr = errors.Wrapf(err, "failed to chmod directory %q", dir)
 		}
 	}
+
+	s.dirModes = nil
 
 	return firstErr
 }
 
-// forgetDirModes drops the modes held back for the directories at dir and
-// below, which are being taken away.
+// forgetDirModes drops the modes held back for the directory with the physical
+// path dir and for the ones below it, which have been taken away.
 func (s *sink) forgetDirModes(dir string) {
-	for target := range s.dirModes {
-		if below(dir, target) {
-			delete(s.dirModes, target)
+	for held := range s.dirModes {
+		if below(dir, held) {
+			delete(s.dirModes, held)
 		}
 	}
-}
-
-// standsAsDir reports whether a directory entry would still merge into what
-// stands at target: a directory, or a symlink where those are merged through.
-func (s *sink) standsAsDir(target string) bool {
-	info, err := s.root.Lstat(target)
-	if err != nil {
-		return false
-	}
-
-	return info.IsDir() || (s.mergeLinkedDirs && info.Mode()&os.ModeSymlink != 0)
 }
 
 // dirDepth is the number of directories on the way from the root to target,
@@ -412,7 +448,7 @@ func (s *sink) putFile(name string, archiveMode os.FileMode, r io.Reader) error 
 	}
 
 	if fresh {
-		s.created = append(s.created, target)
+		s.created = append(s.created, s.physicalEntry(target))
 	}
 
 	n, copyErr := io.Copy(out, io.LimitReader(r, s.acc.bytesLeft()+1))
@@ -644,7 +680,7 @@ func (s *sink) putSymlink(name, linkTarget string) error {
 	s.links = append(s.links, createdLink{path: target, target: linkTarget})
 
 	if fresh {
-		s.created = append(s.created, target)
+		s.created = append(s.created, s.physicalEntry(target))
 	}
 
 	if err := osowner.ApplyToPathInRoot(s.root, target, s.owner); err != nil {
@@ -666,7 +702,9 @@ func (s *sink) ensureParent(target string) error {
 func (s *sink) mkdirAll(dir string, perm os.FileMode) error {
 	created, err := mkdirAllOwned(s.root, dir, perm, s.owner)
 	if s.undoCreated {
-		s.created = append(s.created, created...)
+		for _, segment := range created {
+			s.created = append(s.created, s.physical(segment))
+		}
 	}
 
 	if err == nil || !s.mergeLinkedDirs {
@@ -680,10 +718,13 @@ func (s *sink) mkdirAll(dir string, perm os.FileMode) error {
 	return err
 }
 
-// mkdirAllOwned creates rel and applies the owner to exactly the directories it
-// had to create, leaving pre-existing (often shared) parents alone. Without
-// this, a game server running as an unprivileged su_user cannot traverse into
-// the tree the daemon just unpacked for it.
+// mkdirAllOwned creates rel and applies perm and the owner to exactly the
+// directories it had to create, leaving pre-existing (often shared) parents
+// alone. Without the owner, a game server running as an unprivileged su_user
+// cannot traverse into the tree the daemon just unpacked for it. The mode is
+// set once more because creating a directory is subject to the umask of the
+// daemon, which would otherwise decide who gets into a directory an entry
+// only implies.
 //
 // It returns the directories that were not there before, the shallowest first,
 // also when it fails: some of them may have been created by then.
@@ -698,6 +739,10 @@ func mkdirAllOwned(root *os.Root, rel string, perm os.FileMode, owner osowner.Op
 	}
 
 	for _, segment := range created {
+		if err := root.Chmod(segment, perm); err != nil {
+			return created, errors.Wrapf(err, "failed to chmod directory %q", segment)
+		}
+
 		if err := osowner.ApplyToPathInRoot(root, segment, owner); err != nil {
 			return created, errors.Wrapf(err, "failed to apply owner to %q", segment)
 		}
@@ -716,6 +761,10 @@ func (s *sink) absent(target string) bool {
 // removeCreated takes away what the run put where nothing stood before, the
 // last entry first: a directory is empty by the time its turn comes. What does
 // not go stays, such as a directory somebody else has written into meanwhile.
+//
+// The entries are taken away where they were created. The name one of them
+// came under may lead elsewhere by now, to what the run never touched: a later
+// entry may have replaced a link on the way.
 //
 // An entry the run replaced is not among them. What stood under its name is
 // gone, and taking the entry away as well would leave nothing there at all.
@@ -810,7 +859,7 @@ func Extract(
 	// After the links: taking one away needs a directory that can be written
 	// to. A run that failed settles the modes as well, so that no directory is
 	// left more open to its owner than the archive has it.
-	modeErr := s.applyDirModes(".")
+	modeErr := s.applyDirModes()
 
 	if extractErr != nil {
 		return nil, extractErr

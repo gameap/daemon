@@ -625,7 +625,9 @@ func (in *installator) downloadAndUnpackFiles(
 		return errors.WithMessage(err, "[game_server_commands.installator] failed to download files")
 	}
 
-	in.writeOutput(ctx, "Downloading and unpacking from "+rawSource+" to "+dst+" ...")
+	// The source as it may be shown: the output is read by whoever looks at the
+	// task, and the link is what gives access to the repository.
+	in.writeOutput(ctx, "Downloading and unpacking from "+source.String()+" to "+dst+" ...")
 
 	downloaded, err := os.CreateTemp("", "gameap-install-*")
 	if err != nil {
@@ -850,6 +852,11 @@ func (in *installator) installFromSteam(
 		return err
 	}
 
+	// steamcmd is started by its path, which is resolved once more: a process
+	// is not started through a root. The root the directory was opened by
+	// confines what the daemon does to the tree as root, sharing it. It does
+	// not vouch for what runs from the tree, which the group of the game
+	// servers may write to, and steamcmd runs as the user of the server.
 	executorOptions := contracts.ExecutorOptions{
 		WorkDir:         cfg.SteamCMDPath,
 		FallbackWorkDir: server.WorkDir(in.cfg),

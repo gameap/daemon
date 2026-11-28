@@ -34,9 +34,7 @@ func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ co
 		return int(domain.ErrorResult), errors.New("no source provided")
 	}
 
-	rawSource := args[0]
-
-	source, err := fetch.Parse(rawSource)
+	source, err := fetch.Parse(args[0])
 	if err != nil {
 		return int(domain.ErrorResult), errors.WithMessage(err, "[components.GetTool] failed to get tool")
 	}
@@ -56,7 +54,7 @@ func (g *GetTool) Handle(ctx context.Context, args []string, out io.Writer, _ co
 	// failed fetch and is never seen half-written.
 	partial := destination + ".part"
 
-	_, _ = out.Write([]byte("Getting tool from " + rawSource + " to " + destination + " ...\n"))
+	_, _ = out.Write([]byte("Getting tool from " + source.String() + " to " + destination + " ...\n"))
 
 	err = g.download(ctx, source, partial, out)
 	if err != nil {

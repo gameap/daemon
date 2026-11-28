@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -496,5 +497,103 @@ func TestInstallator_FileWithAChecksumLeavesNothingInTheTempDir(t *testing.T) {
 			require.NoError(t, err)
 			assert.Empty(t, entries)
 		})
+	}
+}
+
+// The output of an installation is read by whoever looks at the task, and the
+// link of a repository is what gives access to it. The output names the source
+// without the password of the link and without its query, where a signed link
+// keeps its token and where the link to a checksum file stands. The errors of a
+// download that failed go the same way.
+func TestInstallator_OutputShowsTheSourceWithoutWhatGivesAccessToIt(t *testing.T) {
+	t.Parallel()
+
+	archive, err := os.ReadFile(localRepositoryFixture(t, "game.tar.gz"))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		// file is what the link names, and sums the content of the checksum
+		// file the mirror has, if any.
+		file       string
+		sums       string
+		wantError  bool
+		wantOutput string
+	}{
+		{
+			name: "installed",
+			file: "game.tar.gz",
+			sums: sha256Of(archive) + "  game.tar.gz\n",
+		},
+		{
+			name:       "file_that_is_not_there",
+			file:       "missing.tar.gz",
+			sums:       sha256Of(archive) + "  missing.tar.gz\n",
+			wantError:  true,
+			wantOutput: `/missing.tar.gz": the server answered "404 Not Found"`,
+		},
+		{
+			name:       "file_that_does_not_match_its_checksum",
+			file:       "game.tar.gz",
+			sums:       sha256Of([]byte("another file")) + "  game.tar.gz\n",
+			wantError:  true,
+			wantOutput: `/game.tar.gz": sha256 `,
+		},
+		{
+			name:       "checksum_file_that_does_not_list_the_file",
+			file:       "game.tar.gz",
+			sums:       sha256Of(archive) + "  game.zip\n",
+			wantError:  true,
+			wantOutput: `/SHA256SUMS" has no checksum for "game.tar.gz"`,
+		},
+		{
+			name:       "checksum_file_that_is_not_there",
+			file:       "game.tar.gz",
+			wantError:  true,
+			wantOutput: `/SHA256SUMS": the server answered "404 Not Found"`,
+		},
+	}
+
+	for _, tt := range tests {
+		for kind := range installatorKinds {
+			t.Run(tt.name+"/"+kind, func(t *testing.T) {
+				t.Parallel()
+
+				dir, _ := serveFixtureAs(t, "game.tar.gz", "game.tar.gz")
+				if tt.sums != "" {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, "SHA256SUMS"), []byte(tt.sums), 0o644))
+				}
+
+				mirror := givenRemoteRepository(t, dir)
+				shown := strings.Replace(mirror, "http://", "http://repo:xxxxx@", 1) + "/" + tt.file
+
+				source := strings.Replace(mirror, "http://", "http://repo:secret@", 1) + "/" + tt.file +
+					"?token=secret-token" +
+					"&checksum=file:" + strings.Replace(mirror, "http://", "http://sums:secret@", 1) +
+					"/SHA256SUMS?key=secret-key"
+
+				stand := givenInstallStand(t)
+
+				err := stand.install(kind, remoteRule(source))
+
+				output := stand.output.String()
+
+				assert.Contains(t, output, "Downloading and unpacking from "+shown+" to ")
+				assert.NotContains(t, output, "secret")
+				assert.NotContains(t, output, "token")
+				assert.NotContains(t, output, "checksum=")
+
+				if !tt.wantError {
+					require.NoError(t, err)
+					assert.Equal(t, []string{"game_file_from_tar_gz"}, entryNames(t, stand.serverDir))
+
+					return
+				}
+
+				require.Error(t, err)
+				assert.NotContains(t, err.Error(), "secret")
+				assert.Contains(t, output, tt.wantOutput)
+			})
+		}
 	}
 }
