@@ -151,7 +151,7 @@ func extractTar(ctx context.Context, archiveFile *os.File, comp compression, s *
 			if err := s.putSymlink(hdr.Name, hdr.Linkname); err != nil {
 				return err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg, tar.TypeRegA, tar.TypeCont, tar.TypeGNUSparse:
 			if err := s.putFile(hdr.Name, hdr.FileInfo().Mode(), tr); err != nil {
 				return err
 			}

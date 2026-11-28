@@ -28,10 +28,10 @@ func lchownInRoot(_ *os.Root, _ string, _, _ int) error {
 	return nil
 }
 
-func chownTree(_ string, _, _ int) error {
+func chownTree(_ *os.Root, _, _ int) error {
 	return nil
 }
 
-func groupShareTree(_ string, _ int) error {
+func groupShareTree(_ *os.Root, _ int) error {
 	return nil
 }

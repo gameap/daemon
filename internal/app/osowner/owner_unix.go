@@ -29,13 +29,7 @@ func lchownInRoot(root *os.Root, name string, uid, gid int) error {
 	return root.Lchown(name, uid, gid)
 }
 
-func chownTree(path string, uid, gid int) error {
-	root, err := os.OpenRoot(path)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-
+func chownTree(root *os.Root, uid, gid int) error {
 	return fs.WalkDir(root.FS(), ".", func(name string, _ fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -45,13 +39,7 @@ func chownTree(path string, uid, gid int) error {
 	})
 }
 
-func groupShareTree(path string, gid int) error {
-	root, err := os.OpenRoot(path)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-
+func groupShareTree(root *os.Root, gid int) error {
 	return fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil

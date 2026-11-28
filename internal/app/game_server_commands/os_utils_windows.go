@@ -3,15 +3,10 @@
 package gameservercommands
 
 import (
-	"os"
 	"os/user"
 
 	log "github.com/sirupsen/logrus"
 )
-
-func mkdirAllWithFinalPerm(path string, finalPerm os.FileMode) error {
-	return os.MkdirAll(path, finalPerm)
-}
 
 func isRootUser() bool {
 	currentUser, err := user.Current()

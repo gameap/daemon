@@ -18,6 +18,11 @@
 // destination alone, so an entry naming a path inside one of them is followed
 // through the links standing there, as far as the destination reaches.
 //
+// ExtractTree unpacks for a caller inside the daemon that holds both ends
+// already, the installation of a game server: it places no path, and writes
+// through the root it is handed. How entries meet what stands in the
+// destination is described there.
+//
 // Extraction feeds attacker-controlled bytes to third-party format decoders,
 // so the caller is expected to run it under a recover (see the gRPC archive
 // handler). One residual risk cannot be handled here: bodgit/sevenzip sizes
@@ -65,6 +70,8 @@ type Result struct {
 	// Format the operation actually used, which differs from the requested one
 	// when the request left it unspecified and the daemon resolved it.
 	Format pb.ArchiveFormat
+	// SkippedLinks are the symlink entries ExtractTree left out.
+	SkippedLinks []SkippedLink
 }
 
 // ProgressFunc is invoked after each processed entry (it may be nil).

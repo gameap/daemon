@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/netip"
-	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -21,6 +19,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/fsutil"
 	"github.com/gameap/daemon/pkg/logger"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
@@ -59,15 +58,18 @@ const (
 type Docker struct {
 	cfg    *config.Config
 	client *client.Client
+	// confineOpts name the boundaries a server directory is opened within, see
+	// fsutil.OpenDir.
+	confineOpts []fsutil.ConfineOption
 }
 
-func NewDocker(cfg *config.Config, _, _ contracts.Executor) *Docker {
+func NewDocker(cfg *config.Config, _, _ contracts.Executor, confineOpts ...fsutil.ConfineOption) *Docker {
 	cli, err := client.New(dockerClientOptions(cfg)...)
 	if err != nil {
 		// Client will be created lazily on first use
-		return &Docker{cfg: cfg}
+		return &Docker{cfg: cfg, confineOpts: confineOpts}
 	}
-	return &Docker{cfg: cfg, client: cli}
+	return &Docker{cfg: cfg, client: cli, confineOpts: confineOpts}
 }
 
 func (pm *Docker) ensureClient(ctx context.Context) error {
@@ -155,20 +157,17 @@ func (pm *Docker) runInstallation(
 
 	// 2. Write script to temp file in WorkDir
 	workDir := server.WorkDir(pm.cfg)
-	if err := os.MkdirAll(workDir, 0755); err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to create work directory")
-	}
 
-	scriptPath := filepath.Join(workDir, ".gameap_install.sh")
-	if err := os.WriteFile(scriptPath, []byte(normalizeLineEndings(installScript)), 0600); err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to write installation script")
+	serverDir, err := fsutil.OpenDir(pm.cfg.WorkDir(), server.Dir(), serverDirPerm, pm.confineOpts...)
+	if err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to open server directory inside the work directory")
 	}
-	if err := os.Chmod(scriptPath, 0755); err != nil {
-		return domain.ErrorResult, errors.Wrap(err, "failed to make installation script executable")
+	defer serverDir.Close()
+
+	if err := writeInstallScript(serverDir, installScript); err != nil {
+		return domain.ErrorResult, errors.WithMessage(err, "failed to write installation script")
 	}
-	defer func() {
-		_ = os.Remove(scriptPath)
-	}()
+	defer removeInstallScript(serverDir)
 
 	// 3. Create temp container name
 	tempName := fmt.Sprintf("gameap-install-%s", server.XID())
@@ -194,7 +193,7 @@ func (pm *Docker) runInstallation(
 		Cmd: []string{
 			getInstallationEntrypoint(pm.getConfig(server, keyDockerInstallationEntrypoint), installScript),
 			"-e",
-			installationContainerWorkDir + "/.gameap_install.sh",
+			installationContainerWorkDir + "/" + installScriptName,
 		},
 		Env:  env,
 		User: installUser,
@@ -285,7 +284,7 @@ func (pm *Docker) runInstallation(
 		return domain.ErrorResult, errors.Wrap(err, "failed to get user IDs for chown")
 	}
 	_, _ = out.Write([]byte(fmt.Sprintf("Changing ownership to %s:%s...\n", uid, gid)))
-	if err := chownRecursive(workDir, uid, gid); err != nil {
+	if err := chownRecursive(serverDir, uid, gid); err != nil {
 		return domain.ErrorResult, errors.Wrap(err, "failed to change ownership of installed files")
 	}
 
@@ -844,31 +843,6 @@ func normalizeLineEndings(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n") // Windows → Unix
 	s = strings.ReplaceAll(s, "\r", "\n")   // Old Mac → Unix
 	return s
-}
-
-// chownRecursive changes ownership of a directory and all its contents.
-func chownRecursive(path, uidStr, gidStr string) error {
-	uid, err := strconv.Atoi(uidStr)
-	if err != nil {
-		return errors.Wrapf(err, "invalid uid: %s", uidStr)
-	}
-	gid, err := strconv.Atoi(gidStr)
-	if err != nil {
-		return errors.Wrapf(err, "invalid gid: %s", gidStr)
-	}
-
-	root, err := os.OpenRoot(path)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-
-	return fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		return root.Lchown(p, uid, gid)
-	})
 }
 
 // detectShellFromShebang extracts the shell interpreter from a script's shebang line.

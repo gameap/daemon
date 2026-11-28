@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"github.com/gameap/daemon/internal/app/contracts"
+	"github.com/gameap/daemon/internal/app/fsutil"
 	gameservercommands "github.com/gameap/daemon/internal/app/game_server_commands"
+	"github.com/gameap/daemon/internal/app/repositories"
 	"github.com/gameap/daemon/internal/app/services"
 )
 
@@ -39,5 +41,14 @@ func CreateServerCommandFactory(ctx context.Context, c Container) *gameservercom
 		c.Repositories().ServerRepository(ctx),
 		c.Services().Executor(ctx),
 		c.Services().ProcessManager(ctx),
+		serverDirBoundaries(ctx, c)...,
 	)
+}
+
+// serverDirBoundaries makes the directory of every game server the daemon
+// knows a boundary for whatever is opened inside the work directory.
+func serverDirBoundaries(ctx context.Context, c Container) []fsutil.ConfineOption {
+	serverRepo := c.Repositories().ServerRepository(ctx).(*repositories.ServerRepository)
+
+	return []fsutil.ConfineOption{fsutil.WithServerDirs(serverRepo)}
 }

@@ -29,6 +29,11 @@ type CopyOptions struct {
 	Symlink SymlinkAction
 	// AddPermission is OR'd into the mode of every copied regular file.
 	AddPermission os.FileMode
+	// ReplaceSymlinks takes away a symlink standing where a regular file is
+	// copied to and writes the file in its place. Without it the file is
+	// written through a link that stays inside the destination root, and the
+	// copy fails on one that leads out of it.
+	ReplaceSymlinks bool
 }
 
 // ErrCopyIntoItself is returned when the destination of a directory copy is
@@ -234,6 +239,12 @@ func (c *copier) file(src, dst string, info fs.FileInfo) error {
 
 	perm := (info.Mode() | c.opts.AddPermission).Perm()
 
+	if c.opts.ReplaceSymlinks {
+		if err := c.removeSymlink(dst); err != nil {
+			return err
+		}
+	}
+
 	// The destination is opened as it stands and emptied only once it is known
 	// to be another file. Its name says nothing about that: a link in the
 	// destination tree, a link the source was reached through or a second name
@@ -261,6 +272,28 @@ func (c *copier) file(src, dst string, info fs.FileInfo) error {
 	// otherwise strip the executable bit from game-server scripts.
 	if err := c.dstRoot.Chmod(dst, perm); err != nil {
 		return errors.Wrap(err, "failed to set destination file mode")
+	}
+
+	return nil
+}
+
+// removeSymlink takes away the symlink standing at name, if one does.
+func (c *copier) removeSymlink(name string) error {
+	info, err := c.dstRoot.Lstat(name)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
+		return errors.Wrap(err, "failed to stat destination file")
+	}
+
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+
+	if err := c.dstRoot.Remove(name); err != nil {
+		return errors.Wrap(err, "failed to remove the symlink standing in place of the destination file")
 	}
 
 	return nil

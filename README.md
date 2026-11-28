@@ -127,6 +127,13 @@ Before running steamcmd the daemon applies, recursively, the setgid bit plus gro
 group is taken from `steam_config.group`, falling back to the `su_user` primary group
 when empty.
 
+Keep steamcmd in a directory of its own, for example `<work_path>/steamcmd`. Everything
+below `steamcmd_path` is shared with that group, so when `steamcmd_path` is the
+`work_path` itself or a directory above it the daemon leaves the permissions as they
+are: sharing would make the files of every game server on the node writable for the
+group. The installation output carries a warning then, and steamcmd runs with whatever
+access its directory already gives the `su_user`.
+
 On a node with several different `su_user`s, set `steam_config.group` to a shared
 group and add every `su_user` to it (e.g. `usermod -aG <group> <su_user>`). The
 daemon then keeps the steamcmd directory consistently group-shared so self-updates
@@ -152,6 +159,60 @@ are ignored if present in a config file (unknown keys do not cause errors):
 `listen_ip`, `listen_port`, `daemon_login`, `daemon_password`,
 `password_authentication`, `dh_file`, `stats_update_period`,
 `stats_db_update_period`, `grpc.enabled`, `task_manager.update_period`
+
+## Remote repository links
+
+The remote repository of a game or a game mod is a direct `http://` or `https://`
+link to one file. The daemon downloads the file and installs it into the server
+directory: an archive is unpacked, any other file is stored under its own name.
+Whether a file is an archive is read off the name the link gives it (`.zip`,
+`.tar.gz`, `.tar.xz`, `.7z`, `.rar` and the like), so a `.jar` or a `.pk3` is kept
+as it is.
+
+Two parameters of the query are addressed to the daemon. They are taken out of
+the link before it is requested, and the rest of the query is sent to the server
+as it is written.
+
+| Parameter               | Meaning                                                                          |
+|-------------------------|----------------------------------------------------------------------------------|
+| `checksum=<hex>`        | The file has to hash to this sum. Its type is told by its length                 |
+| `checksum=<type>:<hex>` | The same with the type named: `md5`, `sha1`, `sha256` or `sha512`                |
+| `checksum=file:<link>`  | The sum is looked up in the checksum file behind an `http://` or `https://` link |
+| `archive=<format>`      | The file is unpacked as an archive of this format, whatever it is called         |
+| `archive=true`          | The file is unpacked, and its format is read off its content                     |
+| `archive=false`         | The file is stored as it is, also under the name of an archive                   |
+
+```
+https://files.example.com/hlds.tar.xz?checksum=sha256:9f2c...e1
+https://files.example.com/hlds.tar.xz?checksum=file:https://files.example.com/SHA256SUMS
+https://files.example.com/download?id=42&archive=zip
+https://files.example.com/maps.zip?archive=false
+```
+
+A file that does not hash to its checksum is not installed. It is one more source
+that failed, and the installation goes on to the next one, as it does after a
+download that broke off. The parameters stay in the link when its host is replaced
+through `remote_repository_replacements`, so a mirror is held to the checksum of
+the original.
+
+A checksum file is what `sha256sum`, `md5sum` and their kin write
+(`<hex>  hlds.tar.xz`), the BSD notation of `sha256sum --tag`
+(`SHA256 (hlds.tar.xz) = <hex>`), or the sum alone. The file is looked up in it by
+its name, or by its path from the directory of the checksum file. A checksum file
+larger than 4 MiB is refused.
+
+The output of an installation and the errors of a download name a link without
+its password and without its query: either may be all it takes to get the file,
+and a signed link keeps its token in the query.
+
+The formats `archive` knows are `zip`, `tar`, `tar.gz` (`tgz`), `tar.bz2` (`tbz2`,
+`tbz`), `tar.xz` (`txz`), `tar.zst` (`tzst`), `7z`, `rar`, and `gz`, `bz2`, `xz`,
+`zst` for a single compressed file. Any other value fails the source before
+anything is downloaded.
+
+The source of the `get-tool` command is a link of the same kind. A tool is always
+stored as it is served: `checksum` is verified, and `archive` with anything but
+`false` is refused.
 
 ## Command placeholders and server variables
 

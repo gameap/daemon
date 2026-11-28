@@ -8,6 +8,7 @@ import (
 	"github.com/gameap/daemon/internal/app/config"
 	"github.com/gameap/daemon/internal/app/contracts"
 	"github.com/gameap/daemon/internal/app/domain"
+	"github.com/gameap/daemon/internal/app/fsutil"
 )
 
 const (
@@ -36,13 +37,18 @@ type ServerCommandFactory struct {
 	executor       contracts.Executor
 	processManager contracts.ProcessManager
 	leases         *serverLeases
+	confineOpts    []fsutil.ConfineOption
 }
 
+// NewFactory creates the factory of game server commands. confineOpts name the
+// directories an installation is confined by besides the directory of the
+// server it installs, see fsutil.OpenDir.
 func NewFactory(
 	cfg *config.Config,
 	serverRepo domain.ServerRepository,
 	executor contracts.Executor,
 	processManager contracts.ProcessManager,
+	confineOpts ...fsutil.ConfineOption,
 ) *ServerCommandFactory {
 	return &ServerCommandFactory{
 		cfg:            cfg,
@@ -50,6 +56,7 @@ func NewFactory(
 		executor:       executor,
 		processManager: processManager,
 		leases:         newServerLeases(),
+		confineOpts:    confineOpts,
 	}
 }
 
@@ -117,6 +124,7 @@ func (factory *ServerCommandFactory) makeInstallCommand(server *domain.Server) c
 		factory.makeStatusCommand(server),
 		factory.makeStopCommand(server),
 		factory.makeStartCommand(server, nilLoadServerCommandFunc),
+		factory.confineOpts...,
 	)
 }
 
@@ -129,6 +137,7 @@ func (factory *ServerCommandFactory) makeUpdateCommand(server *domain.Server) co
 		factory.makeStatusCommand(server),
 		factory.makeStopCommand(server),
 		factory.makeStartCommand(server, nilLoadServerCommandFunc),
+		factory.confineOpts...,
 	)
 }
 
@@ -143,6 +152,7 @@ func (factory *ServerCommandFactory) makeReinstallCommand(server *domain.Server)
 			factory.makeStatusCommand(server),
 			factory.makeStopCommand(server),
 			factory.makeStartCommand(server, nilLoadServerCommandFunc),
+			factory.confineOpts...,
 		),
 	})
 }

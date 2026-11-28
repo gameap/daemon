@@ -60,6 +60,32 @@ func formatFromExtension(name string) pb.ArchiveFormat {
 	return pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED
 }
 
+// FormatByName returns the format name stands for. A format is named by the
+// suffix its archives conventionally carry, without the dot: "zip", "tar.gz",
+// "tgz".
+func FormatByName(name string) (pb.ArchiveFormat, bool) {
+	suffix := "." + strings.ToLower(name)
+
+	for _, e := range extensionFormats {
+		if e.suffix == suffix {
+			return e.format, true
+		}
+	}
+
+	return pb.ArchiveFormat_ARCHIVE_FORMAT_UNSPECIFIED, false
+}
+
+// FormatNames returns every name FormatByName knows.
+func FormatNames() []string {
+	names := make([]string, 0, len(extensionFormats))
+
+	for _, e := range extensionFormats {
+		names = append(names, strings.TrimPrefix(e.suffix, "."))
+	}
+
+	return names
+}
+
 // containerFromMagic recognizes the self-describing container formats.
 func containerFromMagic(head []byte) (pb.ArchiveFormat, bool) {
 	switch {

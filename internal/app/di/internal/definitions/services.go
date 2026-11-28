@@ -43,6 +43,7 @@ func CreateServicesProcessManager(ctx context.Context, c Container) contracts.Pr
 		c.Cfg(ctx),
 		c.Services().Executor(ctx),
 		components.NewExecutor(),
+		serverDirBoundaries(ctx, c)...,
 	)
 	if err != nil {
 		c.SetError(err)

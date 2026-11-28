@@ -51,6 +51,10 @@ func TestApplyToPath_EmptyOptionsIsNoop(t *testing.T) {
 }
 
 func TestApplyToPath_NonRootDaemonIsNoop(t *testing.T) {
+	if isRootUser() {
+		t.Skip("requires a daemon that does not run as root")
+	}
+
 	tempDir := t.TempDir()
 	target := filepath.Join(tempDir, "file.txt")
 	require.NoError(t, os.WriteFile(target, []byte("x"), 0o644))
@@ -60,14 +64,37 @@ func TestApplyToPath_NonRootDaemonIsNoop(t *testing.T) {
 	require.NoError(t, err, "non-root daemon must not even attempt user.Lookup")
 }
 
-func TestApplyRecursive_EmptyOptionsIsNoop(t *testing.T) {
+func openRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
+
+	return root
+}
+
+func TestApplyRecursiveInRoot_EmptyOptionsIsNoop(t *testing.T) {
 	tempDir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(tempDir, "a"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "a", "f.txt"), []byte("y"), 0o644))
 
-	err := ApplyRecursive(tempDir, Options{})
+	err := ApplyRecursiveInRoot(openRoot(t, tempDir), Options{})
 
 	require.NoError(t, err)
+}
+
+func TestApplyRecursiveInRoot_NonRootDaemonIsNoop(t *testing.T) {
+	if isRootUser() {
+		t.Skip("requires a daemon that does not run as root")
+	}
+
+	tempDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "f.txt"), []byte("x"), 0o644))
+
+	err := ApplyRecursiveInRoot(openRoot(t, tempDir), Options{User: "nonexistentuser_4j2k9c"})
+
+	require.NoError(t, err, "non-root daemon must not even attempt user.Lookup")
 }
 
 func TestMissingSegments_TargetAlreadyExistsReturnsEmpty(t *testing.T) {
@@ -181,6 +208,10 @@ func TestApplyToPathInRoot_EmptyOptionsIsNoop(t *testing.T) {
 }
 
 func TestApplyToPathInRoot_NonRootDaemonIsNoop(t *testing.T) {
+	if isRootUser() {
+		t.Skip("requires a daemon that does not run as root")
+	}
+
 	root, err := os.OpenRoot(t.TempDir())
 	require.NoError(t, err)
 	defer root.Close()
@@ -191,21 +222,25 @@ func TestApplyToPathInRoot_NonRootDaemonIsNoop(t *testing.T) {
 	require.NoError(t, err, "non-root daemon must not even attempt user.Lookup")
 }
 
-func TestApplyGroupSharedRecursive_EmptyOptionsIsNoop(t *testing.T) {
+func TestApplyGroupSharedRecursiveInRoot_EmptyOptionsIsNoop(t *testing.T) {
 	tempDir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(tempDir, "a"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "a", "f.txt"), []byte("y"), 0o644))
 
-	err := ApplyGroupSharedRecursive(tempDir, Options{})
+	err := ApplyGroupSharedRecursiveInRoot(openRoot(t, tempDir), Options{})
 
 	require.NoError(t, err)
 }
 
-func TestApplyGroupSharedRecursive_NonRootDaemonIsNoop(t *testing.T) {
+func TestApplyGroupSharedRecursiveInRoot_NonRootDaemonIsNoop(t *testing.T) {
+	if isRootUser() {
+		t.Skip("requires a daemon that does not run as root")
+	}
+
 	tempDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "f.txt"), []byte("x"), 0o644))
 
-	err := ApplyGroupSharedRecursive(tempDir, Options{
+	err := ApplyGroupSharedRecursiveInRoot(openRoot(t, tempDir), Options{
 		User:  "nonexistentuser_4j2k9c",
 		Group: "nonexistentgroup_4j2k9c",
 	})
@@ -213,7 +248,7 @@ func TestApplyGroupSharedRecursive_NonRootDaemonIsNoop(t *testing.T) {
 	require.NoError(t, err, "non-root daemon must not even attempt user/group lookup")
 }
 
-func TestApplyGroupSharedRecursive_SetsSetgidAndGroupBitsWhenRoot(t *testing.T) {
+func TestApplyGroupSharedRecursiveInRoot_SetsSetgidAndGroupBitsWhenRoot(t *testing.T) {
 	if !isRootUser() || runtime.GOOS == "windows" {
 		t.Skip("requires root on a unix host")
 	}
@@ -229,7 +264,7 @@ func TestApplyGroupSharedRecursive_SetsSetgidAndGroupBitsWhenRoot(t *testing.T) 
 	file := filepath.Join(subDir, "f.txt")
 	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
 
-	err = ApplyGroupSharedRecursive(tempDir, Options{Group: grp.Name})
+	err = ApplyGroupSharedRecursiveInRoot(openRoot(t, tempDir), Options{Group: grp.Name})
 	require.NoError(t, err)
 
 	dirInfo, err := os.Stat(subDir)

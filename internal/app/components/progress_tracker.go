@@ -7,14 +7,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gameap/daemon/internal/app/fetch"
 	"github.com/gameap/daemon/pkg/humanize"
-	"github.com/hashicorp/go-getter"
 )
 
-// Compile-time check that DownloadProgressTracker implements getter.ProgressTracker.
-var _ getter.ProgressTracker = (*DownloadProgressTracker)(nil)
+// Compile-time check that DownloadProgressTracker implements fetch.ProgressTracker.
+var _ fetch.ProgressTracker = (*DownloadProgressTracker)(nil)
 
-// DownloadProgressTracker implements go-getter's ProgressTracker interface
+// DownloadProgressTracker implements fetch.ProgressTracker
 // and outputs periodic progress updates to an io.Writer.
 type DownloadProgressTracker struct {
 	output   io.Writer
@@ -31,7 +31,7 @@ func NewDownloadProgressTracker(output io.Writer, interval time.Duration) *Downl
 	}
 }
 
-// TrackProgress implements getter.ProgressTracker interface.
+// TrackProgress implements fetch.ProgressTracker interface.
 // It wraps the download stream and periodically outputs progress information.
 func (pt *DownloadProgressTracker) TrackProgress(
 	src string,
