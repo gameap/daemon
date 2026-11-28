@@ -9,6 +9,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/pkg/errors"
 
@@ -382,7 +383,11 @@ func (s *sink) applyDirModes() error {
 	var firstErr error
 
 	for _, dir := range dirs {
-		if !s.heldDir(dir) {
+		held, err := s.heldDir(dir)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		if !held {
 			continue
 		}
 
@@ -403,7 +408,7 @@ func (s *sink) openDirModes() {
 	})
 
 	for _, dir := range dirs {
-		if s.heldDir(dir) {
+		if held, _ := s.heldDir(dir); held {
 			_ = s.root.Chmod(dir, s.dirModes[dir]|ownerDirAccess)
 		}
 	}
@@ -412,11 +417,22 @@ func (s *sink) openDirModes() {
 // heldDir reports whether a directory stands where a mode was noted for one.
 // What stands there by now need not be the directory the mode was noted for: a
 // run that failed has taken away what it created, and the owner of the tree may
-// have put something else in its place.
-func (s *sink) heldDir(dir string) bool {
+// have put something else in its place, or in the place of one on the way to
+// it. Nothing is to be done about such a path.
+//
+// A path that cannot be looked at is another matter: the directory may well be
+// there and go without its mode, and that is returned as an error.
+func (s *sink) heldDir(dir string) (bool, error) {
 	info, err := s.root.Lstat(dir)
 
-	return err == nil && info.IsDir()
+	switch {
+	case err == nil:
+		return info.IsDir(), nil
+	case errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR):
+		return false, nil
+	default:
+		return false, errors.Wrapf(err, "failed to stat directory %q", dir)
+	}
 }
 
 // forgetDirModes drops the modes held back for the directory with the physical

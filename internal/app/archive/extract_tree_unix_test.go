@@ -1520,6 +1520,46 @@ func TestExtract_DirectoryThatCannotBeRemovedStillTakesItsMode(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o555), info.Mode().Perm())
 }
 
+// Only a directory that is gone, or that is no directory any more, is passed
+// over in silence when the modes are settled. One that cannot be looked at may
+// well be there, and goes without its mode: the run says so.
+func TestExtract_DirectoryThatCannotBeLookedAtForItsMode(t *testing.T) {
+	t.Parallel()
+
+	requireClosedDirToStayClosed(t)
+
+	workDir := t.TempDir()
+	keepRemovable(t, workDir)
+
+	archive, err := os.ReadFile(buildTarGz(t, []tarEntry{
+		{name: "assets/", typeflag: tar.TypeDir, mode: 0o755},
+		{name: "assets/models/", typeflag: tar.TypeDir, mode: 0o555},
+		{name: "readme.txt", body: "readme"},
+	}))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "game.tar.gz"), archive, 0o644))
+
+	assets := filepath.Join(workDir, "dst", "assets")
+
+	// The owner of the tree closes the way to a directory once its entry is
+	// through.
+	progress := func(_, _ int64, name string) {
+		if name == "readme.txt" {
+			require.NoError(t, os.Chmod(assets, 0o000))
+		}
+	}
+
+	_, err = Extract(context.Background(), workDir, &pb.ExtractArchiveParams{
+		ArchivePath:         "game.tar.gz",
+		Destination:         "dst",
+		CreateDestination:   true,
+		PreservePermissions: true,
+	}, progress)
+
+	require.ErrorIs(t, err, os.ErrPermission)
+	assert.Contains(t, err.Error(), `failed to stat directory "dst/assets/models"`)
+}
+
 // A directory that was there keeps its mode under an entry that records none,
 // also when the request asks for the permissions of the archive.
 func TestExtract_PreservedDirectoryWithoutPermissionBits(t *testing.T) {
